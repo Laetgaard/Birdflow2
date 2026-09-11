@@ -100,6 +100,42 @@ describe('every component type draws the same thing in preview and on the publis
   });
 });
 
+describe('the brand guide logo reaches the website', () => {
+  const header = (imageUrl?: unknown): BuilderComponentData =>
+    ({
+      ...componentFor('header'),
+      props: { ...componentRegistry.header.defaultProps, ...(imageUrl === undefined ? {} : { imageUrl }) },
+    }) as BuilderComponentData;
+
+  // A page with no sections of its own, so composition returns just the chrome.
+  const emptyPage = { id: 'p1', name: 'Forside', path: '/', components: [] };
+
+  const composeWith = (headerComponent: BuilderComponentData, brandLogoUrl?: string) =>
+    composePageComponents(emptyPage as never, { header: headerComponent } as never, brandLogoUrl);
+
+  it('fills a blank header logo from the brand guide', () => {
+    const composed = composeWith(header(''), '/objects/logo.png');
+    expect((composed[0].props as { imageUrl?: unknown }).imageUrl).toBe('/objects/logo.png');
+  });
+
+  it('leaves a logo the customer put on the header alone', () => {
+    const composed = composeWith(header('/objects/header-specific.png'), '/objects/logo.png');
+    expect((composed[0].props as { imageUrl?: unknown }).imageUrl).toBe('/objects/header-specific.png');
+  });
+
+  it('changes nothing when the brand guide has no logo', () => {
+    const composed = composeWith(header(''), undefined);
+    expect((composed[0].props as { imageUrl?: unknown }).imageUrl).toBe('');
+  });
+
+  it('draws the filled-in logo the same way in preview and on the published site', () => {
+    const withLogo = composeWith(header(''), '/objects/logo.png')[0];
+    expect([...new Set(imageSources(renderPublished(withLogo)))].sort()).toEqual(
+      [...new Set(imageSources(renderBuilder(withLogo)))].sort()
+    );
+  });
+});
+
 describe('container children', () => {
   it('renders the children the builder shows inside the container', () => {
     const child: BuilderComponentData = {

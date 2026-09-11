@@ -197,16 +197,39 @@ export function usesSharedFooter(page: BuilderPage, chrome?: SiteChrome): boolea
  */
 export function composePageComponents(
   page: BuilderPage,
-  chrome?: SiteChrome
+  chrome?: SiteChrome,
+  brandLogoUrl?: string
 ): BuilderComponentData[] {
   const own = page.components ?? [];
   if (!chrome?.header && !chrome?.footer) return own;
 
   const composed: BuilderComponentData[] = [];
-  if (usesSharedHeader(page, chrome) && chrome.header) composed.push(chrome.header);
+  if (usesSharedHeader(page, chrome) && chrome.header) composed.push(withBrandLogo(chrome.header, brandLogoUrl));
   composed.push(...own);
   if (usesSharedFooter(page, chrome) && chrome.footer) composed.push(chrome.footer);
   return composed;
+}
+
+/**
+ * The header with the brand's logo filled in, when it has none of its own.
+ *
+ * The brand guide holds one logo and the header carries its own `imageUrl`, so
+ * a customer who uploaded a logo in the brand guide saw it on no page of their
+ * website and had to upload the same file a second time to put it there.
+ *
+ * A logo set on the header itself always wins: this only fills a blank. Both
+ * renderers read `props.imageUrl`, so doing it here rather than in either of
+ * them keeps the preview and the published site identical by construction.
+ */
+export function withBrandLogo(
+  header: BuilderComponentData,
+  brandLogoUrl?: string
+): BuilderComponentData {
+  if (!brandLogoUrl) return header;
+  const existing = header.props?.imageUrl;
+  const hasOwn = typeof existing === 'object' ? Boolean((existing as { url?: string })?.url) : Boolean(existing);
+  if (hasOwn) return header;
+  return { ...header, props: { ...header.props, imageUrl: brandLogoUrl } };
 }
 
 /** Every section on the website, shared chrome included, for whole-site scans. */

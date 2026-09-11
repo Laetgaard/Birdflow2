@@ -59,6 +59,9 @@ import {
   generateProductApiRoute,
   generateAnalyticsTracker,
   generateCookieBanner,
+  generateSitemap,
+  generateRobots,
+  generateMonogramIcon,
 } from './templates';
 import { DEFAULT_SITE_LANGUAGE, type SiteLanguage } from '../../shared/siteLanguage';
 
@@ -353,9 +356,23 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'components/ProductGrid.tsx', content: generateProductGrid(language) },
     { path: 'components/AnalyticsTracker.tsx', content: generateAnalyticsTracker() },
     { path: 'components/CookieBanner.tsx', content: generateCookieBanner(language) },
+    // Found by search engines: a sitemap of the pages a visitor can reach, and
+    // a robots file pointing at it. Neither existed before, so a new site had
+    // to be discovered link by link.
+    { path: 'app/sitemap.ts', content: generateSitemap(processedBuilderState.pages as never) },
+    { path: 'app/robots.ts', content: generateRobots() },
     // The home page's own description doubles as the site-wide fallback, so
     // even a page with no SEO of its own never ships a vendor slogan.
-    { path: 'app/layout.tsx', content: generateRootLayout(siteName, websiteId, language, homeDescription) },
+    {
+      path: 'app/layout.tsx',
+      content: generateRootLayout(
+        siteName,
+        websiteId,
+        language,
+        homeDescription,
+        processedBuilderState.businessContext
+      ),
+    },
     { path: 'app/globals.css', content: generateGlobalsCss(theme) },
     { path: 'app/api/checkout/create-session/route.ts', content: generateCheckoutApiRoute(websiteId) },
     { path: 'app/api/checkout/validate/route.ts', content: generateCheckoutValidateApiRoute(websiteId) },
@@ -391,7 +408,11 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     // needs no notion of chrome at all.
     const composed = {
       ...page,
-      components: composePageComponents(page, processedBuilderState.siteChrome),
+      components: composePageComponents(
+        page,
+        processedBuilderState.siteChrome,
+        processedBuilderState.brandGuide?.logoUrl
+      ),
     };
 
     // Cast to any to avoid type mismatches between schema types and rendering types
@@ -411,8 +432,57 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     await fs.promises.mkdir(dir, { recursive: true });
     await fs.promises.writeFile(filePath, file.content, 'utf-8');
   }
+
+  await writeFavicon(outputDir, processedBuilderState, siteName, theme.primaryColor);
   
   return outputDir;
+}
+
+/**
+ * The tab icon for the published site.
+ *
+ * Prefers the logo the customer uploaded to their brand guide, shrunk to a
+ * square; falls back to their initial on the brand's primary colour. Sites had
+ * no icon at all before, so every one of them showed the browser's blank page
+ * glyph next to its name in a tab, a bookmark and a search result.
+ *
+ * Never fails a publish: an icon is worth having, not worth losing a site over.
+ */
+async function writeFavicon(
+  outputDir: string,
+  state: BuilderStateData,
+  siteName: string,
+  primaryColor: string
+): Promise<void> {
+  const appDir = path.join(outputDir, 'app');
+
+  const logoUrl = state.brandGuide?.logoUrl;
+  // The logo has already been downloaded into public/ if it came from object
+  // storage, so it is on disk under the path the site now references.
+  if (logoUrl && logoUrl.startsWith('/')) {
+    const localLogo = path.join(outputDir, 'public', logoUrl.replace(/^\//, ''));
+    try {
+      await fs.promises.access(localLogo);
+      const sharp = (await import('sharp')).default;
+      await sharp(localLogo)
+        .resize(180, 180, { fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
+        .png()
+        .toFile(path.join(appDir, 'icon.png'));
+      return;
+    } catch (error) {
+      console.warn('[Publisher] Could not build an icon from the brand logo:', error);
+    }
+  }
+
+  try {
+    await fs.promises.writeFile(
+      path.join(appDir, 'icon.svg'),
+      generateMonogramIcon(siteName, primaryColor),
+      'utf-8'
+    );
+  } catch (error) {
+    console.warn('[Publisher] Could not write a fallback icon:', error);
+  }
 }
 
 export async function createTarball(projectDir: string): Promise<Buffer> {

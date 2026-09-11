@@ -46,6 +46,15 @@ export type BusinessContext = {
   /** Who the website should speak to. */
   audience?: string;
   location?: string;
+  /**
+   * How to reach the business, as structured fields rather than prose.
+   *
+   * The published site marks these up as JSON-LD so a search engine can show
+   * the phone number, address and opening hours directly. They used to exist
+   * only as free text inside a footer or contact section, where nothing but a
+   * human reader could find them.
+   */
+  contact?: BusinessContact;
   services?: string[];
   /** What a visit should lead to (bookings, enquiries, signups…). */
   conversionGoals?: string[];
@@ -66,12 +75,38 @@ const factSchema = z.object({
   protected: z.boolean().optional(),
 });
 
+/** Structured contact details, all optional — nothing here is invented. */
+export type BusinessContact = {
+  phone?: string;
+  email?: string;
+  streetAddress?: string;
+  postalCode?: string;
+  city?: string;
+  country?: string;
+  /** Free text, e.g. "Man-tors 9-17, fre 9-14". Shown as written. */
+  openingHours?: string;
+  /** Danish company registration number. */
+  cvr?: string;
+};
+
+const contactSchema = z.object({
+  phone: z.string().max(40).optional(),
+  email: z.string().max(200).optional(),
+  streetAddress: z.string().max(200).optional(),
+  postalCode: z.string().max(20).optional(),
+  city: z.string().max(100).optional(),
+  country: z.string().max(100).optional(),
+  openingHours: z.string().max(200).optional(),
+  cvr: z.string().max(40).optional(),
+});
+
 export const businessContextSchema = z.object({
   businessName: z.string().max(200).optional(),
   industry: z.string().max(200).optional(),
   description: z.string().max(2000).optional(),
   audience: z.string().max(500).optional(),
   location: z.string().max(200).optional(),
+  contact: contactSchema.optional(),
   services: z.array(z.string().max(200)).max(50).optional(),
   conversionGoals: z.array(z.string().max(200)).max(20).optional(),
   facts: z.array(factSchema).max(100).optional(),

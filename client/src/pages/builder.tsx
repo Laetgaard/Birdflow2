@@ -1662,7 +1662,7 @@ export default function BuilderPage() {
   // shared footer. The publisher folds them together the same way, which is
   // what keeps the canvas and the live site the same picture.
   const canvasComponents = activePage
-    ? composePageComponents(activePage, builderState.siteChrome)
+    ? composePageComponents(activePage, builderState.siteChrome, builderState.brandGuide?.logoUrl)
     : [];
   const canvasNavItems = resolveNavItems(builderState);
   // The canvas draws the shared header above the page's own sections, so a

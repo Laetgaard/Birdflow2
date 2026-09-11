@@ -193,6 +193,88 @@ export default function BusinessFactsPanel({ value, onChange }: Props) {
             data-testid="input-business-goals"
           />
         </div>
+
+        <div className="space-y-2 pt-1">
+          <div>
+            <Label className="text-xs">Kontaktoplysninger</Label>
+            <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">
+              Bruges til at fortælle Google, hvor du holder til, så din klinik kan
+              dukke op i lokale søgeresultater med telefonnummer og åbningstider.
+              Lad felter stå tomme, hvis de ikke passer — der bliver ikke gættet.
+            </p>
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Telefon</Label>
+            <Input
+              value={draft.contact?.phone ?? ""}
+              onChange={(e) => updateDraft({ contact: { ...draft.contact, phone: e.target.value } })}
+              onBlur={commitDraft}
+              placeholder="Fx +45 31 24 56 78"
+              data-testid="input-contact-phone"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">E-mail</Label>
+            <Input
+              value={draft.contact?.email ?? ""}
+              onChange={(e) => updateDraft({ contact: { ...draft.contact, email: e.target.value } })}
+              onBlur={commitDraft}
+              placeholder="Fx kontakt@klinik.dk"
+              data-testid="input-contact-email"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Adresse</Label>
+            <Input
+              value={draft.contact?.streetAddress ?? ""}
+              onChange={(e) => updateDraft({ contact: { ...draft.contact, streetAddress: e.target.value } })}
+              onBlur={commitDraft}
+              placeholder="Fx Storegade 12, 1. sal"
+              data-testid="input-contact-streetaddress"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Postnr.</Label>
+            <Input
+              value={draft.contact?.postalCode ?? ""}
+              onChange={(e) => updateDraft({ contact: { ...draft.contact, postalCode: e.target.value } })}
+              onBlur={commitDraft}
+              placeholder="Fx 8000"
+              data-testid="input-contact-postalcode"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">By</Label>
+            <Input
+              value={draft.contact?.city ?? ""}
+              onChange={(e) => updateDraft({ contact: { ...draft.contact, city: e.target.value } })}
+              onBlur={commitDraft}
+              placeholder="Fx Aarhus C"
+              data-testid="input-contact-city"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">Åbningstider</Label>
+            <Input
+              value={draft.contact?.openingHours ?? ""}
+              onChange={(e) => updateDraft({ contact: { ...draft.contact, openingHours: e.target.value } })}
+              onBlur={commitDraft}
+              placeholder="Fx man-tors 9-17, fre 9-14"
+              data-testid="input-contact-openinghours"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label className="text-xs">CVR</Label>
+            <Input
+              value={draft.contact?.cvr ?? ""}
+              onChange={(e) => updateDraft({ contact: { ...draft.contact, cvr: e.target.value } })}
+              onBlur={commitDraft}
+              placeholder="Fx 12345678"
+              data-testid="input-contact-cvr"
+            />
+          </div>
+        </div>
+
       </div>
 
       <div className="space-y-2">

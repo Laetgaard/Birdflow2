@@ -8,6 +8,7 @@ import {
   staggerChildSpec,
 } from '../../shared/motion';
 import { APPROVED_FONTS, DEFAULT_FONT_STACK, googleFontsHref, resolveApprovedFontStack } from '../../shared/fonts';
+import type { BusinessContext } from '../../shared/businessContext';
 import { resolveDesignTokens } from '../../shared/designTokens';
 // Lives in shared/ so the builder canvas can render against the same bytes the
 // published site loads. Re-exported here because callers already import it
@@ -7369,13 +7370,64 @@ export default function AnalyticsTracker({ websiteId }: { websiteId: string }) {
 `;
 }
 
+/**
+ * Structured data describing the business behind the site.
+ *
+ * A local practice lives or dies by whether a search engine can show its phone
+ * number, address and opening hours. Only what the customer actually entered is
+ * emitted - an empty field is left out rather than guessed at, which is the
+ * same rule the copy rules in server/claimRules.ts enforce for AI-written text.
+ *
+ * Returns an empty string when there is nothing worth marking up.
+ */
+export function generateBusinessJsonLd(
+  siteName: string,
+  context: BusinessContext | undefined,
+  description?: string
+): string {
+  const contact = context?.contact;
+  const address = contact
+    ? {
+        ...(contact.streetAddress ? { streetAddress: contact.streetAddress } : {}),
+        ...(contact.postalCode ? { postalCode: contact.postalCode } : {}),
+        ...(contact.city ? { addressLocality: contact.city } : {}),
+        ...(contact.country ? { addressCountry: contact.country } : {}),
+      }
+    : {};
+
+  const data: Record<string, unknown> = {
+    '@context': 'https://schema.org',
+    // ProfessionalService is the closest fit for a practice or consultancy and
+    // is itself a LocalBusiness, so it inherits the local-result treatment.
+    '@type': 'ProfessionalService',
+    name: context?.businessName?.trim() || siteName,
+    ...(description?.trim() ? { description: description.trim() } : {}),
+    ...(contact?.phone ? { telephone: contact.phone } : {}),
+    ...(contact?.email ? { email: contact.email } : {}),
+    ...(Object.keys(address).length ? { address: { '@type': 'PostalAddress', ...address } } : {}),
+    ...(contact?.openingHours ? { openingHours: contact.openingHours } : {}),
+    ...(contact?.cvr ? { vatID: contact.cvr } : {}),
+    ...(context?.services?.length ? { makesOffer: context.services.map((name) => ({ '@type': 'Offer', name })) } : {}),
+    ...(context?.location ? { areaServed: context.location } : {}),
+  };
+
+  // Name alone tells a search engine nothing it cannot read off the page.
+  const substantive = Object.keys(data).filter((key) => !key.startsWith('@') && key !== 'name');
+  if (substantive.length === 0) return '';
+
+  return JSON.stringify(data);
+}
+
 export function generateRootLayout(
   siteName: string,
   websiteId: string,
   lang: SiteLanguage = DEFAULT_SITE_LANGUAGE,
   /** Site-wide fallback description; pages with their own SEO override it. */
-  description?: string
+  description?: string,
+  /** What the customer told us about their business, for structured data. */
+  businessContext?: BusinessContext
 ): string {
+  const jsonLd = generateBusinessJsonLd(siteName, businessContext, description);
   return `import type { Metadata } from 'next';
 import './globals.css';
 import { WebsiteProvider } from '@/components/WebsiteProvider';
@@ -7395,7 +7447,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link href="${googleFontsHref()}" rel="stylesheet" />
+        <link href="${googleFontsHref()}" rel="stylesheet" />${jsonLd ? `
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: ${lit(jsonLd)} }}
+        />` : ''}
       </head>
       <body>
         <WebsiteProvider>
@@ -7414,6 +7470,84 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
 }
 
 
+
+/**
+ * Where the published site lives, as the generated project can work it out.
+ *
+ * The generator has no domain to hand - a site's custom domain is attached
+ * after the project is built - so the project resolves it at build time from
+ * what Vercel sets, with an explicit override for anything else.
+ */
+const SITE_URL_HELPER = `function siteUrl(): string {
+  const explicit = process.env.NEXT_PUBLIC_SITE_URL;
+  if (explicit) return explicit.replace(/\\/$/, '');
+  const host = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+  return host ? \`https://\${host}\` : '';
+}`;
+
+/**
+ * app/sitemap.ts — every page a visitor can reach.
+ *
+ * Hidden pages are left out: they are hidden from the site's own navigation,
+ * so listing them for search engines would defeat the point.
+ */
+export function generateSitemap(pages: NavPage[]): string {
+  const listed = pages.filter((page) => !page.hidden).map((page) => page.path);
+  return `import type { MetadataRoute } from 'next';
+
+${SITE_URL_HELPER}
+
+const PATHS = ${JSON.stringify(listed)};
+
+export default function sitemap(): MetadataRoute.Sitemap {
+  const base = siteUrl();
+  const lastModified = new Date();
+  return PATHS.map((path) => ({
+    url: path === '/' ? base || '/' : \`\${base}\${path}\`,
+    lastModified,
+    // The front page is the entry point; everything else sits below it.
+    priority: path === '/' ? 1 : 0.7,
+  }));
+}
+`;
+}
+
+/** app/robots.ts — crawlable, with a pointer to the sitemap. */
+export function generateRobots(): string {
+  return `import type { MetadataRoute } from 'next';
+
+${SITE_URL_HELPER}
+
+export default function robots(): MetadataRoute.Robots {
+  const base = siteUrl();
+  return {
+    rules: { userAgent: '*', allow: '/' },
+    // Only worth stating when the absolute URL is actually known.
+    ...(base ? { sitemap: \`\${base}/sitemap.xml\` } : {}),
+  };
+}
+`;
+}
+
+/**
+ * A fallback favicon: the site's initial on its primary colour.
+ *
+ * Used when the brand guide has no logo to shrink. An SVG icon needs no image
+ * processing and every browser that matters renders it.
+ */
+export function generateMonogramIcon(siteName: string, primaryColor: string): string {
+  // The site name is the customer's text and the colour is a stored value, so
+  // neither is trusted to be XML-safe.
+  const escapeXml = (value: string) =>
+    value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  const initial = (siteName.trim()[0] || '?').toUpperCase();
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
+  <rect width="64" height="64" rx="12" fill="${escapeXml(primaryColor)}"/>
+  <text x="32" y="44" font-family="system-ui, sans-serif" font-size="36" font-weight="700"
+        text-anchor="middle" fill="#ffffff">${escapeXml(initial)}</text>
+</svg>
+`;
+}
 
 type NavPage = { id: string; name: string; path: string; hidden?: boolean };
 
