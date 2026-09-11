@@ -5,6 +5,7 @@ import ElementEditPanel from './ElementEditPanel';
 import InlineTextToolbar from './InlineTextToolbar';
 import type { ElementType, ElementStyles } from './SelectableElement';
 import { editableTextFields, type ComponentType } from '@shared/componentRegistry';
+import { useCanvasDocument } from './canvasDocument';
 import { Pencil, Palette } from 'lucide-react';
 
 interface DetectedElement {
@@ -71,7 +72,8 @@ function generateElementId(element: HTMLElement, componentId: string, _index: nu
 function getElementDOMPath(element: HTMLElement, componentId: string): string {
   const parts: string[] = [];
   let current: HTMLElement | null = element;
-  const componentEl = document.querySelector(`[data-component-id="${componentId}"]`);
+  // The element may live in the canvas document rather than the builder's.
+  const componentEl = element.ownerDocument.querySelector(`[data-component-id="${componentId}"]`);
   while (current && current !== componentEl && componentEl?.contains(current)) {
     const parentEl: HTMLElement | null = current.parentElement;
     if (parentEl) {
@@ -99,8 +101,9 @@ function resolveElementAtPoint(
   allElements: DetectedElement[],
   clientX: number,
   clientY: number,
+  doc: Document,
 ): DetectedElement | null {
-  const elementsAtPoint = document.elementsFromPoint(clientX, clientY) as HTMLElement[];
+  const elementsAtPoint = doc.elementsFromPoint(clientX, clientY) as HTMLElement[];
 
   const elementSet = new Map<HTMLElement, DetectedElement>();
   for (const det of allElements) {
@@ -130,15 +133,16 @@ function resolveElementAtPoint(
  * Place the caret at the mouse click position within a contentEditable element.
  * Uses caretPositionFromPoint (standard) or caretRangeFromPoint (WebKit fallback).
  */
-function placeCaretAtPoint(x: number, y: number) {
-  const sel = window.getSelection();
+function placeCaretAtPoint(x: number, y: number, doc: Document) {
+  // A selection belongs to a document, so the canvas has its own.
+  const sel = doc.defaultView?.getSelection();
   if (!sel) return;
 
   // Standard API (Firefox, Chrome 128+)
-  if (typeof (document as any).caretPositionFromPoint === 'function') {
-    const pos = (document as any).caretPositionFromPoint(x, y);
+  if (typeof (doc as any).caretPositionFromPoint === 'function') {
+    const pos = (doc as any).caretPositionFromPoint(x, y);
     if (pos) {
-      const range = document.createRange();
+      const range = doc.createRange();
       range.setStart(pos.offsetNode, pos.offset);
       range.collapse(true);
       sel.removeAllRanges();
@@ -148,8 +152,8 @@ function placeCaretAtPoint(x: number, y: number) {
   }
 
   // WebKit / older Chrome fallback
-  if (typeof document.caretRangeFromPoint === 'function') {
-    const range = document.caretRangeFromPoint(x, y);
+  if (typeof doc.caretRangeFromPoint === 'function') {
+    const range = doc.caretRangeFromPoint(x, y);
     if (range) {
       sel.removeAllRanges();
       sel.addRange(range);
@@ -158,9 +162,9 @@ function placeCaretAtPoint(x: number, y: number) {
   }
 
   // Ultimate fallback: collapse to end
-  const activeEl = document.activeElement;
+  const activeEl = doc.activeElement;
   if (activeEl && activeEl instanceof HTMLElement) {
-    const range = document.createRange();
+    const range = doc.createRange();
     range.selectNodeContents(activeEl);
     range.collapse(false);
     sel.removeAllRanges();
@@ -205,9 +209,16 @@ export default function ElementOverlay({
   // Store the last double-click coordinates so we can place the caret after contentEditable activates
   const pendingCaretPosition = useRef<{ x: number; y: number } | null>(null);
 
+  // Sections may be drawn in a canvas document of their own. Clicks there never
+  // reach the builder's preview container, so the listeners go on that document
+  // instead, and hit-testing asks it rather than this one.
+  const canvas = useCanvasDocument();
+  const eventHost: HTMLElement | Document | null =
+    canvas.doc === document ? containerRef.current : canvas.doc;
+
   const inferTextPropKey = useCallback((element: HTMLElement, componentId: string): string | null => {
     const componentEl = element.closest('[data-component-id]') ||
-                        document.querySelector(`[data-element-id="${componentId}"]`);
+                        element.ownerDocument.querySelector(`[data-element-id="${componentId}"]`);
     if (!componentEl) return null;
 
     const componentType = componentEl.getAttribute('data-component-type') as ComponentType | null;
@@ -368,13 +379,14 @@ export default function ElementOverlay({
     requestAnimationFrame(() => {
       element.focus();
       if (pendingCaretPosition.current) {
-        placeCaretAtPoint(pendingCaretPosition.current.x, pendingCaretPosition.current.y);
+        placeCaretAtPoint(pendingCaretPosition.current.x, pendingCaretPosition.current.y, element.ownerDocument);
         pendingCaretPosition.current = null;
       } else {
-        // Fallback: collapse caret to end
-        const sel = window.getSelection();
+        // Fallback: collapse caret to end. The selection belongs to whichever
+        // document the element is in, which is the canvas when it is framed.
+        const sel = element.ownerDocument.defaultView?.getSelection();
         if (sel) {
-          const range = document.createRange();
+          const range = element.ownerDocument.createRange();
           range.selectNodeContents(element);
           range.collapse(false);
           sel.removeAllRanges();
@@ -404,12 +416,12 @@ export default function ElementOverlay({
     requestAnimationFrame(() => {
       element.focus();
       if (pendingCaretPosition.current) {
-        placeCaretAtPoint(pendingCaretPosition.current.x, pendingCaretPosition.current.y);
+        placeCaretAtPoint(pendingCaretPosition.current.x, pendingCaretPosition.current.y, element.ownerDocument);
         pendingCaretPosition.current = null;
       } else {
-        const sel = window.getSelection();
+        const sel = element.ownerDocument.defaultView?.getSelection();
         if (sel) {
-          const range = document.createRange();
+          const range = element.ownerDocument.createRange();
           range.selectNodeContents(element);
           range.collapse(false);
           sel.removeAllRanges();
@@ -487,7 +499,7 @@ export default function ElementOverlay({
         }
       }
 
-      const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY);
+      const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY, canvas.doc);
 
       if (resolved) {
         // First click on unselected component: select only
@@ -525,7 +537,7 @@ export default function ElementOverlay({
             }
           }
           // For non-editable-field elements, try inferring field from DOM position
-          const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY);
+          const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY, canvas.doc);
           if (resolved && (resolved.type === 'text' || resolved.type === 'button') && onFieldEdit) {
             const inferredField = inferTextPropKey(resolved.element, resolved.componentId);
             if (inferredField) {
@@ -540,7 +552,7 @@ export default function ElementOverlay({
       }
 
       // Double-click on unselected component: select + try to enter editing
-      const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY);
+      const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY, canvas.doc);
       if (!resolved) return;
 
       // Select the component
@@ -576,13 +588,14 @@ export default function ElementOverlay({
       }
     };
 
-    container.addEventListener('click', handleContainerClick, true);
-    container.addEventListener('dblclick', handleContainerDblClick, true);
+    const host = eventHost ?? container;
+    host.addEventListener('click', handleContainerClick as EventListener, true);
+    host.addEventListener('dblclick', handleContainerDblClick as EventListener, true);
     return () => {
-      container.removeEventListener('click', handleContainerClick, true);
-      container.removeEventListener('dblclick', handleContainerDblClick, true);
+      host.removeEventListener('click', handleContainerClick as EventListener, true);
+      host.removeEventListener('dblclick', handleContainerDblClick as EventListener, true);
     };
-  }, [allDetectedElements, handleElementSelect, isEditing, isFieldEditing, containerRef, onComponentSelect, onFieldEdit, selectedComponentId, deselectElement, inferTextPropKey]);
+  }, [allDetectedElements, handleElementSelect, isEditing, isFieldEditing, containerRef, onComponentSelect, onFieldEdit, selectedComponentId, deselectElement, inferTextPropKey, eventHost, canvas]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -593,19 +606,20 @@ export default function ElementOverlay({
       const target = e.target as HTMLElement;
       if (overlayRef.current?.contains(target)) return;
 
-      const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY);
+      const resolved = resolveElementAtPoint(allDetectedElements, e.clientX, e.clientY, canvas.doc);
       setHoveredId(resolved?.id || null);
     };
 
     const handleMouseLeave = () => setHoveredId(null);
 
-    container.addEventListener('mousemove', handleMouseMove);
-    container.addEventListener('mouseleave', handleMouseLeave);
+    const host = eventHost ?? container;
+    host.addEventListener('mousemove', handleMouseMove as EventListener);
+    host.addEventListener('mouseleave', handleMouseLeave as EventListener);
     return () => {
-      container.removeEventListener('mousemove', handleMouseMove);
-      container.removeEventListener('mouseleave', handleMouseLeave);
+      host.removeEventListener('mousemove', handleMouseMove as EventListener);
+      host.removeEventListener('mouseleave', handleMouseLeave as EventListener);
     };
-  }, [allDetectedElements, isEditing, containerRef]);
+  }, [allDetectedElements, isEditing, containerRef, eventHost, canvas]);
 
   // Blur handler for text elements
   useEffect(() => {
@@ -657,13 +671,15 @@ export default function ElementOverlay({
         (el as HTMLImageElement).src = styles.imageUrl;
       }
       const elementId = detected.id.replace(/[^a-zA-Z0-9]/g, '_');
-      let hoverStyleEl = document.getElementById(`hover-style-${elementId}`);
+      // The rule has to live in the same document as the element it styles.
+      const styleHost = el.ownerDocument;
+      let hoverStyleEl = styleHost.getElementById(`hover-style-${elementId}`);
       if (styles.hoverBackgroundColor || styles.hoverColor || styles.hoverShadow ||
           styles.hoverScale || styles.hoverOpacity) {
         if (!hoverStyleEl) {
-          hoverStyleEl = document.createElement('style');
+          hoverStyleEl = styleHost.createElement('style');
           hoverStyleEl.id = `hover-style-${elementId}`;
-          document.head.appendChild(hoverStyleEl);
+          styleHost.head.appendChild(hoverStyleEl);
         }
         el.dataset.hoverId = elementId;
         const hoverRules: string[] = [];

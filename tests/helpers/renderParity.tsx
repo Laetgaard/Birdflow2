@@ -221,12 +221,40 @@ export function imageSources(html: string): string[] {
   return Array.from(html.matchAll(/<img[^>]*\ssrc="([^"]*)"/g)).map((m) => m[1]);
 }
 
+/**
+ * Every image's alt text, in document order.
+ *
+ * Empty alt is meaningful - it marks an image as decorative - so a missing
+ * attribute and an empty one are reported differently.
+ */
+export function imageAltTexts(html: string): string[] {
+  return Array.from(html.matchAll(/<img[^>]*>/g)).map((tag) => {
+    const alt = /\salt="([^"]*)"/.exec(tag[0]);
+    return alt ? alt[1] : '<missing>';
+  });
+}
+
 /** Every link target in the markup, in document order. */
 export function linkTargets(html: string): string[] {
   return Array.from(html.matchAll(/<a[^>]*\shref="([^"]*)"/g)).map((m) => m[1]);
 }
 
 /** The inline styles on the outermost element. */
+/**
+ * Builder markup with the editor's own wrapper removed.
+ *
+ * The preview wraps every section in a `.bf-section` div carrying selection and
+ * hover chrome; the published site has no such element. Comparing the two
+ * outermost elements therefore compares the builder's chrome against the
+ * publisher's section, which is not a like-for-like test.
+ */
+export function unwrapBuilderSection(html: string): string {
+  const opening = /^<div class="bf-section"[^>]*>/.exec(html);
+  if (!opening) return html;
+  const inner = html.slice(opening[0].length);
+  return inner.endsWith('</div>') ? inner.slice(0, -'</div>'.length) : inner;
+}
+
 export function rootStyle(html: string): Record<string, string> {
   const match = html.match(/^<[a-zA-Z][^>]*\bstyle="([^"]*)"/);
   if (!match) return {};

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useBuilderSelection } from '@/contexts/BuilderSelectionContext';
+import { useCanvasDocument } from './canvasDocument';
 
 type OverlayRect = {
   top: number;
@@ -54,15 +55,19 @@ export default function SelectionOverlay() {
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const startPosRef = useRef({ x: 0, y: 0, width: 0, height: 0 });
 
+  // Canvas elements may live in a document of their own, with their own
+  // coordinate space; `toParentRect` brings a rect back into this one.
+  const canvas = useCanvasDocument();
+
   useEffect(() => {
     setIsTouchDevice('ontouchstart' in window || navigator.maxTouchPoints > 0);
   }, []);
 
   const getElementRect = useCallback((elementId: string): OverlayRect | null => {
-    const element = document.querySelector(`[data-element-id="${elementId}"]`);
+    const element = canvas.doc.querySelector(`[data-element-id="${elementId}"]`);
     if (!element) return null;
 
-    const rect = element.getBoundingClientRect();
+    const rect = canvas.toParentRect(element.getBoundingClientRect());
     const previewArea = document.querySelector('[data-preview-area]');
 
     if (previewArea) {
@@ -81,7 +86,7 @@ export default function SelectionOverlay() {
       width: rect.width,
       height: rect.height,
     };
-  }, []);
+  }, [canvas]);
 
   const updateRects = useCallback(() => {
     if (selectedId) {
@@ -197,14 +202,14 @@ export default function SelectionOverlay() {
     });
 
     if (selectedId) {
-      const selectedElement = document.querySelector(`[data-element-id="${selectedId}"]`);
+      const selectedElement = canvas.doc.querySelector(`[data-element-id="${selectedId}"]`);
       if (selectedElement) {
         observerRef.current.observe(selectedElement);
       }
     }
 
     if (hoveredId && hoveredId !== selectedId) {
-      const hoveredElement = document.querySelector(`[data-element-id="${hoveredId}"]`);
+      const hoveredElement = canvas.doc.querySelector(`[data-element-id="${hoveredId}"]`);
       if (hoveredElement) {
         observerRef.current.observe(hoveredElement);
       }
@@ -230,9 +235,12 @@ export default function SelectionOverlay() {
       requestAnimationFrame(updateRects);
     });
 
-    const previewAreaElement = document.querySelector('[data-preview-area]');
-    if (previewAreaElement) {
-      mutationObserver.observe(previewAreaElement, {
+    // Watch where the sections actually are: inside the frame when there is
+    // one, and the preview area itself when there is not.
+    const mutationRoot =
+      canvas.doc === document ? document.querySelector('[data-preview-area]') : canvas.doc.body;
+    if (mutationRoot) {
+      mutationObserver.observe(mutationRoot, {
         childList: true,
         subtree: true,
         attributes: true
@@ -245,7 +253,9 @@ export default function SelectionOverlay() {
       window.removeEventListener('resize', handleResize);
       scrollContainerRef.current?.removeEventListener('scroll', handleScroll);
     };
-  }, [selectedId, hoveredId, isBuilderMode, updateRects]);
+    // canvas.revision changes when the frame scrolls, resizes or moves; none
+    // of which this document hears about on its own.
+  }, [selectedId, hoveredId, isBuilderMode, updateRects, canvas]);
 
   if (!isBuilderMode) return null;
 

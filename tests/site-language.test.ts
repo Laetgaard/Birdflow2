@@ -137,10 +137,14 @@ describe("published sites", () => {
       "generateCookieBanner(language)",
       "generateProductDetailPage(language, productPageDesign)",
       "generateCheckoutPage(language)",
-      "generateRootLayout(siteName, websiteId, language, homeDescription)",
     ]) {
       expect(generator).toContain(call);
     }
+    // Matched loosely because this call carries enough arguments to be worth
+    // wrapping; what matters is that the language is one of them.
+    expect(generator).toMatch(
+      /generateRootLayout\(\s*siteName,\s*websiteId,\s*language,\s*homeDescription/
+    );
     expect(publisher).toContain("language: config.language ?? DEFAULT_SITE_LANGUAGE");
     expect(routes).toContain("language: normalizeSiteLanguage(website.language)");
   });

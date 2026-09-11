@@ -76,6 +76,10 @@ import BrandGuidePanel from "@/components/builder/BrandGuidePanel";
 import BusinessFactsPanel from "@/components/builder/BusinessFactsPanel";
 import AdminEditingBanner from "@/components/AdminEditingBanner";
 import { startAdminSession, clearAdminSession } from "@/lib/adminSession";
+import { ensureApprovedFonts } from "@/lib/googleFonts";
+import CanvasFrame from "@/components/builder/CanvasFrame";
+import { CanvasDocumentProvider } from "@/components/builder/canvasDocument";
+import { themeFromGlobalStyles } from "@shared/rendering/theme";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import { topLevelComponents } from "@shared/rendering/contract";
 import { migrateStateToTokens } from "@shared/designTokens";
@@ -94,7 +98,6 @@ import CoachMarks from "@/components/builder/CoachMarks";
 import TemplateGalleryModal from "@/components/builder/TemplateGalleryModal";
 import DragDropLayer from "@/components/builder/DragDropLayer";
 import MobileBottomSheet from "@/components/builder/MobileBottomSheet";
-import GlobalStylesPanel from "@/components/builder/GlobalStylesPanel";
 import { SiteStructurePanel } from "@/components/builder/SiteStructurePanel";
 import VersionHistoryPanel from "@/components/builder/VersionHistoryPanel";
 import SpacingIndicators from "@/components/builder/SpacingIndicators";
@@ -135,6 +138,79 @@ const DEVICE_WIDTHS: Record<DeviceType, number> = {
   mobile: 375,
 };
 
+// Viewport heights to go with them. The canvas frame is a real viewport, so
+// `100vh` in a hero means what it will mean on the device and the page scrolls
+// the way a visitor's will.
+const DEVICE_HEIGHTS: Record<DeviceType, number> = {
+  desktop: 800,
+  tablet: 1024,
+  mobile: 812,
+};
+
+/**
+ * Whether to draw the canvas in a frame of its own.
+ *
+ * The frame is the honest preview — a real viewport, and only the stylesheet
+ * the published site loads — but it moves every canvas element into a second
+ * document, which the selection and drag overlays have to be taught about. Opt
+ * in with `?canvas=iframe` until that migration is finished and verified.
+ */
+function useFramedCanvas(): boolean {
+  return useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('canvas') === 'iframe';
+  }, []);
+}
+
+/**
+ * The device-sized box the page is drawn in.
+ *
+ * Legacy path: a plain div in the builder document, where a section's own
+ * `@media (max-width: 640px)` rule answers to the browser window rather than
+ * the 375px box — so the testimonials carousel never appears in the phone
+ * preview and the product grid shows four columns inside it.
+ */
+function CanvasShell({
+  device,
+  globalStyles,
+  children,
+}: {
+  device: DeviceType;
+  globalStyles: BuilderStateData['globalStyles'] | undefined;
+  children: React.ReactNode;
+}) {
+  const framed = useFramedCanvas();
+  const theme = useMemo(() => themeFromGlobalStyles(globalStyles), [globalStyles]);
+
+  const chrome = {
+    borderRadius: device === 'mobile' ? '24px' : '8px',
+  } as const;
+
+  if (!framed) {
+    return (
+      <div
+        className="bg-white shadow-2xl transition-all duration-300 overflow-hidden"
+        style={{
+          width: `${DEVICE_WIDTHS[device]}px`,
+          maxWidth: '100%',
+          minHeight: '600px',
+          ...chrome,
+        }}
+      >
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white shadow-2xl transition-all duration-300 overflow-hidden" style={chrome}>
+      <CanvasFrame width={DEVICE_WIDTHS[device]} height={DEVICE_HEIGHTS[device]} theme={theme}>
+        {children}
+      </CanvasFrame>
+    </div>
+  );
+}
+
 const ICON_MAP: Record<string, any> = {
   layout: Layout,
   image: Image,
@@ -173,6 +249,13 @@ export default function BuilderPage() {
   // Clicking a list item (pricing plan, FAQ entry, timeline step) on the
   // canvas focuses its card in the properties panel.
   const [focusItemIndex, setFocusItemIndex] = useState<number | null>(null);
+
+  // The canvas draws the customer's chosen fonts, so the builder has to load
+  // them. The published site loads this exact stylesheet; without it the
+  // preview fell back to system fonts while the live site did not.
+  useEffect(() => {
+    ensureApprovedFonts();
+  }, []);
   // Custom component library dialogs
   const [saveComponentOpen, setSaveComponentOpen] = useState(false);
   const [saveComponentName, setSaveComponentName] = useState("");
@@ -1583,7 +1666,7 @@ export default function BuilderPage() {
   // shared footer. The publisher folds them together the same way, which is
   // what keeps the canvas and the live site the same picture.
   const canvasComponents = activePage
-    ? composePageComponents(activePage, builderState.siteChrome)
+    ? composePageComponents(activePage, builderState.siteChrome, builderState.brandGuide?.logoUrl)
     : [];
   const canvasNavItems = resolveNavItems(builderState);
   // The canvas draws the shared header above the page's own sections, so a
@@ -1914,6 +1997,7 @@ export default function BuilderPage() {
           pages={builderState?.pages}
           activePage={builderState?.activePage}
         >
+          <CanvasDocumentProvider>
           <ElementSelectionProvider
             onElementStyleChange={(componentId, path, styles) => {
               // Update element styles within the component's builder state
@@ -1940,15 +2024,7 @@ export default function BuilderPage() {
             }}
             data-preview-area
           >
-            <div 
-              className="bg-white shadow-2xl transition-all duration-300 overflow-hidden"
-              style={{ 
-                width: `${DEVICE_WIDTHS[device]}px`, 
-                maxWidth: '100%',
-                minHeight: '600px',
-                borderRadius: device === 'mobile' ? '24px' : '8px',
-              }}
-            >
+            <CanvasShell device={device} globalStyles={builderState?.globalStyles}>
               {canvasComponents.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-12">
                   <div className="w-20 h-20 rounded-3xl bg-muted/80 flex items-center justify-center mb-6">
@@ -2016,7 +2092,7 @@ export default function BuilderPage() {
                   ))}
                 </>
               )}
-            </div>
+            </CanvasShell>
             <ElementOverlay
               containerRef={previewContainerRef}
               isPreview={false}
@@ -2149,20 +2225,9 @@ export default function BuilderPage() {
 
             <TabsContent value="components" className="flex-1 p-4 pt-2 overflow-auto">
               <div className="space-y-3">
-                {/* Global Styles */}
-                {builderState?.globalStyles && (
-                  <GlobalStylesPanel
-                    globalStyles={builderState.globalStyles}
-                    onUpdate={(updates) => {
-                      const newState = {
-                        ...builderState,
-                        globalStyles: { ...builderState.globalStyles, ...updates },
-                      };
-                      updateStateWithHistory(newState, 'Update global styles');
-                    }}
-                  />
-                )}
-
+                {/* Site-wide colour and typography live in the brand guide, which
+                    is now their only editor: two panels writing the same values
+                    meant whichever was touched last silently won. */}
                 {/* Template Button */}
                 <Button
                   variant="outline"
@@ -2391,21 +2456,20 @@ export default function BuilderPage() {
               {builderState && (
                 <BrandGuidePanel
                   brandGuide={builderState.brandGuide ?? createDefaultBrandGuide(builderState.globalStyles)}
-                  onChange={(guide) => updateStateWithHistory({ ...builderState, brandGuide: guide }, 'Opdater brand guide')}
-                  onApplyToSite={(guide) => {
-                    updateStateWithHistory(
+                  onChange={(guide) =>
+                    // The brand guide is the only editor of site-wide colour and
+                    // typography, so its design half is applied as it is edited
+                    // rather than waiting for an "apply" press that used to
+                    // claim it had updated things it never touched.
+                    debouncedHistoryPush(
                       {
                         ...builderState,
                         brandGuide: guide,
                         globalStyles: { ...builderState.globalStyles, ...brandGuideToDesignTokens(guide) },
                       },
-                      'Anvend brand guide på hjemmesiden'
-                    );
-                    toast({
-                      title: "Brand guide anvendt",
-                      description: "Farver og skrifttyper er opdateret på hele hjemmesiden.",
-                    });
-                  }}
+                      'Opdater brand guide'
+                    )
+                  }
                   websiteId={id || ''}
                   accessToken={session?.access_token || ''}
                 />
@@ -2429,6 +2493,7 @@ export default function BuilderPage() {
         </aside>
         )}
         </ElementSelectionProvider>
+        </CanvasDocumentProvider>
         </BuilderSelectionProvider>
       </div>
 

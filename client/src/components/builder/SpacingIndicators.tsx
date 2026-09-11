@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useBuilderSelection } from '@/contexts/BuilderSelectionContext';
+import { useCanvasDocument } from './canvasDocument';
 
 interface SpacingLine {
   type: 'horizontal' | 'vertical';
@@ -17,6 +18,8 @@ interface AlignmentGuide {
 
 export default function SpacingIndicators() {
   const { selectedId, isBuilderMode, getComponent } = useBuilderSelection();
+  // Sections may live in a canvas document of their own.
+  const canvas = useCanvasDocument();
   const [spacingLines, setSpacingLines] = useState<SpacingLine[]>([]);
   const [alignmentGuides, setAlignmentGuides] = useState<AlignmentGuide[]>([]);
   const [showGrid, setShowGrid] = useState(false);
@@ -28,13 +31,13 @@ export default function SpacingIndicators() {
       return;
     }
 
-    const selectedElement = document.querySelector(`[data-element-id="${selectedId}"]`);
+    const selectedElement = canvas.doc.querySelector(`[data-element-id="${selectedId}"]`);
     if (!selectedElement) return;
 
     const previewArea = document.querySelector('[data-preview-area]');
     if (!previewArea) return;
 
-    const selectedRect = selectedElement.getBoundingClientRect();
+    const selectedRect = canvas.toParentRect(selectedElement.getBoundingClientRect());
     const previewRect = previewArea.getBoundingClientRect();
     const scrollTop = (previewArea as HTMLElement).scrollTop;
 
@@ -98,7 +101,8 @@ export default function SpacingIndicators() {
 
     setSpacingLines(lines);
     setAlignmentGuides([]);
-  }, [selectedId, isBuilderMode, getComponent]);
+    // canvas changes identity when the frame scrolls, resizes or moves.
+  }, [selectedId, isBuilderMode, getComponent, canvas]);
 
   useEffect(() => {
     calculateSpacing();

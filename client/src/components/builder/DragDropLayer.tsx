@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useBuilderSelection } from '@/contexts/BuilderSelectionContext';
+import { useCanvasDocument, useBuilderDocuments, listenToAll } from './canvasDocument';
 import { GripVertical } from 'lucide-react';
 
 interface DragState {
@@ -26,26 +27,31 @@ export default function DragDropLayer() {
   const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [isMobile, setIsMobile] = useState(false);
 
+  // Sections may live in a canvas document of their own, with their own
+  // coordinate space.
+  const canvas = useCanvasDocument();
+  const documents = useBuilderDocuments();
+
   useEffect(() => {
     setIsMobile('ontouchstart' in window || navigator.maxTouchPoints > 0);
   }, []);
 
   const getComponentElements = useCallback(() => {
-    const elements = document.querySelectorAll('[data-element-id]');
+    const elements = canvas.doc.querySelectorAll('[data-element-id]');
     return Array.from(elements) as HTMLElement[];
-  }, []);
+  }, [canvas]);
 
   const findDropTarget = useCallback((y: number): number => {
     const elements = getComponentElements();
     for (let i = 0; i < elements.length; i++) {
-      const rect = elements[i].getBoundingClientRect();
+      const rect = canvas.toParentRect(elements[i].getBoundingClientRect());
       const midpoint = rect.top + rect.height / 2;
       if (y < midpoint) {
         return i;
       }
     }
     return elements.length;
-  }, [getComponentElements]);
+  }, [getComponentElements, canvas]);
 
   const handleDragStart = useCallback((e: React.MouseEvent | React.TouchEvent, componentId: string) => {
     if (!isBuilderMode) return;
@@ -71,7 +77,11 @@ export default function DragDropLayer() {
   const handleDragMove = useCallback((e: MouseEvent | TouchEvent) => {
     if (!dragState.isDragging) return;
     
-    const clientY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    const rawY = 'touches' in e ? e.touches[0].clientY : e.clientY;
+    // A pointer over the canvas reports coordinates in the canvas viewport, so
+    // bring them into this document before comparing against rects measured here.
+    const fromCanvas = (e.view as Window | null) === canvas.win && canvas.win !== window;
+    const clientY = fromCanvas ? canvas.toParentPoint({ x: 0, y: rawY }).y : rawY;
     const targetIndex = findDropTarget(clientY);
     
     // Calculate drop indicator position
@@ -80,9 +90,9 @@ export default function DragDropLayer() {
       let indicatorTop = 0;
       if (targetIndex >= elements.length) {
         const lastEl = elements[elements.length - 1];
-        indicatorTop = lastEl.getBoundingClientRect().bottom;
+        indicatorTop = canvas.toParentRect(lastEl.getBoundingClientRect()).bottom;
       } else {
-        indicatorTop = elements[targetIndex].getBoundingClientRect().top;
+        indicatorTop = canvas.toParentRect(elements[targetIndex].getBoundingClientRect()).top;
       }
       
       const previewArea = document.querySelector('[data-preview-area]');
@@ -100,7 +110,7 @@ export default function DragDropLayer() {
       currentY: clientY,
       targetIndex,
     }));
-  }, [dragState.isDragging, dragState.originalIndex, findDropTarget, getComponentElements]);
+  }, [dragState.isDragging, dragState.originalIndex, findDropTarget, getComponentElements, canvas]);
 
   const handleDragEnd = useCallback(() => {
     if (!dragState.isDragging || !dragState.componentId) return;
@@ -157,18 +167,19 @@ export default function DragDropLayer() {
     const handleMove = (e: MouseEvent | TouchEvent) => handleDragMove(e);
     const handleEnd = () => handleDragEnd();
     
-    window.addEventListener('mousemove', handleMove);
-    window.addEventListener('touchmove', handleMove, { passive: true });
-    window.addEventListener('mouseup', handleEnd);
-    window.addEventListener('touchend', handleEnd);
-    
+    // The pointer spends most of a drag over the canvas, whose events never
+    // reach this window, so both are listened to.
+    const stop = [
+      listenToAll(documents, 'mousemove', handleMove),
+      listenToAll(documents, 'touchmove', handleMove, { passive: true }),
+      listenToAll(documents, 'mouseup', handleEnd),
+      listenToAll(documents, 'touchend', handleEnd),
+    ];
+
     return () => {
-      window.removeEventListener('mousemove', handleMove);
-      window.removeEventListener('touchmove', handleMove);
-      window.removeEventListener('mouseup', handleEnd);
-      window.removeEventListener('touchend', handleEnd);
+      for (const off of stop) off();
     };
-  }, [dragState.isDragging, handleDragMove, handleDragEnd]);
+  }, [dragState.isDragging, handleDragMove, handleDragEnd, documents]);
 
   // Long press handler for mobile
   const handleLongPressStart = useCallback((e: React.TouchEvent, componentId: string) => {
@@ -239,10 +250,10 @@ export default function DragDropLayer() {
 
       {/* Drag handles on each component */}
       {!dragState.isDragging && selectedId && (() => {
-        const selectedElement = document.querySelector(`[data-element-id="${selectedId}"]`);
+        const selectedElement = canvas.doc.querySelector(`[data-element-id="${selectedId}"]`);
         if (!selectedElement) return null;
         
-        const rect = selectedElement.getBoundingClientRect();
+        const rect = canvas.toParentRect(selectedElement.getBoundingClientRect());
         const previewRect = previewArea.getBoundingClientRect();
         
         return (

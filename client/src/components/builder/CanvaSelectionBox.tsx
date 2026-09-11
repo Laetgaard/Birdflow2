@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
+import { useBuilderDocuments, listenToAll } from './canvasDocument';
 
 interface Position {
   x: number;
@@ -63,6 +64,7 @@ export default function CanvaSelectionBox({
   className = '',
   style = {},
 }: CanvaSelectionBoxProps) {
+  const documents = useBuilderDocuments();
   const containerRef = useRef<HTMLDivElement>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isResizing, setIsResizing] = useState(false);
@@ -234,18 +236,19 @@ export default function CanvaSelectionBox({
       setActiveHandle(null);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.addEventListener('touchmove', handleTouchMove, { passive: false });
-    document.addEventListener('touchend', handleMouseUp);
+    // A resize or rotate drags the pointer across the canvas, and those events
+    // never reach this document when the canvas is a frame of its own.
+    const stop = [
+      listenToAll(documents, 'mousemove', handleMouseMove),
+      listenToAll(documents, 'mouseup', handleMouseUp),
+      listenToAll(documents, 'touchmove', handleTouchMove, { passive: false }),
+      listenToAll(documents, 'touchend', handleMouseUp),
+    ];
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.removeEventListener('touchmove', handleTouchMove);
-      document.removeEventListener('touchend', handleMouseUp);
+      for (const off of stop) off();
     };
-  }, [isResizing, isRotating, activeHandle, onResize, onRotate, maintainAspectRatio, minWidth, minHeight]);
+  }, [isResizing, isRotating, activeHandle, onResize, onRotate, maintainAspectRatio, minWidth, minHeight, documents]);
 
   const handlePositions: { position: HandlePosition; style: React.CSSProperties }[] = [
     { position: 'nw', style: { top: -handleSize / 2, left: -handleSize / 2 } },

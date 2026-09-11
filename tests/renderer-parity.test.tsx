@@ -29,6 +29,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ReadOnlySitePreview } from '../client/src/components/onboarding/ReadOnlySitePreview';
 import {
   fontFamilies,
+  imageAltTexts,
   imageSources,
   linkTargets,
   loadPublishedRenderer,
@@ -96,6 +97,167 @@ describe('every component type draws the same thing in preview and on the publis
     expect(title).not.toBe('');
     expect(visibleText(renderBuilder(component))).toContain(title);
     expect(visibleText(renderPublished(component))).toContain(title);
+  });
+});
+
+describe('styles the customer set reach the markup', () => {
+  /**
+   * Until now every type was compared with its *default* props and styles, so a
+   * style one renderer honoured and the other ignored looked identical. These
+   * set values no default carries.
+   *
+   * Where the value lands is deliberately not asserted: both renderers wrap
+   * sections in motion and layout elements, at different depths, so comparing
+   * one outermost element against the other compares a wrapper with a section.
+   * What matters is that a colour the customer chose is not silently dropped.
+   */
+  const OVERRIDES: Record<string, string> = {
+    backgroundColor: 'rgb(1, 2, 3)',
+    textColor: 'rgb(4, 5, 6)',
+    padding: '77px 33px',
+    borderRadius: '19px',
+  };
+
+  // An empty container draws nothing on the published site, so it is compared
+  // with a child, as the container test above does.
+  const STYLED_WITH_CHILD = new Set<ComponentType>(['container']);
+
+  // Booking is two different components by design - the builder shows an
+  // editing widget, the published site its own BookingForm - and is already
+  // excluded from the content comparison above for the same reason.
+  const renderable = RENDERABLE_COMPONENT_TYPES.filter(
+    (type) => !STYLED_WITH_CHILD.has(type) && type !== 'booking'
+  );
+
+  it.each(renderable)('%s keeps them on both sides', (type) => {
+    const definition = componentRegistry[type];
+    const styles: Record<string, unknown> = { ...definition.defaultStyles };
+    const expected: string[] = [];
+    for (const [key, value] of Object.entries(OVERRIDES)) {
+      if (key in definition.defaultStyles) {
+        styles[key] = value;
+        expected.push(value);
+      }
+    }
+    if (expected.length === 0) return;
+
+    const component = {
+      id: `styled-${type}`,
+      type,
+      props: { ...definition.defaultProps },
+      styles,
+    } as BuilderComponentData;
+
+    const builder = renderBuilder(component);
+    const published = renderPublished(component);
+    const disagreements = expected
+      .filter((value) => builder.includes(value) !== published.includes(value))
+      .map((value) => `${value}: builder=${builder.includes(value)} published=${published.includes(value)}`);
+    expect(disagreements).toEqual([]);
+  });
+
+  it('keeps a container\'s own styles once it has something in it', () => {
+    const child: BuilderComponentData = {
+      ...componentFor('rich-text'),
+      id: 'styled-child',
+      props: { ...componentRegistry['rich-text'].defaultProps, content: '<p>Indhold</p>' },
+    } as BuilderComponentData;
+    const container: BuilderComponentData = {
+      ...componentFor('container'),
+      id: 'styled-container',
+      props: { ...componentRegistry.container.defaultProps, children: [child.id] },
+      styles: { ...componentRegistry.container.defaultStyles, backgroundColor: 'rgb(1, 2, 3)', padding: '77px 33px' },
+    } as BuilderComponentData;
+
+    const all = [container, child];
+    for (const value of ['rgb(1, 2, 3)', '77px 33px']) {
+      expect(renderBuilder(container, all)).toContain(value);
+      expect(renderPublished(container, all)).toContain(value);
+    }
+  });
+
+  it('draws a spacer in the colour it was given', () => {
+    // The preview branch used to hard-code transparent while the published site
+    // drew the colour, so a coloured spacer appeared only after publishing.
+    const spacer = {
+      ...componentFor('spacer'),
+      styles: { ...componentRegistry.spacer.defaultStyles, backgroundColor: 'rgb(1, 2, 3)' },
+    } as BuilderComponentData;
+    expect(renderBuilder(spacer)).toContain('rgb(1, 2, 3)');
+    expect(renderPublished(spacer)).toContain('rgb(1, 2, 3)');
+  });
+});
+
+describe('image alt text', () => {
+  // Alt text was not editable anywhere: it was always derived from a title or
+  // left empty, and the two renderers derived it differently.
+  const withAlt = (type: ComponentType, props: Record<string, unknown>): BuilderComponentData =>
+    ({
+      ...componentFor(type),
+      props: { ...componentRegistry[type].defaultProps, ...props },
+    }) as BuilderComponentData;
+
+  // A hero whose image is uncropped is painted as a CSS background, which has
+  // no alt text to compare; a cropped one draws a real <img>.
+  const croppedHero = { url: '/objects/hero.png', crop: { x: 0, y: 0, width: 100, height: 100 } };
+
+  const cases: Array<[ComponentType, Record<string, unknown>]> = [
+    ['hero', { imageUrl: croppedHero, imageAlt: 'Klinikkens venteværelse' }],
+    ['text-image', { imageUrl: '/objects/om.png', imageAlt: 'Amalie i samtale' }],
+    ['split-section', { imageUrl: '/objects/split.png', imageAlt: 'Udsigt fra klinikken' }],
+    ['header', { imageUrl: '/objects/logo.png', imageAlt: 'Klinik for Trivsel' }],
+  ];
+
+  it.each(cases)('%s uses what the customer wrote', (type, props) => {
+    const component = withAlt(type, props);
+    expect(imageAltTexts(renderBuilder(component))).toContain(props.imageAlt);
+    expect(imageAltTexts(renderPublished(component))).toContain(props.imageAlt);
+  });
+
+  it.each(cases)('%s describes its image the same way on both sides', (type, props) => {
+    const component = withAlt(type, props);
+    expect(imageAltTexts(renderPublished(component))).toEqual(imageAltTexts(renderBuilder(component)));
+  });
+
+  it.each(cases)('%s agrees on the fallback when nothing was written', (type, props) => {
+    const component = withAlt(type, { ...props, imageAlt: undefined });
+    expect(imageAltTexts(renderPublished(component))).toEqual(imageAltTexts(renderBuilder(component)));
+  });
+});
+
+describe('the brand guide logo reaches the website', () => {
+  const header = (imageUrl?: unknown): BuilderComponentData =>
+    ({
+      ...componentFor('header'),
+      props: { ...componentRegistry.header.defaultProps, ...(imageUrl === undefined ? {} : { imageUrl }) },
+    }) as BuilderComponentData;
+
+  // A page with no sections of its own, so composition returns just the chrome.
+  const emptyPage = { id: 'p1', name: 'Forside', path: '/', components: [] };
+
+  const composeWith = (headerComponent: BuilderComponentData, brandLogoUrl?: string) =>
+    composePageComponents(emptyPage as never, { header: headerComponent } as never, brandLogoUrl);
+
+  it('fills a blank header logo from the brand guide', () => {
+    const composed = composeWith(header(''), '/objects/logo.png');
+    expect((composed[0].props as { imageUrl?: unknown }).imageUrl).toBe('/objects/logo.png');
+  });
+
+  it('leaves a logo the customer put on the header alone', () => {
+    const composed = composeWith(header('/objects/header-specific.png'), '/objects/logo.png');
+    expect((composed[0].props as { imageUrl?: unknown }).imageUrl).toBe('/objects/header-specific.png');
+  });
+
+  it('changes nothing when the brand guide has no logo', () => {
+    const composed = composeWith(header(''), undefined);
+    expect((composed[0].props as { imageUrl?: unknown }).imageUrl).toBe('');
+  });
+
+  it('draws the filled-in logo the same way in preview and on the published site', () => {
+    const withLogo = composeWith(header(''), '/objects/logo.png')[0];
+    expect([...new Set(imageSources(renderPublished(withLogo)))].sort()).toEqual(
+      [...new Set(imageSources(renderBuilder(withLogo)))].sort()
+    );
   });
 });
 

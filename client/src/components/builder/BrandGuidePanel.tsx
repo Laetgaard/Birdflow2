@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Upload, X, Wand2, Image, Palette, Zap } from "lucide-react";
+import { Loader2, Upload, X, Wand2, Palette } from "lucide-react";
 import { fontFamilyPresets } from "@shared/componentRegistry";
 import type {
   BrandGuide,
@@ -19,7 +19,6 @@ import { uploadImage } from "@/lib/builderUpload";
 type Props = {
   brandGuide: BrandGuide;
   onChange: (guide: BrandGuide) => void;
-  onApplyToSite: (guide: BrandGuide) => void;
   websiteId: string;
   accessToken: string;
 };
@@ -81,7 +80,7 @@ const MOTION_PRESET_OPTIONS: { value: NonNullable<BrandGuide["motionPreset"]>; l
 
 const MAX_BRAND_PHOTOS = 10;
 
-export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, websiteId, accessToken }: Props) {
+export default function BrandGuidePanel({ brandGuide, onChange, websiteId, accessToken }: Props) {
   const [draft, setDraft] = useState<BrandGuide>(brandGuide);
   const [keywordsText, setKeywordsText] = useState((brandGuide.keywords ?? []).join(", "));
   const [uploadingLogo, setUploadingLogo] = useState(false);
@@ -107,8 +106,10 @@ export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, w
     onChange(stamped);
   };
 
+  // Every edit goes straight out. The builder coalesces these into one history
+  // entry, so dragging a colour picker previews live without filling undo.
   const updateDraft = (patch: Partial<BrandGuide>) => {
-    setDraft((prev) => ({ ...prev, ...patch }));
+    commit({ ...draft, ...patch });
   };
 
   const commitDraft = () => commit(draft);
@@ -178,7 +179,8 @@ export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, w
           <div>
             <h3 className="font-semibold text-sm mb-0.5">Brand guide</h3>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Definér visuel identitet. AI'en bruger den som udgangspunkt for plan og bygning.
+              Den ene halvdel styrer, hvordan siden ser ud. Den anden er det, AI&apos;en
+              arbejder ud fra.
             </p>
           </div>
           <div className="shrink-0 text-right">
@@ -205,24 +207,24 @@ export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, w
         ))}
       </div>
 
-      <Tabs defaultValue="identitet" className="w-full">
-        <TabsList className="w-full grid grid-cols-3 h-8">
-          <TabsTrigger value="identitet" className="text-xs gap-1">
+      <Tabs defaultValue="design" className="w-full">
+        <TabsList className="w-full grid grid-cols-2 h-8">
+          <TabsTrigger value="design" className="text-xs gap-1" data-testid="brand-tab-design">
             <Palette className="w-3 h-3" />
-            Identitet
+            Sådan ser siden ud
           </TabsTrigger>
-          <TabsTrigger value="assetter" className="text-xs gap-1">
-            <Image className="w-3 h-3" />
-            Assetter
-          </TabsTrigger>
-          <TabsTrigger value="bevægelse" className="text-xs gap-1">
-            <Zap className="w-3 h-3" />
-            Bevægelse
+          <TabsTrigger value="ai" className="text-xs gap-1" data-testid="brand-tab-ai">
+            <Wand2 className="w-3 h-3" />
+            Sådan arbejder AI&apos;en
           </TabsTrigger>
         </TabsList>
 
-        {/* ── TAB: Identitet ─────────────────────────────────────────────── */}
-        <TabsContent value="identitet" className="space-y-5 mt-4">
+        {/* ── What the website looks like. Every control here is live. ────── */}
+        <TabsContent value="design" className="space-y-5 mt-4">
+
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Ændringer her slår igennem på hele hjemmesiden med det samme.
+          </p>
 
           {/* Colors */}
           <div className="space-y-3">
@@ -252,6 +254,7 @@ export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, w
             </div>
             <ContrastChecks colors={draft.colors} />
           </div>
+
 
           <Separator />
 
@@ -312,37 +315,12 @@ export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, w
             </div>
           </div>
 
-          <Separator />
-
-          {/* Tone of voice */}
-          <div className="space-y-3">
-            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Tone of voice</h4>
-            <textarea
-              className="w-full min-h-[70px] p-2 text-xs border rounded-md resize-none bg-background"
-              value={draft.toneOfVoice ?? ""}
-              onChange={(e) => updateDraft({ toneOfVoice: e.target.value })}
-              onBlur={commitDraft}
-              placeholder="Fx: Varm og imødekommende. Vi skriver 'du', aldrig 'De'. Korte sætninger."
-              data-testid="brand-tone"
-            />
-            <div className="space-y-1">
-              <Label className="text-xs">Nøgleord (adskil med komma)</Label>
-              <Input
-                value={keywordsText}
-                onChange={(e) => setKeywordsText(e.target.value)}
-                onBlur={commitKeywords}
-                placeholder="troværdig, lokal, professionel"
-                className="h-8 text-xs"
-                data-testid="brand-keywords"
-              />
-            </div>
-          </div>
 
           <Separator />
 
           {/* Shape & spacing */}
           <div className="space-y-3">
-            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Udtryk</h4>
+            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Form og flade</h4>
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <Label className="text-xs">Luft</Label>
@@ -386,12 +364,44 @@ export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, w
             </div>
           </div>
 
-          <Separator />
-          <ApplyButton draft={draft} onApplyToSite={onApplyToSite} />
+
         </TabsContent>
 
-        {/* ── TAB: Assetter ──────────────────────────────────────────────── */}
-        <TabsContent value="assetter" className="space-y-5 mt-4">
+        {/* ── What the AI works from. None of it redraws the current page. ── */}
+        <TabsContent value="ai" className="space-y-5 mt-4">
+
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Det her ændrer ikke siden, som den ser ud nu. Det er materialet AI&apos;en
+            arbejder ud fra, når den skriver tekst og laver billeder — og det der står
+            i din brand guide-PDF.
+          </p>
+
+          {/* Tone of voice */}
+          <div className="space-y-3">
+            <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Tone of voice</h4>
+            <textarea
+              className="w-full min-h-[70px] p-2 text-xs border rounded-md resize-none bg-background"
+              value={draft.toneOfVoice ?? ""}
+              onChange={(e) => updateDraft({ toneOfVoice: e.target.value })}
+              onBlur={commitDraft}
+              placeholder="Fx: Varm og imødekommende. Vi skriver 'du', aldrig 'De'. Korte sætninger."
+              data-testid="brand-tone"
+            />
+            <div className="space-y-1">
+              <Label className="text-xs">Nøgleord (adskil med komma)</Label>
+              <Input
+                value={keywordsText}
+                onChange={(e) => setKeywordsText(e.target.value)}
+                onBlur={commitKeywords}
+                placeholder="troværdig, lokal, professionel"
+                className="h-8 text-xs"
+                data-testid="brand-keywords"
+              />
+            </div>
+          </div>
+
+
+          <Separator />
 
           {/* Logo */}
           <div className="space-y-3">
@@ -436,6 +446,7 @@ export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, w
               {uploadingLogo ? "Uploader..." : draft.logoUrl ? "Skift logo" : "Upload logo (SVG, PNG)"}
             </Button>
           </div>
+
 
           <Separator />
 
@@ -519,6 +530,7 @@ export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, w
             )}
           </div>
 
+
           <Separator />
 
           {/* Illustration style */}
@@ -549,6 +561,7 @@ export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, w
             </div>
           </div>
 
+
           <Separator />
 
           {/* Imagery style */}
@@ -577,12 +590,8 @@ export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, w
             />
           </div>
 
-          <Separator />
-          <ApplyButton draft={draft} onApplyToSite={onApplyToSite} />
-        </TabsContent>
 
-        {/* ── TAB: Bevægelse ─────────────────────────────────────────────── */}
-        <TabsContent value="bevægelse" className="space-y-5 mt-4">
+          <Separator />
 
           {/* Motion preset */}
           <div className="space-y-3">
@@ -620,6 +629,7 @@ export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, w
             )}
           </div>
 
+
           <Separator />
 
           {/* Motion description */}
@@ -634,6 +644,7 @@ export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, w
               data-testid="brand-motion-description"
             />
           </div>
+
 
           <Separator />
 
@@ -673,27 +684,13 @@ export default function BrandGuidePanel({ brandGuide, onChange, onApplyToSite, w
             </div>
           </div>
 
-          <Separator />
-          <ApplyButton draft={draft} onApplyToSite={onApplyToSite} />
+
         </TabsContent>
       </Tabs>
     </div>
   );
 }
 
-function ApplyButton({ draft, onApplyToSite }: { draft: BrandGuide; onApplyToSite: (guide: BrandGuide) => void }) {
-  return (
-    <>
-      <Button className="w-full gap-2" onClick={() => onApplyToSite(draft)} data-testid="brand-apply">
-        <Wand2 className="w-4 h-4" />
-        Anvend på hjemmesiden
-      </Button>
-      <p className="text-[11px] text-muted-foreground -mt-2">
-        Opdaterer globale farver, skrifttyper og hjørner ud fra brand guiden.
-      </p>
-    </>
-  );
-}
 
 /**
  * WCAG AA contrast checks for the pairs that actually meet on the site:

@@ -16,12 +16,17 @@ interface InlineTextEditorProps {
  * Falls back to placing caret at end of element if APIs aren't available.
  */
 function placeCaretAtPoint(element: HTMLElement, clientX: number, clientY: number) {
+  // Ranges and selections belong to a document, and the element being edited
+  // may be drawn in the canvas's rather than the builder's.
+  const doc = element.ownerDocument;
+  const win = doc.defaultView;
+
   // Try the standard API first (Firefox, modern browsers)
-  if ('caretPositionFromPoint' in document) {
-    const pos = (document as any).caretPositionFromPoint(clientX, clientY);
+  if ('caretPositionFromPoint' in doc) {
+    const pos = (doc as any).caretPositionFromPoint(clientX, clientY);
     if (pos) {
-      const sel = window.getSelection();
-      const range = document.createRange();
+      const sel = win?.getSelection();
+      const range = doc.createRange();
       range.setStart(pos.offsetNode, pos.offset);
       range.collapse(true);
       sel?.removeAllRanges();
@@ -30,18 +35,18 @@ function placeCaretAtPoint(element: HTMLElement, clientX: number, clientY: numbe
     }
   }
   // WebKit/Blink API (Chrome, Safari, Edge)
-  if (document.caretRangeFromPoint) {
-    const range = document.caretRangeFromPoint(clientX, clientY);
+  if (doc.caretRangeFromPoint) {
+    const range = doc.caretRangeFromPoint(clientX, clientY);
     if (range) {
-      const sel = window.getSelection();
+      const sel = win?.getSelection();
       sel?.removeAllRanges();
       sel?.addRange(range);
       return;
     }
   }
   // Fallback: place caret at end
-  const sel = window.getSelection();
-  const range = document.createRange();
+  const sel = win?.getSelection();
+  const range = doc.createRange();
   range.selectNodeContents(element);
   range.collapse(false);
   sel?.removeAllRanges();
@@ -82,9 +87,10 @@ export default function InlineTextEditor({
         placeCaretAtPoint(editorRef.current, pendingClickRef.current.x, pendingClickRef.current.y);
         pendingClickRef.current = null;
       } else {
-        // Fallback: place caret at end
-        const sel = window.getSelection();
-        const range = document.createRange();
+        // Fallback: place caret at end, in the editor's own document.
+        const editorDoc = editorRef.current.ownerDocument;
+        const sel = editorDoc.defaultView?.getSelection();
+        const range = editorDoc.createRange();
         range.selectNodeContents(editorRef.current);
         range.collapse(false);
         sel?.removeAllRanges();

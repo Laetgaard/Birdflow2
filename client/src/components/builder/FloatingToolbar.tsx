@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useBuilderSelection } from '@/contexts/BuilderSelectionContext';
+import { useCanvasDocument } from './canvasDocument';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
@@ -188,6 +189,8 @@ export default function FloatingToolbar() {
     onDuplicateComponent,
     onMoveComponent,
   } = useBuilderSelection();
+  // Sections may live in a canvas document of their own.
+  const canvas = useCanvasDocument();
 
   const [position, setPosition] = useState({ top: 0, left: 0 });
   const [isVisible, setIsVisible] = useState(false);
@@ -209,10 +212,10 @@ export default function FloatingToolbar() {
   const updatePosition = useCallback(() => {
     if (!selectedId || !isBuilderMode) return;
 
-    const element = document.querySelector(`[data-element-id="${selectedId}"]`);
+    const element = canvas.doc.querySelector(`[data-element-id="${selectedId}"]`);
     if (!element) return;
 
-    const rect = element.getBoundingClientRect();
+    const rect = canvas.toParentRect(element.getBoundingClientRect());
 
     const toolbarHeight = 48;
     const padding = 12;
@@ -239,7 +242,7 @@ export default function FloatingToolbar() {
 
     setPosition({ top, left });
     setIsVisible(true);
-  }, [selectedId, isBuilderMode, isMobile]);
+  }, [selectedId, isBuilderMode, isMobile, canvas]);
 
   useEffect(() => {
     if (!selectedId || !isBuilderMode) {
@@ -247,7 +250,7 @@ export default function FloatingToolbar() {
       return;
     }
 
-    const element = document.querySelector(`[data-element-id="${selectedId}"]`);
+    const element = canvas.doc.querySelector(`[data-element-id="${selectedId}"]`);
     if (!element) {
       setIsVisible(false);
       return;
@@ -284,7 +287,8 @@ export default function FloatingToolbar() {
         previewArea.removeEventListener('scroll', handleScroll);
       }
     };
-  }, [selectedId, isBuilderMode, updatePosition]);
+    // canvas changes identity when the frame scrolls, resizes or moves.
+  }, [selectedId, isBuilderMode, updatePosition, canvas]);
 
   if (!selectedId || !selectedInfo || !isBuilderMode || !isVisible) return null;
 
