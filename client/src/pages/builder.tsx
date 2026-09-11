@@ -76,6 +76,7 @@ import BrandGuidePanel from "@/components/builder/BrandGuidePanel";
 import BusinessFactsPanel from "@/components/builder/BusinessFactsPanel";
 import AdminEditingBanner from "@/components/AdminEditingBanner";
 import { startAdminSession, clearAdminSession } from "@/lib/adminSession";
+import { ensureApprovedFonts } from "@/lib/googleFonts";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import { topLevelComponents } from "@shared/rendering/contract";
 import { migrateStateToTokens } from "@shared/designTokens";
@@ -172,6 +173,13 @@ export default function BuilderPage() {
   // Clicking a list item (pricing plan, FAQ entry, timeline step) on the
   // canvas focuses its card in the properties panel.
   const [focusItemIndex, setFocusItemIndex] = useState<number | null>(null);
+
+  // The canvas draws the customer's chosen fonts, so the builder has to load
+  // them. The published site loads this exact stylesheet; without it the
+  // preview fell back to system fonts while the live site did not.
+  useEffect(() => {
+    ensureApprovedFonts();
+  }, []);
   // Custom component library dialogs
   const [saveComponentOpen, setSaveComponentOpen] = useState(false);
   const [saveComponentName, setSaveComponentName] = useState("");
