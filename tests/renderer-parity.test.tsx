@@ -29,6 +29,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { ReadOnlySitePreview } from '../client/src/components/onboarding/ReadOnlySitePreview';
 import {
   fontFamilies,
+  imageAltTexts,
   imageSources,
   linkTargets,
   loadPublishedRenderer,
@@ -97,6 +98,43 @@ describe('every component type draws the same thing in preview and on the publis
     expect(title).not.toBe('');
     expect(visibleText(renderBuilder(component))).toContain(title);
     expect(visibleText(renderPublished(component))).toContain(title);
+  });
+});
+
+describe('image alt text', () => {
+  // Alt text was not editable anywhere: it was always derived from a title or
+  // left empty, and the two renderers derived it differently.
+  const withAlt = (type: ComponentType, props: Record<string, unknown>): BuilderComponentData =>
+    ({
+      ...componentFor(type),
+      props: { ...componentRegistry[type].defaultProps, ...props },
+    }) as BuilderComponentData;
+
+  // A hero whose image is uncropped is painted as a CSS background, which has
+  // no alt text to compare; a cropped one draws a real <img>.
+  const croppedHero = { url: '/objects/hero.png', crop: { x: 0, y: 0, width: 100, height: 100 } };
+
+  const cases: Array<[ComponentType, Record<string, unknown>]> = [
+    ['hero', { imageUrl: croppedHero, imageAlt: 'Klinikkens venteværelse' }],
+    ['text-image', { imageUrl: '/objects/om.png', imageAlt: 'Amalie i samtale' }],
+    ['split-section', { imageUrl: '/objects/split.png', imageAlt: 'Udsigt fra klinikken' }],
+    ['header', { imageUrl: '/objects/logo.png', imageAlt: 'Klinik for Trivsel' }],
+  ];
+
+  it.each(cases)('%s uses what the customer wrote', (type, props) => {
+    const component = withAlt(type, props);
+    expect(imageAltTexts(renderBuilder(component))).toContain(props.imageAlt);
+    expect(imageAltTexts(renderPublished(component))).toContain(props.imageAlt);
+  });
+
+  it.each(cases)('%s describes its image the same way on both sides', (type, props) => {
+    const component = withAlt(type, props);
+    expect(imageAltTexts(renderPublished(component))).toEqual(imageAltTexts(renderBuilder(component)));
+  });
+
+  it.each(cases)('%s agrees on the fallback when nothing was written', (type, props) => {
+    const component = withAlt(type, { ...props, imageAlt: undefined });
+    expect(imageAltTexts(renderPublished(component))).toEqual(imageAltTexts(renderBuilder(component)));
   });
 });
 

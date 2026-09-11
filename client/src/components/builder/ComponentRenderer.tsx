@@ -579,6 +579,10 @@ type ComponentRenderProps = {
 
 function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
   const imageValue = props.imageUrl ? parseImageValue(props.imageUrl) : null;
+  // What a screen reader says, and what a search engine reads. Empty when the
+  // customer has written nothing, which is the correct value for an image that
+  // carries no information of its own.
+  const imageAlt = (props.imageAlt as string) || '';
   const backgroundImage = imageValue?.url ? { backgroundImage: `url(${imageValue.url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
 
   const canEdit = !isPreview && onTextChange && onEditField;
@@ -683,9 +687,9 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
           <div style={{ flex: '0 0 50%', position: 'relative', overflow: 'hidden', minHeight: '400px' }}>
             {imgUrl ? (
               imageValue?.crop ? (
-                <CroppedImage image={imageValue} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', inset: 0 }} />
+                <CroppedImage image={imageValue} alt={imageAlt} style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', inset: 0 }} />
               ) : (
-                <img src={imgUrl} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', inset: 0 }} />
+                <img src={imgUrl} alt={imageAlt} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', inset: 0 }} />
               )
             ) : (
               <div style={{ width: '100%', height: '100%', position: 'absolute', inset: 0, backgroundColor: hexToRgba(buttonColor, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -709,7 +713,7 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
     <section style={heroStyle} onClick={onClick}>
       {imageValue?.crop && imageValue.url && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
-          <CroppedImage image={imageValue} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <CroppedImage image={imageValue} alt={imageAlt} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         </div>
       )}
       {/* Color overlay - sits on top of the background image */}
@@ -798,6 +802,9 @@ function TextImageComponent({ props, styles, isSelected, onClick, isPreview, onT
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const isImageLeft = props.imageSide === 'left';
   const imageValue = props.imageUrl ? parseImageValue(props.imageUrl) : null;
+  // The heading is the fallback here, as on the published site, so an existing
+  // site does not lose the alt text it already had.
+  const imageAlt = (props.imageAlt as string) || (props.title as string) || '';
   const canEdit = !isPreview && onTextChange && onEditField;
   const fontFamily = resolveFontFamily(styles, globalStyles);
   const accentColor = resolveAccentColor(styles, globalStyles);
@@ -833,9 +840,9 @@ function TextImageComponent({ props, styles, isSelected, onClick, isPreview, onT
         {!isPreview && onImageResize && isSelected ? (
           <ImageResizer imageUrl={imageValue.url} width={props.imageWidth || '100%'} height={props.imageHeight || 'auto'} onResize={onImageResize} isSelected={isSelected} isPreview={isPreview} style={{ borderRadius: styles.borderRadius || '16px' }} />
         ) : imageValue.crop ? (
-          <CroppedImage image={imageValue} alt="" style={{ width: props.imageWidth || '100%', borderRadius: styles.borderRadius || '16px', display: 'block' }} />
+          <CroppedImage image={imageValue} alt={imageAlt} style={{ width: props.imageWidth || '100%', borderRadius: styles.borderRadius || '16px', display: 'block' }} />
         ) : (
-          <img src={imageValue.url} alt="" loading="lazy" style={{ width: props.imageWidth || '100%', height: props.imageHeight || 'auto', objectFit: 'cover', borderRadius: styles.borderRadius || '16px', display: 'block' }} />
+          <img src={imageValue.url} alt={imageAlt} loading="lazy" style={{ width: props.imageWidth || '100%', height: props.imageHeight || 'auto', objectFit: 'cover', borderRadius: styles.borderRadius || '16px', display: 'block' }} />
         )}
       </div>
     </div>
@@ -1449,7 +1456,7 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
             {logoImage?.url && (
               <img 
                 src={logoImage.url} 
-                alt="Logo" 
+                alt={(props.imageAlt as string) || (props.title as string) || 'Logo'} 
                 loading="lazy"
                 style={{ height: '40px', width: 'auto', objectFit: 'contain' }}
                 data-testid="header-logo"
@@ -3609,7 +3616,7 @@ function SplitSectionComponent({ props, styles, isSelected, onClick, isPreview, 
         </div>
         <div style={{ order: layout === 'image-right' ? 2 : 1 }}>
           {props.imageUrl ? (
-            <img src={props.imageUrl as string} alt="" loading="lazy" style={{ width: '100%', borderRadius: '16px', boxShadow: '0 25px 50px rgba(0,0,0,0.15)' }} />
+            <img src={props.imageUrl as string} alt={(props.imageAlt as string) || ''} loading="lazy" style={{ width: '100%', borderRadius: '16px', boxShadow: '0 25px 50px rgba(0,0,0,0.15)' }} />
           ) : (
             <div style={{ aspectRatio: '4/3', backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ fontSize: '48px', opacity: 0.3 }}>🖼️</span>

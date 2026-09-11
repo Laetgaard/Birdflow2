@@ -3270,7 +3270,7 @@ function HeroSection({ props, styles }: { props: ComponentProps; styles: Compone
         <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
           <img 
             src={imageUrl} 
-            alt="" 
+            alt={props.imageAlt || ''} 
             style={{ width: '100%', height: '100%', objectFit: 'cover', ...getCropStyle() }}
           />
         </div>
@@ -3391,7 +3391,7 @@ function TextImageSection({ props, styles }: { props: ComponentProps; styles: Co
         </div>
         {imageUrl && (
           <div style={{ flex: 1, minWidth: '300px' }}>
-            <img src={imageUrl} alt={props.title || ''} style={{ width: '100%', borderRadius: '12px' }} />
+            <img src={imageUrl} alt={props.imageAlt || props.title || ''} style={{ width: '100%', borderRadius: '12px' }} />
           </div>
         )}
       </div>
@@ -3810,7 +3810,7 @@ function HeaderSection({ props, styles, pages, navItems: providedNavItems }: { p
               ? (props.imageUrl as any).url || (props.imageUrl as any).src 
               : props.imageUrl;
             return logoUrl ? (
-              <img src={logoUrl} alt={props.title || 'Logo'} style={{ height: '40px', width: 'auto', objectFit: 'contain' }} />
+              <img src={logoUrl} alt={props.imageAlt || props.title || 'Logo'} style={{ height: '40px', width: 'auto', objectFit: 'contain' }} />
             ) : null;
           })()}
           {props.title && <span>{props.title}</span>}
@@ -4754,7 +4754,7 @@ function SplitSectionComponent({ props, styles }: { props: ComponentProps; style
         </div>
         <div style={{ order: layout === 'image-right' ? 2 : 1 }}>
           {imageUrl ? (
-            <img src={imageUrl} alt="" style={{ width: '100%', borderRadius: '16px', boxShadow: '0 25px 50px rgba(0,0,0,0.15)' }} />
+            <img src={imageUrl} alt={props.imageAlt || ''} style={{ width: '100%', borderRadius: '16px', boxShadow: '0 25px 50px rgba(0,0,0,0.15)' }} />
           ) : (
             <div style={{ aspectRatio: '4/3', backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ fontSize: '48px', opacity: 0.3 }}>\u{1F5BC}\u{FE0F}</span>

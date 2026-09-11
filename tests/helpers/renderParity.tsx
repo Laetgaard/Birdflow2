@@ -199,6 +199,19 @@ export function imageSources(html: string): string[] {
   return Array.from(html.matchAll(/<img[^>]*\ssrc="([^"]*)"/g)).map((m) => m[1]);
 }
 
+/**
+ * Every image's alt text, in document order.
+ *
+ * Empty alt is meaningful - it marks an image as decorative - so a missing
+ * attribute and an empty one are reported differently.
+ */
+export function imageAltTexts(html: string): string[] {
+  return Array.from(html.matchAll(/<img[^>]*>/g)).map((tag) => {
+    const alt = /\salt="([^"]*)"/.exec(tag[0]);
+    return alt ? alt[1] : '<missing>';
+  });
+}
+
 /** Every link target in the markup, in document order. */
 export function linkTargets(html: string): string[] {
   return Array.from(html.matchAll(/<a[^>]*\shref="([^"]*)"/g)).map((m) => m[1]);

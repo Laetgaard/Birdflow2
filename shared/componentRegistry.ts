@@ -370,6 +370,12 @@ export type ComponentProps = {
   buttonLink?: string;
   showCart?: boolean | string;
   imageUrl?: string;
+  /**
+   * What a screen reader announces for `imageUrl`, and what a search engine
+   * reads. Empty is correct for an image that carries no information of its own;
+   * before this existed there was no way to say anything else.
+   */
+  imageAlt?: string;
   images?: string[];
   items?: ComponentItem[];
   alignment?: 'left' | 'center' | 'right';
@@ -646,6 +652,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'secondaryButtonLink', label: 'Secondary Button URL', type: 'text', group: 'content' },
       { key: 'layout', label: 'Layout Variant', type: 'select', group: 'content', options: ['centered', 'split-left', 'split-right', 'minimal', 'bold', 'video-bg'] },
       { key: 'imageUrl', label: 'Image (background or split panel)', type: 'image', group: 'content' },
+      { key: 'imageAlt', label: 'Billedbeskrivelse (alt-tekst)', type: 'text', group: 'content' },
       { key: 'alignment', label: 'Text Alignment', type: 'select', group: 'content', options: ['left', 'center', 'right'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'backgroundOpacity', label: 'Background Opacity', type: 'range', group: 'style', min: 0, max: 100, step: 5, unit: '%' },
@@ -701,6 +708,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'styledTitle', label: 'Heading', type: 'styled-text', group: 'content' },
       { key: 'styledDescription', label: 'Body Text', type: 'styled-text', group: 'content' },
       { key: 'imageUrl', label: 'Image', type: 'image', group: 'content' },
+      { key: 'imageAlt', label: 'Billedbeskrivelse (alt-tekst)', type: 'text', group: 'content' },
       { key: 'imageSide', label: 'Image Side', type: 'select', group: 'content', options: ['left', 'right'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
@@ -829,6 +837,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     fields: [
       { key: 'title', label: 'Brand Name', type: 'text', group: 'content' },
       { key: 'imageUrl', label: 'Logo Image', type: 'image', group: 'content' },
+      { key: 'imageAlt', label: 'Billedbeskrivelse (alt-tekst)', type: 'text', group: 'content' },
       { key: 'showCart', label: 'Show Shopping Cart', type: 'select', group: 'content', options: ['true', 'false'] },
       { key: 'items', label: 'Nav Items', type: 'items', group: 'content' },
       { key: 'overlayMode', label: 'Overlay on Content', type: 'select', group: 'style', options: ['true', 'false'] },
@@ -1453,6 +1462,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'styledSubtitle', label: 'Subtitle/Eyebrow', type: 'styled-text', group: 'content' },
       { key: 'styledDescription', label: 'Description', type: 'styled-text', group: 'content' },
       { key: 'imageUrl', label: 'Image', type: 'image', group: 'content' },
+      { key: 'imageAlt', label: 'Billedbeskrivelse (alt-tekst)', type: 'text', group: 'content' },
       { key: 'imageSide', label: 'Image Side', type: 'select', group: 'content', options: ['left', 'right'] },
       { key: 'buttonText', label: 'Button Text', type: 'text', group: 'content' },
       { key: 'buttonLink', label: 'Button Link', type: 'text', group: 'content' },
