@@ -1,3 +1,5 @@
+import { practiceProfileSchema, mergePracticeProfile, practiceProfilePrompt } from '../shared/practiceProfile';
+import { prepareWebsiteBrief, websiteBriefPrompt } from './websiteBrief';
 import OpenAI from "openai";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { z } from "zod";
@@ -257,13 +259,17 @@ function buildSystemPrompt(lang: SiteLanguage): string {
   if (lang === "en") {
     return `You are Birdflow's onboarding guide: a friendly website expert who, through ONE conversation, collects everything needed to build the customer's first website. You write short and warm, ONE question at a time — never a form interrogation.
 
+## Audience and practice intake
+Focus on mental healthcare practices in Denmark: solo practitioners, clinics and psychologists starting a solo practice. Each website is either Danish or English, never automatically bilingual.
+Ask whether the practice is solo/clinic and new/established, who it helps, which services it offers, and whether the first contact should be native booking, an external scheduler or a contact request. Save supplied details in save_answers.practice. Keep service/practitioner keys stable when updating them; array entries merge by key. Keep credentials attached to the named person. Never invent prices, clinical claims, testimonials, practitioners or availability. Unknown information must stay absent. Do not ask for information already supplied. Ask one meaningful missing question at a time. The structured practice record is intake, not proof of operational setup.
+
 ## The flow (skip nothing, but follow the user's pace)
 1. The business: name, industry, and what they do (a couple of sentences).
-2. Goals: what should the site be able to do? (booking, webshop, portfolio, blog, contact form, newsletter) plus free-form wishes.
+2. Goals: how should a potential client take the first step (booking, an external scheduler or a contact request)? What services, prices and practitioner information can the owner supply? Collect other wishes when relevant.
 3. Material (optional): logo, own photos, inspiration images — use request_upload, and never push. If the user has no logo, offer ONCE to make one with generate_logo.
 4. Feeling: how should the site feel? (e.g. "calm and Nordic").
-5. Colours: call propose_palettes with the feeling. The user clicks a card — their choice arrives as their next message.
-6. Typography: call propose_font_pairs with the feeling and the chosen palette.
+5. Design choices: offer to choose colours and typography for the user. If they delegate, use choose_design_for_me. Do not force beginners to select fonts or colour codes.
+6. If they want control, use propose_palettes and propose_font_pairs; their card choices are saved automatically.
 7. Design draft: call preview_design so the user sees the concrete plan (pages, sections, design system) BEFORE the long build. Ask whether anything should be adjusted.
 8. When the user approves the draft: call build_site.
 
@@ -279,13 +285,17 @@ function buildSystemPrompt(lang: SiteLanguage): string {
 
   return `Du er Birdflows onboarding-guide: en venlig dansk hjemmeside-ekspert, der gennem én samtale samler alt, hvad der skal til for at bygge kundens første hjemmeside. Du SKRIVER kort og varmt, ét spørgsmål ad gangen — aldrig et formular-forhør.
 
+## Målgruppe og praksisoplysninger
+Fokusér på psykologisk/mental sundhed i Danmark: solopraksis, klinikker og psykologer, der starter egen praksis. Hver hjemmeside er enten dansk eller engelsk, ikke automatisk tosproget.
+Afklar solo/klinik og ny/etableret, målgruppe, ydelser og første kontakt: Birdflow-booking, eksternt bookingsystem eller kontaktforespørgsel. Gem de oplyste detaljer i save_answers.practice. Bevar stabile nøgler for ydelser og behandlere; poster flettes efter nøgle. Knyt kvalifikationer til den navngivne person. Opfind aldrig priser, behandlingsresultater, anmeldelser, behandlere eller ledige tider. Ukendte oplysninger forbliver tomme. Spørg ikke igen om kendte oplysninger. Stil ét relevant manglende spørgsmål ad gangen. Praksisoplysninger er ikke bevis på fungerende bookingopsætning.
+
 ## Forløbet (spring intet over, men følg brugerens tempo)
 1. Virksomheden: navn, branche, og hvad de laver (et par sætninger).
-2. Ønsker: hvad skal siden kunne? (booking, webshop, portfolio, blog, kontaktformular, nyhedsbrev) + frie ønsker.
+2. Ønsker: hvordan skal en potentiel klient tage første skridt (booking, eksternt bookingsystem eller kontaktforespørgsel)? Hvilke ydelser, priser og behandleroplysninger kan ejeren give? Indsaml øvrige ønsker, når de er relevante.
 3. Materiale (valgfrit): logo, egne billeder, inspirationsbilleder — brug request_upload, og pres aldrig. Har brugeren intet logo, så tilbyd ÉN gang at lave et med generate_logo.
 4. Følelse: hvordan skal siden føles? (fx "roligt og nordisk").
-5. Farver: kald propose_palettes med følelsen. Brugeren klikker på et kort — valget kommer som deres næste besked.
-6. Typografi: kald propose_font_pairs med følelsen og den valgte palet.
+5. Designvalg: tilbyd at vælge farver og typografi for brugeren. Når de overlader valget til dig, brug choose_design_for_me. Kræv ikke valg af skrifttyper eller farvekoder.
+6. Ønsker de selv kontrol, brug propose_palettes og propose_font_pairs; kortvalgene gemmes automatisk.
 7. Designudkast: kald preview_design, så brugeren ser den konkrete plan (sider, sektioner, designsystem) FØR den lange opbygning. Spørg om noget skal justeres.
 8. Når brugeren godkender udkastet: kald build_site.
 
@@ -303,6 +313,7 @@ function buildStatusContext(ctx: OnboardingAgentContext): string {
   const a = ctx.answers;
   if (ctx.lang === "en") {
     const lines = [
+      practiceProfilePrompt(a.practice),
       `Business: ${a.businessName ?? "?"} (${a.industry ?? "?"})`,
       `Description: ${a.description ?? "?"}`,
       `Goals: ${a.goals?.join(", ") || "?"}${a.notes ? ` — notes: ${a.notes}` : ""}`,
@@ -318,6 +329,7 @@ function buildStatusContext(ctx: OnboardingAgentContext): string {
   }
 
   const lines = [
+    practiceProfilePrompt(a.practice),
     `Virksomhed: ${a.businessName ?? "?"} (${a.industry ?? "?"})`,
     `Beskrivelse: ${a.description ?? "?"}`,
     `Ønsker: ${a.goals?.join(", ") || "?"}${a.notes ? ` — noter: ${a.notes}` : ""}`,
@@ -352,11 +364,24 @@ export function buildOnboardingTools(): OnboardingTool[] {
         .optional(),
       notes: z.string().max(2000).optional(),
       feeling: z.string().max(300).optional(),
+      practice: practiceProfileSchema.optional(),
+      removeServiceKeys: z.array(z.string().min(1).max(40)).max(24).optional(),
+      removePractitionerKeys: z.array(z.string().min(1).max(40)).max(8).optional(),
     }),
     run: async (args, ctx) => {
       const patch: Partial<OnboardingAnswers> = {};
       for (const key of ["businessName", "industry", "description", "goals", "notes", "feeling"] as const) {
         if (args[key] !== undefined) (patch as any)[key] = args[key];
+      }
+      if (args.practice !== undefined || args.removeServiceKeys || args.removePractitionerKeys) {
+        const checked = practiceProfileSchema.safeParse(args.practice ?? {});
+        if (!checked.success) return { ok: false, error: checked.error.issues.map(issue => issue.message).join('; ') };
+        try {
+          patch.practice = mergePracticeProfile(ctx.answers.practice, checked.data, { serviceKeys: args.removeServiceKeys, practitionerKeys: args.removePractitionerKeys });
+          if (ctx.answers.plan && JSON.stringify(patch.practice) !== JSON.stringify(ctx.answers.practice)) patch.plan = null;
+        } catch {
+          return { ok: false, error: 'The combined practice profile exceeds the supported limits. Please correct the profile.' };
+        }
       }
       if (Object.keys(patch).length === 0) {
         return { ok: false, error: say(ctx).nothingToSave };
@@ -544,6 +569,27 @@ export function buildOnboardingTools(): OnboardingTool[] {
   });
 
   tools.push({
+    name: 'choose_design_for_me',
+    description: 'Choose suggested colours and typography only after the user delegates those design decisions. Preserve any existing selections. Show the resulting design in preview_design for approval.',
+    parameters: z.object({}),
+    run: async (_args, ctx) => {
+      if (!ctx.answers.feeling) return { ok: false, error: say(ctx).needBasicsForPlan };
+      try {
+        const palette = ctx.answers.palette ?? (await proposePalettes(ctx.answers.feeling, ctx.state ?? emptyState(), ctx.lang, ctx.spendMeter))[0];
+        if (!palette) return { ok: false, error: say(ctx).needPaletteFirst };
+        const fontPair = ctx.answers.fontPair ?? (await proposeFontPairs(ctx.answers.feeling, palette as PaletteProposal, ctx.state ?? emptyState(), ctx.lang, ctx.spendMeter))[0];
+        if (!fontPair) return { ok: false, error: say(ctx).fontsFailed('No proposal returned') };
+        const patch = { palette, fontPair, plan: null, planBriefFingerprint: '' };
+        await storage.upsertOnboardingSession(ctx.userId, { answers: patch });
+        ctx.answers = { ...ctx.answers, ...patch };
+        return { ok: true, summary: ctx.lang === 'en' ? 'Selected a suggested design for your review.' : 'Valgte et designforslag til din gennemgang.', data: { palette: palette.name, typography: fontPair.name } };
+      } catch (error) {
+        return { ok: false, error: error instanceof Error ? error.message : 'Design selection unavailable' };
+      }
+    },
+  });
+
+  tools.push({
     name: "preview_design",
     description:
       "Create the concrete website plan (pages, sections, design system) and show it for approval BEFORE " +
@@ -558,6 +604,19 @@ export function buildOnboardingTools(): OnboardingTool[] {
         return { ok: false, error: say(ctx).needBasicsForPlan };
       }
       try {
+        const context = deriveBusinessContext({ businessName: a.businessName, industry: a.industry, description: a.description, language: ctx.lang, existing: ctx.state?.businessContext });
+        context.practice = a.practice ?? context.practice;
+        const briefInput = {
+          business: { name: a.businessName, industry: a.industry ?? '', description: a.description },
+          wishes: { goals: a.goals ?? [], notes: a.notes ?? '' }, feeling: a.feeling,
+          ownImageUrls: a.ownImageUrls ?? [], palette: a.palette as PaletteProposal | undefined,
+          fontPair: a.fontPair as FontPairProposal | undefined, practice: a.practice, language: ctx.lang,
+        };
+        const websiteBrief = prepareWebsiteBrief(briefInput, context, a.websiteBrief);
+        // Save the requirements before paying for planning. A failed provider
+        // call leaves a recoverable, inspectable brief in the existing session.
+        await storage.upsertOnboardingSession(ctx.userId, { answers: { websiteBrief } });
+        ctx.answers = { ...ctx.answers, websiteBrief };
         const goals = a.goals?.join(", ") || (ctx.lang === "en" ? "a professional website" : "en professionel hjemmeside");
         const prompt = (
           ctx.lang === "en"
@@ -568,6 +627,7 @@ export function buildOnboardingTools(): OnboardingTool[] {
                 a.notes ? `Other wishes: ${a.notes}` : "",
                 `The feeling: ${a.feeling}.`,
                 adjustments ? `IMPORTANT ADJUSTMENTS from the user to the previous draft: ${adjustments}` : "",
+                practiceProfilePrompt(a.practice),
                 copyLanguageInstruction("en"),
               ]
             : [
@@ -577,29 +637,25 @@ export function buildOnboardingTools(): OnboardingTool[] {
                 a.notes ? `Øvrige ønsker: ${a.notes}` : "",
                 `Følelsen: ${a.feeling}.`,
                 adjustments ? `VIGTIGE JUSTERINGER fra brugeren til forrige udkast: ${adjustments}` : "",
+                practiceProfilePrompt(a.practice),
                 copyLanguageInstruction("da"),
               ]
         )
           .filter(Boolean)
           .join("\n");
         const result = await analyzeAndPlanWebsite(
-          prompt,
+          [prompt, websiteBriefPrompt(websiteBrief)].join('\n\n'),
           undefined,
           undefined,
           ctx.spendMeter,
-          deriveBusinessContext({
-            businessName: a.businessName,
-            industry: a.industry,
-            description: a.description,
-            language: ctx.lang,
-          })
+          context
         );
         if (!result.success || !result.plan) {
           return { ok: false, error: result.error ?? say(ctx).planCouldNotBeMade };
         }
         const plan = result.plan;
         plan.siteName = a.businessName;
-        const patch = { plan: plan as unknown };
+        const patch = { plan: plan as unknown, planBriefFingerprint: websiteBrief.fingerprint };
         ctx.answers = { ...ctx.answers, ...patch };
         await storage.upsertOnboardingSession(ctx.userId, { answers: patch });
         return {
@@ -609,7 +665,7 @@ export function buildOnboardingTools(): OnboardingTool[] {
             pages: plan.pages.map((p) => ({ name: p.name, path: p.path, sections: p.sections.length })),
             tone: plan.designSystem.tone,
           },
-          display: { kind: "sitePlan", value: { plan } },
+          display: { kind: "sitePlan", value: { plan, websiteBrief } },
         };
       } catch (err: any) {
         return { ok: false, error: say(ctx).planFailed(err?.message ?? err) };
@@ -641,6 +697,7 @@ export function buildOnboardingTools(): OnboardingTool[] {
       }
 
       const input: OnboardingGenInput = {
+        practice: a.practice,
         business: {
           name: a.businessName!,
           industry: a.industry ?? "",
@@ -656,6 +713,7 @@ export function buildOnboardingTools(): OnboardingTool[] {
         ownImageUrls: a.ownImageUrls ?? [],
         // What the user approved in the preview is what gets built.
         plan: a.plan as WebsitePlan | undefined,
+        planBriefFingerprint: a.planBriefFingerprint,
         // Everything the pipeline writes follows the language the customer
         // chose right after the fork.
         language: ctx.lang,

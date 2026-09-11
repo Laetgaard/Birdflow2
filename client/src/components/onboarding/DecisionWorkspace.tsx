@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   Monitor,
+  Tablet,
   Smartphone,
   RefreshCw,
   Eye,
@@ -13,6 +14,7 @@ import {
   CalendarHeart,
 } from "lucide-react";
 import type { BrandGuide } from "@shared/customComponents";
+import type { WebsiteReadiness } from '@shared/websiteReadiness';
 import type { OnboardingDecisionSnapshot, OnboardingResumeStage } from "@shared/onboardingDecision";
 import { BrandGuideView } from "./BrandGuideView";
 import { MeetingBooking, MeetingConfirmation, type PlatformMeeting } from "./MeetingBooking";
@@ -55,6 +57,34 @@ export type DesignDirection = {
 
 type Tab = "site" | "brand" | "report" | "adjust";
 
+export function ReadinessSummary({ readiness }: { readiness?: WebsiteReadiness | null }) {
+  if (!readiness) return null;
+  const labels = { content: 'Indhold og struktur', visualReview: 'Visuel gennemgang', bookingSetup: 'Bookingopsætning' };
+  const statuses = { passed: 'Kontrolleret', needs_repair: 'Kræver rettelse', needs_owner_input: 'Mangler dine oplysninger', unavailable: 'Ikke kontrolleret', not_applicable: 'Ikke relevant' };
+  const messages: Record<string, string> = {
+    'booking.services_missing': 'Opret de ydelser, der skal kunne bookes.',
+    'booking.setup_present_not_reservation_tested': 'Ydelser og tider er oprettet. En gennemført reservation, betaling og bekræftelse er endnu ikke kontrolleret.',
+    'booking.setup_check_unavailable': 'Bookingopsætningen kunne ikke kontrolleres. Prøv igen.',
+    'booking.external_not_checked': 'Ekstern booking skal afprøves hos den valgte udbyder.',
+    'booking.native_not_requested': 'Hjemmesiden bruger ikke Birdflows booking.',
+    'visual.current_review_missing': 'Denne version mangler en visuel gennemgang. Et tidligere resultat gælder ikke efter ændringer.',
+  };
+  const explain = (message: string) => message.startsWith('booking.hours_missing:') ? 'Tilføj åbningstider eller ledige tider til ' + message.split(':').slice(1).join(':')
+    : message.startsWith('booking.service_mismatch:') ? 'Bookingens navn, varighed eller pris matcher endnu ikke dine oplysninger for ' + message.split(':').slice(1).join(':')
+    : message.startsWith('booking.service_invalid:') ? 'Kontrollér oplysningerne for ' + message.split(':').slice(1).join(':') : messages[message] ?? message;
+  return (
+    <section className="mb-5 space-y-3" data-testid="website-readiness" aria-label="Status for hjemmesiden">
+      <p className="text-sm text-neutral-600">Gennemgang af version {readiness.builderRevision}. Kontrollerne erstatter ikke din godkendelse af indhold og design.</p>
+      {Object.entries(readiness.checks).map(([key, check]) => (
+        <div key={key} className="rounded-xl border border-black/10 p-3">
+          <p className="text-sm font-bold">{labels[key as keyof typeof labels]} · {statuses[check.status]}</p>
+          {check.messages.map((message, index) => <p key={index} className="mt-1 text-sm text-neutral-600">{explain(message)}</p>)}
+        </div>
+      ))}
+    </section>
+  );
+}
+
 function useIsDesktop(): boolean {
   const [isDesktop, setIsDesktop] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches
@@ -89,6 +119,7 @@ function PreviewPane({
   directionId?: string | null;
 }) {
   const [device, setDevice] = useState<PreviewDevice>("desktop");
+  const [renderer, setRenderer] = useState<'builder' | 'published'>('builder');
   const [reloadKey, setReloadKey] = useState(0);
   const [scale, setScale] = useState(1);
   const [ready, setReady] = useState(false);
@@ -119,6 +150,7 @@ function PreviewPane({
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
+      if (event.source !== frameRef.current?.contentWindow) return;
       const payload = event.data;
       if (!payload) return;
       if (payload.type === "bf-preview-ready") setReady(true);
@@ -167,7 +199,7 @@ function PreviewPane({
     setReady(false);
     setParityError(null);
     setRenderDegradedError(null);
-  }, [directionId]);
+  }, [directionId, renderer]);
 
   const frameHeight = device === "mobile" ? 780 : 900;
 
@@ -184,6 +216,10 @@ function PreviewPane({
           Forhåndsvisning
         </span>
 
+        <select aria-label="Visning" value={renderer} onChange={event => setRenderer(event.target.value as 'builder' | 'published')} className="h-8 rounded-lg border border-black/10 bg-white px-2 text-xs">
+          <option value="builder">Byggervisning</option>
+          <option value="published">Udgivelsesvisning (simulerede indsendelser)</option>
+        </select>
         {pages.length > 1 && (
           <select
             value={activePageId ?? pages[0]?.id}
@@ -211,6 +247,16 @@ function PreviewPane({
             >
               <Monitor className="h-3.5 w-3.5" />
               Computer
+            </button>
+            <button
+              type="button"
+              onClick={() => setDevice("tablet")}
+              className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-colors"
+              style={device === "tablet" ? { background: PURPLE, color: "#fff" } : undefined}
+              data-testid="button-device-tablet"
+            >
+              <Tablet className="h-3.5 w-3.5" />
+              Tablet
             </button>
             <button
               type="button"
@@ -259,7 +305,7 @@ function PreviewPane({
             key={reloadKey}
             ref={frameRef}
             title="Forhåndsvisning af din hjemmeside"
-            src={`/onboarding/preview/${websiteId}${directionId ? `?directionId=${encodeURIComponent(directionId)}` : ""}`}
+            src={`/onboarding/preview/${websiteId}?${new URLSearchParams({ renderer, ...(directionId ? { directionId } : {}) }).toString()}`}
             // No allow-forms, no allow-popups, no allow-top-navigation: nothing
             // inside the customer's site can submit, pay, open a window or move
             // the page. allow-same-origin is what lets it read the signed-in
@@ -301,11 +347,11 @@ function DirectionCards({
     <section aria-labelledby="design-directions-heading" aria-busy={busy} data-testid="design-directions">
       <div className="mb-3">
         <h2 id="design-directions-heading" className="text-base font-extrabold">
-          Vælg designretning
+          {directions.length === 1 ? 'Dit hjemmesideudkast' : 'Vælg designretning'}
         </h2>
-        <p className="mt-0.5 text-sm text-neutral-600">Sammenlign de tre forslag, og vælg den retning du vil gå videre med.</p>
+        <p className="mt-0.5 text-sm text-neutral-600">{directions.length === 1 ? 'Gennemgå alle sider, og tilpas indhold og design.' : 'Sammenlign forslagene, og vælg den retning du vil gå videre med.'}</p>
       </div>
-      <div className="grid gap-3 md:grid-cols-3">
+      <div className={directions.length === 1 ? 'grid gap-3' : 'grid gap-3 md:grid-cols-3'}>
         {directions.map((direction) => {
           const selected = selectedDirectionId ? selectedDirectionId === direction.id : direction.selected;
           return (
@@ -330,7 +376,7 @@ function DirectionCards({
               <span className="mt-2 block text-sm font-medium text-neutral-700">{direction.concept}</span>
               <span className="mt-1 block text-xs leading-relaxed text-neutral-600">{direction.designIntent}</span>
               <span className="mt-3 block text-xs text-neutral-500">
-                Kvalitet: {direction.qualityScore.overall} · Afvigelse: {direction.brandDeviation.level}
+                {direction.brandDeviation.rationale}
               </span>
               {busy && !selected && <span className="mt-2 block text-xs font-semibold" style={{ color: PURPLE }}>Vælger retning…</span>}
             </button>
@@ -558,6 +604,7 @@ export function DecisionWorkspace({
   selectedDirectionId = null,
   brandGuide,
   reportSlot,
+  readiness,
   adjustmentsSlot,
   meeting,
   token,
@@ -584,6 +631,7 @@ export function DecisionWorkspace({
   selectedDirectionId?: string | null;
   brandGuide: BrandGuide;
   reportSlot: ReactNode;
+  readiness?: WebsiteReadiness | null;
   adjustmentsSlot: ReactNode;
   meeting: PlatformMeeting | null;
   token: string | null;
@@ -655,7 +703,7 @@ export function DecisionWorkspace({
           downloading={downloading}
         />
       )}
-      {tab === "report" && <div data-testid="panel-report">{reportSlot}</div>}
+      {tab === "report" && <div data-testid="panel-report"><ReadinessSummary readiness={readiness} />{reportSlot}</div>}
       {tab === "adjust" && <div data-testid="panel-adjustments">{adjustmentsSlot}</div>}
     </>
   );

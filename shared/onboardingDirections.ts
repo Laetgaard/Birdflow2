@@ -27,6 +27,9 @@ export type WebsiteBriefAsset = {
 
 export type WebsiteBrief = {
   version: 1;
+  language?: 'da' | 'en';
+  practice?: import('./practiceProfile').PracticeProfile;
+  design?: { feeling: string; palette?: Record<string, string>; headingFont?: string; bodyFont?: string };
   businessName: string;
   industry: string;
   audience?: string;
@@ -125,4 +128,12 @@ export type OnboardingDirectionBundle = {
   /** Builder revision at which direction switching is still safe. */
   selectionRevision: number;
   createdAt: string;
+};
+
+/** Immutable input snapshot. Its revision changes only when the brief changes. */
+export type WebsiteBriefSnapshot = {
+  version: 1;
+  revision: number;
+  fingerprint: string;
+  brief: WebsiteBrief;
 };

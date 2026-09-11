@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { BuilderStateData } from "@shared/schema";
 import { componentRegistry, type BuilderComponentData, type ComponentProps, type ComponentStyles } from "@shared/componentRegistry";
 import type { PrimitiveNode } from "@shared/customComponents";
-import { CAPABILITY_LABELS } from "@shared/customComponents";
+import { updatePrimitiveNode, sanitizeCapabilityConfig, CAPABILITY_LABELS } from "@shared/customComponents";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -267,7 +267,9 @@ export default function BuilderInspector({
               {!selectedComponent && <span className="text-foreground">Intet valgt</span>}
             </div>
             {selectedNode && <NodeMetadata node={selectedNode} device={device} />}
-            {selectedNode?.type === "capability" && <CapabilitySample node={selectedNode} />}
+            {selectedNode?.type === "capability" && (selectedNode.capability === 'booking' && selectedComponent?.props.customTree ?
+              <BookingCapabilitySettings node={selectedNode} onChange={config => onUpdate({ props: { customTree: updatePrimitiveNode(selectedComponent.props.customTree!, selectedNode.id, current => ({ ...current, capabilityConfig: sanitizeCapabilityConfig('booking', config) })) } })} /> :
+              <CapabilitySample node={selectedNode} />)}
             {selectedComponent ? (
               componentRegistry[selectedComponent.type] ? (
                 <>
@@ -375,4 +377,19 @@ function CapabilitySample({ node }: { node: PrimitiveNode }) {
       {mode === "submitted" && <p className="text-[11px] text-primary font-medium">Prøvehandling gennemført lokalt.</p>}
     </div>
   );
+}
+function BookingCapabilitySettings({ node, onChange }: { node: PrimitiveNode; onChange: (config: Record<string, string | number | boolean>) => void }) {
+  const config = node.capabilityConfig || {};
+  const change = (key: string, value: string | boolean) => onChange({ ...config, [key]: value });
+  return <div className="rounded-lg border p-3 space-y-3" data-testid="booking-capability-settings">
+    <p className="text-sm font-medium">Bookingdesign</p>
+    {([['title', 'Overskrift'], ['description', 'Beskrivelse'], ['buttonText', 'Knaptekst']] as const).map(([key, label]) =>
+      <label key={key} className="block text-xs space-y-1"><span>{label}</span><Input value={String(config[key] || '')} maxLength={200} onChange={event => change(key, event.target.value)} /></label>)}
+    <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={config.headingVisible !== false} onChange={event => change('headingVisible', event.target.checked)} />Vis overskrift</label>
+    <label className="block text-xs">Layout<select className="block w-full border rounded p-2 mt-1" value={String(config.variant || 'default')} onChange={event => change('variant', event.target.value)}>
+      <option value="default">Standard</option><option value="compact">Kompakt</option><option value="inline">Fuld bredde</option></select></label>
+    <label className="block text-xs">Datovælger<select className="block w-full border rounded p-2 mt-1" value={String(config.displayMode || 'calendar')} onChange={event => change('displayMode', event.target.value)}>
+      <option value="calendar">Kalender</option><option value="list">Enkel datovælger</option></select></label>
+    <p className="text-xs text-muted-foreground">Ydelser og ledige tider kommer fra bookingopsætningen. Prøvevisning opretter ingen reservation.</p>
+  </div>;
 }

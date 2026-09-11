@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { tmpdir } from 'node:os';
 import { afterEach, describe, expect, it } from 'vitest';
 import {
   createDeploymentIdentity,
@@ -13,7 +14,10 @@ import {
 const temporaryDirs: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(temporaryDirs.splice(0).map((dir) => fs.rm(dir, { recursive: true, force: true })));
+  await Promise.all(temporaryDirs.splice(0).map((dir) => {
+    if (path.dirname(path.resolve(dir)) !== path.resolve(tmpdir()) || !path.basename(dir).startsWith('birdflow-marker-')) throw new Error('Unexpected test cleanup path');
+    return fs.rm(dir, { recursive: true, force: true });
+  }));
 });
 
 describe('publish deployment identity', () => {
@@ -34,7 +38,7 @@ describe('publish deployment identity', () => {
   });
 
   it('accepts only a matching marker in the generated artifact', async () => {
-    const projectDir = await fs.mkdtemp('/tmp/birdflow-marker-');
+    const projectDir = await fs.mkdtemp(path.join(tmpdir(), 'birdflow-marker-'));
     temporaryDirs.push(projectDir);
     const markerFile = path.join(projectDir, 'public', DEPLOYMENT_MARKER_PATH.slice(1));
     await fs.mkdir(path.dirname(markerFile), { recursive: true });

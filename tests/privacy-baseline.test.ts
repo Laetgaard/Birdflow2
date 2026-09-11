@@ -12,6 +12,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { renderBookingView } from './helpers/renderParity';
 import {
   generateComponentRenderer,
   generateBookingForm,
@@ -59,7 +60,7 @@ describe('generated site footer — legal links', () => {
 
 describe('generated booking form — data notice', () => {
   it('contains a data-notice sentence linking to /privacy (DA)', () => {
-    const src = generateBookingForm('da');
+    const src = renderBookingView('da');
     // Sentence text
     expect(src).toContain(
       'Dine oplysninger bruges kun til at håndtere din booking'
@@ -69,7 +70,7 @@ describe('generated booking form — data notice', () => {
   });
 
   it('contains a data-notice sentence linking to /privacy (EN)', () => {
-    const src = generateBookingForm('en');
+    const src = renderBookingView('en');
     expect(src).toContain(
       'Your details are only used to process your booking'
     );
@@ -77,7 +78,7 @@ describe('generated booking form — data notice', () => {
   });
 
   it('data notice appears before the confirm button (ordering)', () => {
-    const src = generateBookingForm('da');
+    const src = renderBookingView('da');
     const noticeIdx  = src.indexOf('Dine oplysninger bruges kun');
     const confirmIdx = src.indexOf('button-confirm-booking');
     expect(noticeIdx).toBeGreaterThan(0);

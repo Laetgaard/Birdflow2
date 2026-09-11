@@ -115,6 +115,7 @@ import {
 } from "@shared/builderHistory";
 
 type Website = {
+  language?: 'da' | 'en';
   id: string;
   name: string;
   status: string;
@@ -210,6 +211,8 @@ export default function BuilderPage() {
   const [hasPendingEdit, setHasPendingEdit] = useState(false);
   const [showCoachMarks, setShowCoachMarks] = useState(false);
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
+  const [publishedPreview, setPublishedPreview] = useState<{ html: string; revision: number } | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const autoSaveTimerRef = useRef<NodeJS.Timeout | null>(null);
   const saveInFlightRef = useRef(false);
   // Monotone counter incremented by every restore.  executeSave captures the
@@ -821,6 +824,7 @@ export default function BuilderPage() {
         },
         body: JSON.stringify({
           idempotencyKey: `${id}-${Date.now()}`,
+          expectedRevision: revisionRef.current,
         }),
       });
 
@@ -1704,6 +1708,34 @@ export default function BuilderPage() {
 
         <Separator orientation="vertical" className="h-6 hidden lg:block" />
 
+        <Button size="sm" variant="outline" disabled={previewLoading || isSaving} data-testid="button-published-preview" onClick={async () => {
+          if (!session || !id || !builderState) return;
+          setPreviewLoading(true);
+          try {
+            if (autoSaveTimerRef.current) { clearTimeout(autoSaveTimerRef.current); autoSaveTimerRef.current = null; }
+            if (!await saveState(builderState)) throw new Error('Gem ændringerne, før du åbner forhåndsvisningen.');
+            const response = await fetch(`/api/websites/${id}/published-preview?revision=${revisionRef.current}`, { headers: { Authorization: `Bearer ${session.access_token}` } });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.message || 'Forhåndsvisningen kunne ikke åbnes.');
+            setPublishedPreview(result);
+          } catch (error) {
+            toast({ title: 'Forhåndsvisning', description: error instanceof Error ? error.message : 'Kunne ikke åbnes', variant: 'destructive' });
+          } finally { setPreviewLoading(false); }
+        }}>{previewLoading ? 'Åbner…' : 'Vis hjemmeside'}</Button>
+        <Dialog open={!!publishedPreview} onOpenChange={open => { if (!open) setPublishedPreview(null); }}>
+          <DialogContent className="max-w-[95vw] w-[1400px]">
+            <DialogHeader>
+              <DialogTitle>Udgivelsesvisning · version {publishedPreview?.revision}</DialogTitle>
+              <DialogDescription>Forhåndsvisning af den gemte hjemmeside. Booking og formularer er en simulation; ingen reservationer, beskeder eller betalinger bliver oprettet.</DialogDescription>
+            </DialogHeader>
+            <div className="flex gap-2">
+              {(['desktop', 'tablet', 'mobile'] as const).map(value => <Button key={value} size="sm" variant={device === value ? 'default' : 'outline'} onClick={() => setDevice(value)}>{value === 'desktop' ? 'Computer' : value === 'tablet' ? 'Tablet' : 'Mobil'}</Button>)}
+            </div>
+            <div className="overflow-auto bg-neutral-100">
+              {publishedPreview && <iframe title="Udgivelsesvisning af hjemmesiden" srcDoc={publishedPreview.html} sandbox="allow-scripts allow-same-origin" style={{ width: device === 'desktop' ? 1200 : device === 'tablet' ? 768 : 390, height: '70vh', border: 0, display: 'block', margin: '0 auto' }} />}
+            </div>
+          </DialogContent>
+        </Dialog>
         {/* Action buttons - save always visible, others hidden on small screens */}
         <div className="flex items-center gap-1 md:gap-2">
           <Button size="sm" className={`gap-1 md:gap-2 px-2 md:px-3 relative ${isDirty ? 'border-amber-400' : ''}`} variant={isDirty ? "outline" : "default"} onClick={() => { if (autoSaveTimerRef.current) { clearTimeout(autoSaveTimerRef.current); autoSaveTimerRef.current = null; } saveState(builderState); }} disabled={isSaving} data-testid="button-save">
@@ -1942,6 +1974,7 @@ export default function BuilderPage() {
                   {topLevelComponents(canvasComponents).map((comp, idx) => (
                     <div key={comp.id}>
                       <ComponentRenderer
+                        language={website?.language === "en" ? "en" : "da"}
                         component={comp}
                         isSelected={selectedComponentId === comp.id}
                         onClick={() => {

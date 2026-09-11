@@ -1,5 +1,8 @@
+import BookingWidget from './BookingWidget';
 import { useRef, useEffect, useCallback, useMemo, useState } from "react";
-import type React from "react";
+import * as React from "react";
+import { createBehaviorRuntime } from "@shared/rendering/behaviorRuntime";
+const NativeBehavior = createBehaviorRuntime(React);
 import { Check, ImageIcon } from "lucide-react";
 import type { BuilderComponentData, ComponentStyles } from "@shared/componentRegistry";
 import {
@@ -34,6 +37,8 @@ type GlobalStylesLike = {
 };
 
 type Props = {
+  websiteId?: string;
+  language?: "da" | "en";
   component: BuilderComponentData;
   isSelected?: boolean;
   onClick?: (e: React.MouseEvent) => void;
@@ -193,6 +198,8 @@ function NodeEditableText({ value, field, isEditing, onEdit, onChange, style, ta
 }
 
 type NodeRendererProps = {
+  websiteId?: string;
+  language?: "da" | "en";
   node: PrimitiveNode;
   isPreview?: boolean;
   deviceMode?: DeviceMode;
@@ -286,6 +293,8 @@ function SafeCapabilityPreview({
 }
 
 function NodeRenderer({
+  websiteId,
+  language,
   node,
   isPreview,
   deviceMode,
@@ -367,6 +376,16 @@ function NodeRenderer({
         ...selectionStyles,
         ...motionStyle,
       };
+      if (node.behavior) return (
+        <div {...dataAttrs} {...motionProps} style={style} onClick={handleNodeClick}>
+          <NativeBehavior node={node} primaryColor={globalStyles?.primaryColor} language={language} editing={!isPreview}
+            renderChild={(child, index) => <NodeRenderer key={child.id} node={child} language={language}
+              isPreview={isPreview} deviceMode={deviceMode} websiteId={websiteId} selectedNodeId={selectedNodeId} onNodeSelect={onNodeSelect}
+              onTextChange={onTextChange} editingField={editingField} onEditField={onEditField} globalStyles={globalStyles}
+              canInlineEdit={canInlineEdit} svgAssets={svgAssets} svgTokens={svgTokens} depth={depth + 1}
+              staggerParent={isStaggerBox && ownMotion ? { spec: ownMotion, index } : undefined} />} />
+        </div>
+      );
       return (
         <div {...dataAttrs} {...motionProps} style={style} onClick={handleNodeClick}>
           {/* Behavior badge — editor-only indicator showing the interaction type */}
@@ -395,7 +414,8 @@ function NodeRenderer({
               key={child.id}
               node={child}
               isPreview={isPreview}
-              deviceMode={deviceMode}
+              deviceMode={deviceMode} websiteId={websiteId}
+              language={language}
               selectedNodeId={selectedNodeId}
               onNodeSelect={onNodeSelect}
               onTextChange={onTextChange}
@@ -606,6 +626,9 @@ function NodeRenderer({
       // implementation; the publisher generates it. Clicking selects the node
       // so the user can reposition or wrap it.
       const capType = node.capability as CapabilityType | undefined;
+      if (capType === 'booking') return <div {...dataAttrs} {...motionProps} style={{ ...resolved, ...selectionStyles, ...motionStyle }} onClick={handleNodeClick}>
+        <BookingWidget websiteId={websiteId || ''} language={language} props={node.capabilityConfig || {}} styles={{ fontFamily: svgTokens?.["font.body"] || globalStyles?.fontFamily, accentColor: globalStyles?.primaryColor }} isPreview={isPreview} onClick={handleNodeClick} />
+      </div>;
       const label = (capType && CAPABILITY_LABELS[capType]) || String(capType || "Widget");
       if (isPreview) {
         const icon = (capType && CAPABILITY_ICONS[capType]) || "⚙️";
@@ -678,6 +701,8 @@ function NodeRenderer({
  * keep the two in visual parity.
  */
 export default function CustomComponentRenderer({
+  websiteId,
+  language,
   component,
   isSelected,
   onClick,
@@ -766,7 +791,8 @@ export default function CustomComponentRenderer({
       <NodeRenderer
         node={tree}
         isPreview={isPreview}
-        deviceMode={deviceMode}
+        deviceMode={deviceMode} websiteId={websiteId}
+              language={language}
         selectedNodeId={selectedNodeId}
         onNodeSelect={onNodeSelect}
         onTextChange={onTextChange}
