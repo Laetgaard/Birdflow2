@@ -5,8 +5,6 @@ import * as path from 'path';
 import { randomUUID } from 'crypto';
 import type { BuilderStateData } from '../../shared/schema';
 import { sanitizeBuilderStateCustomContent } from '../../shared/customComponents';
-import type { ThemeConfig } from '../../shared/rendering/types';
-import { themeFromGlobalStyles } from '../../shared/rendering/theme';
 import { resolveApprovedFontStack } from '../../shared/fonts';
 import {
   composePageComponents,
@@ -15,6 +13,7 @@ import {
   resolveNavItems,
 } from '../../shared/siteStructure';
 import { missingRendererCases, unrenderableComponents, describeUnrenderable } from './coverage';
+import { normalizePages } from './normalize';
 import { validateBuilderStateForPublish } from './validate';
 import { migrateSiteStateToCurrent } from './migrations';
 import { ObjectStorageService, ObjectNotFoundError } from '../replit_integrations/object_storage/objectStorage';
@@ -265,9 +264,6 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     ) as typeof processedBuilderState.pages,
   };
 
-  // Built in shared/ so the builder canvas draws against the same theme.
-  const theme: ThemeConfig = themeFromGlobalStyles(globalStyles);
-  
   // A component type the publisher cannot draw would come out as a blank
   // space on the live site while looking finished in the builder. Refuse to
   // build instead of shipping that difference.
