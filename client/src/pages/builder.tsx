@@ -77,6 +77,9 @@ import BusinessFactsPanel from "@/components/builder/BusinessFactsPanel";
 import AdminEditingBanner from "@/components/AdminEditingBanner";
 import { startAdminSession, clearAdminSession } from "@/lib/adminSession";
 import { ensureApprovedFonts } from "@/lib/googleFonts";
+import CanvasFrame from "@/components/builder/CanvasFrame";
+import { CanvasDocumentProvider } from "@/components/builder/canvasDocument";
+import { themeFromGlobalStyles } from "@shared/rendering/theme";
 import ComponentRenderer from "@/components/builder/ComponentRenderer";
 import { topLevelComponents } from "@shared/rendering/contract";
 import { migrateStateToTokens } from "@shared/designTokens";
@@ -134,6 +137,79 @@ const DEVICE_WIDTHS: Record<DeviceType, number> = {
   tablet: 768,
   mobile: 375,
 };
+
+// Viewport heights to go with them. The canvas frame is a real viewport, so
+// `100vh` in a hero means what it will mean on the device and the page scrolls
+// the way a visitor's will.
+const DEVICE_HEIGHTS: Record<DeviceType, number> = {
+  desktop: 800,
+  tablet: 1024,
+  mobile: 812,
+};
+
+/**
+ * Whether to draw the canvas in a frame of its own.
+ *
+ * The frame is the honest preview — a real viewport, and only the stylesheet
+ * the published site loads — but it moves every canvas element into a second
+ * document, which the selection and drag overlays have to be taught about. Opt
+ * in with `?canvas=iframe` until that migration is finished and verified.
+ */
+function useFramedCanvas(): boolean {
+  return useMemo(() => {
+    if (typeof window === 'undefined') return false;
+    return new URLSearchParams(window.location.search).get('canvas') === 'iframe';
+  }, []);
+}
+
+/**
+ * The device-sized box the page is drawn in.
+ *
+ * Legacy path: a plain div in the builder document, where a section's own
+ * `@media (max-width: 640px)` rule answers to the browser window rather than
+ * the 375px box — so the testimonials carousel never appears in the phone
+ * preview and the product grid shows four columns inside it.
+ */
+function CanvasShell({
+  device,
+  globalStyles,
+  children,
+}: {
+  device: DeviceType;
+  globalStyles: BuilderStateData['globalStyles'] | undefined;
+  children: React.ReactNode;
+}) {
+  const framed = useFramedCanvas();
+  const theme = useMemo(() => themeFromGlobalStyles(globalStyles), [globalStyles]);
+
+  const chrome = {
+    borderRadius: device === 'mobile' ? '24px' : '8px',
+  } as const;
+
+  if (!framed) {
+    return (
+      <div
+        className="bg-white shadow-2xl transition-all duration-300 overflow-hidden"
+        style={{
+          width: `${DEVICE_WIDTHS[device]}px`,
+          maxWidth: '100%',
+          minHeight: '600px',
+          ...chrome,
+        }}
+      >
+        {children}
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white shadow-2xl transition-all duration-300 overflow-hidden" style={chrome}>
+      <CanvasFrame width={DEVICE_WIDTHS[device]} height={DEVICE_HEIGHTS[device]} theme={theme}>
+        {children}
+      </CanvasFrame>
+    </div>
+  );
+}
 
 const ICON_MAP: Record<string, any> = {
   layout: Layout,
@@ -1890,6 +1966,7 @@ export default function BuilderPage() {
           pages={builderState?.pages}
           activePage={builderState?.activePage}
         >
+          <CanvasDocumentProvider>
           <ElementSelectionProvider
             onElementStyleChange={(componentId, path, styles) => {
               // Update element styles within the component's builder state
@@ -1916,15 +1993,7 @@ export default function BuilderPage() {
             }}
             data-preview-area
           >
-            <div 
-              className="bg-white shadow-2xl transition-all duration-300 overflow-hidden"
-              style={{ 
-                width: `${DEVICE_WIDTHS[device]}px`, 
-                maxWidth: '100%',
-                minHeight: '600px',
-                borderRadius: device === 'mobile' ? '24px' : '8px',
-              }}
-            >
+            <CanvasShell device={device} globalStyles={builderState?.globalStyles}>
               {canvasComponents.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full text-muted-foreground p-12">
                   <div className="w-20 h-20 rounded-3xl bg-muted/80 flex items-center justify-center mb-6">
@@ -1991,7 +2060,7 @@ export default function BuilderPage() {
                   ))}
                 </>
               )}
-            </div>
+            </CanvasShell>
             <ElementOverlay
               containerRef={previewContainerRef}
               isPreview={false}
@@ -2404,6 +2473,7 @@ export default function BuilderPage() {
         </aside>
         )}
         </ElementSelectionProvider>
+        </CanvasDocumentProvider>
         </BuilderSelectionProvider>
       </div>
 

@@ -4,6 +4,7 @@ import { randomUUID } from 'crypto';
 import type { BuilderStateData } from '../../shared/schema';
 import { sanitizeBuilderStateCustomContent } from '../../shared/customComponents';
 import type { ThemeConfig } from '../../shared/rendering/types';
+import { themeFromGlobalStyles } from '../../shared/rendering/theme';
 import { resolveApprovedFontStack } from '../../shared/fonts';
 import {
   TOKEN_FALLBACKS,
@@ -285,27 +286,8 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     ) as typeof processedBuilderState.pages,
   };
 
-  const theme: ThemeConfig = {
-    primaryColor: resolvedTokens['color.primary'],
-    secondaryColor: resolvedTokens['color.secondary'],
-    accentColor: resolvedTokens['color.accent'],
-    // The body font a section inherits is the resolved token, not the raw
-    // stored value: a website that pairs two fonts keeps its body font here
-    // and its heading font in the rule globals.css emits, exactly as the
-    // builder preview does.
-    fontFamily: resolvedTokens['font.body'],
-    headingFontFamily: resolvedTokens['font.heading'],
-    backgroundColor: resolvedTokens['color.background'],
-    surfaceColor: resolvedTokens['color.surface'],
-    textColor: resolvedTokens['color.text'],
-    borderRadius: globalStyles.borderRadius || TOKEN_FALLBACKS.borderRadius,
-    containerWidth: resolvedTokens['size.container'],
-    spacingScale: globalStyles.spacingScale || 'comfortable',
-    sectionGap: globalStyles.sectionGap || '0',
-    buttonStyle: globalStyles.buttonStyle || 'solid',
-    cardStyle: globalStyles.cardStyle || 'elevated',
-    tokens: resolvedTokens,
-  };
+  // Built in shared/ so the builder canvas draws against the same theme.
+  const theme: ThemeConfig = themeFromGlobalStyles(globalStyles);
   
   // A component type the publisher cannot draw would come out as a blank
   // space on the live site while looking finished in the builder. Refuse to
