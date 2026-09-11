@@ -13,7 +13,7 @@ import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import * as esbuild from 'esbuild';
 import BuilderComponentRenderer from '../../client/src/components/builder/ComponentRenderer';
-import { generateComponentRenderer } from '../../server/publisher/templates';
+import { generateBookingForm, generateComponentRenderer, generateTrustedRuntime } from '../../server/publisher/templates';
 import type { BuilderComponentData } from '@shared/componentRegistry';
 import { resolveDesignTokens, resolveTokensDeep } from '@shared/designTokens';
 
@@ -45,6 +45,31 @@ type PublishedRenderer = (props: {
 
 let cached: { source: string; renderer: PublishedRenderer } | null = null;
 
+export function loadTrustedRuntime() {
+  const { code } = esbuild.transformSync(generateTrustedRuntime(), { format: 'cjs', target: 'node18' });
+  const module = { exports: {} as Record<string, any> };
+  new Function('module', 'exports', code)(module, module.exports);
+  return module.exports;
+}
+
+export function renderBookingView(language: 'da' | 'en', overrides: Record<string, unknown> = {}) {
+  const View = loadTrustedRuntime().createBookingView(React);
+  return renderToStaticMarkup(React.createElement(View, {
+    language, props: {}, styles: {}, step: 'details', status: 'idle',
+    services: [], members: [], slots: [], selectedService: '', selectedMember: '', selectedDate: '', selectedTime: '',
+    customer: {name:'',email:'',phone:'',notes:''}, ...overrides,
+  }));
+}
+
+export function loadPublishedBooking(language: 'da' | 'en' = 'da') {
+  const { code } = esbuild.transformSync(generateBookingForm(language), { loader: 'tsx', jsx: 'automatic', format: 'cjs', target: 'node18' });
+  const module = { exports: {} as { default?: React.ComponentType<any> } };
+  const lookup = (name: string) => name === '@/components/WebsiteProvider' ? { useWebsite: () => ({ websiteId: 'fixture-site' }) } : name === '@/components/trustedRuntime' ? loadTrustedRuntime() : require(name);
+  new Function('require', 'module', 'exports', code)(lookup, module, module.exports);
+  if (!module.exports.default) throw new Error('Missing emitted booking component');
+  return module.exports.default;
+}
+
 /** Compile and evaluate the generated ComponentRenderer.tsx. */
 export function loadPublishedRenderer(): { source: string; renderer: PublishedRenderer } {
   if (cached) return cached;
@@ -59,16 +84,13 @@ export function loadPublishedRenderer(): { source: string; renderer: PublishedRe
 
   const stubs: Record<string, unknown> = {
     react: React,
+    '@/components/trustedRuntime': loadTrustedRuntime(),
     'react/jsx-runtime': require('react/jsx-runtime'),
     '@/theme.json': TEST_THEME,
     // The published site's cart lives in a client provider; sections only
     // read it to add items, which no static render does.
     '@/components/CartProvider': { useCart: () => ({ addItem: () => {}, items: [] }) },
-    '@/components/BookingForm': {
-      __esModule: true,
-      default: ({ props }: { props: Record<string, unknown> }) =>
-        React.createElement('section', { 'data-booking': 'true' }, String(props?.title ?? '')),
-    },
+    '@/components/BookingForm': { __esModule: true, default: loadPublishedBooking() },
     'next/link': {
       __esModule: true,
       default: ({ href, children, ...rest }: { href: string; children?: React.ReactNode }) =>

@@ -334,6 +334,7 @@ type DeviceMode = 'desktop' | 'tablet' | 'mobile';
 type GlobalStyles = import('@shared/schema').DesignTokens;
 
 type RenderProps = {
+  language?: "da" | "en";
   component: BuilderComponentData;
   isSelected?: boolean;
   onClick?: (e: React.MouseEvent) => void;
@@ -3951,6 +3952,7 @@ function ServicesComponent({ props, styles, isSelected, onClick, isPreview, glob
 }
 
 type ContainerComponentProps = ComponentRenderProps & {
+  language?: 'da' | 'en';
   allComponents?: BuilderComponentData[];
   onComponentClick?: (componentId: string) => void;
   websiteId?: string;
@@ -3959,7 +3961,7 @@ type ContainerComponentProps = ComponentRenderProps & {
   svgAssets?: Record<string, import("@shared/svgAssets").SvgAssetLike>;
 };
 
-function ContainerComponent({ props, styles, allComponents = [], onComponentClick, isPreview, websiteId, pages, navItems, deviceMode, onClick, globalStyles, svgAssets }: ContainerComponentProps) {
+function ContainerComponent({ props, styles, allComponents = [], onComponentClick, isPreview, websiteId, pages, navItems, deviceMode, onClick, globalStyles, svgAssets, language }: ContainerComponentProps) {
   const children = props.children || [];
   const layout = props.layout || 'vertical';
   const gap = props.gap || '24px';
@@ -4015,6 +4017,7 @@ function ContainerComponent({ props, styles, allComponents = [], onComponentClic
           <ComponentRenderer
             key={childComponent.id}
             component={childComponent}
+            language={language}
             isPreview={isPreview}
             websiteId={websiteId}
             pages={pages}
@@ -4034,7 +4037,7 @@ function ContainerComponent({ props, styles, allComponents = [], onComponentClic
   );
 }
 
-export default function ComponentRenderer({ component: storedComponent, isSelected = false, onClick, isPreview = false, websiteId, pages, navItems, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick, globalStyles, svgAssets, selectedNodeId, onNodeSelect, onItemFocus }: RenderProps) {
+export default function ComponentRenderer({ language = "da", component: storedComponent, isSelected = false, onClick, isPreview = false, websiteId, pages, navItems, allComponents, onTextChange, editingField, onEditField, onImageResize, onStyleChange, onHover, deviceMode, onComponentClick, globalStyles, svgAssets, selectedNodeId, onNodeSelect, onItemFocus }: RenderProps) {
   // What is stored may point at the brand ("{color.primary}") rather than
   // repeat its value. Resolve once, here, so every section below draws real
   // values and no section has to know that tokens exist. The publisher does
@@ -4147,7 +4150,7 @@ export default function ComponentRenderer({ component: storedComponent, isSelect
       case 'product-detail':
         return <ProductDetailDesigner {...commonProps} websiteId={websiteId} />;
       case 'booking':
-        return <BookingWidget websiteId={websiteId || ''} styles={component.styles} props={component.props} isPreview={isPreview} isSelected={isSelected} onClick={handleClick} onTextChange={onTextChange} editingField={editingField} onEditField={onEditField} />;
+        return <BookingWidget language={language} websiteId={websiteId || ''} styles={{ ...effectiveStyles, fontFamily: resolveFontFamily(effectiveStyles, globalStyles), accentColor: resolveAccentColor(effectiveStyles, globalStyles) }} props={component.props} isPreview={isPreview} isSelected={isSelected} onClick={handleClick} onTextChange={onTextChange} editingField={editingField} onEditField={onEditField} />;
       case 'gallery':
         return <GalleryComponent {...commonProps} />;
       case 'pricing-table':
@@ -4187,10 +4190,12 @@ export default function ComponentRenderer({ component: storedComponent, isSelect
       case 'services':
         return <ServicesComponent {...commonProps} />;
       case 'container':
-        return <ContainerComponent {...commonProps} allComponents={allComponents} onComponentClick={onComponentClick} websiteId={websiteId} pages={pages} navItems={navItems} svgAssets={svgAssets} />;
+        return <ContainerComponent {...commonProps} language={language} allComponents={allComponents} onComponentClick={onComponentClick} websiteId={websiteId} pages={pages} navItems={navItems} svgAssets={svgAssets} />;
       case 'custom':
         return (
           <CustomComponentRenderer
+            language={language}
+            websiteId={websiteId}
             component={component}
             isSelected={isSelected}
             onClick={handleClick}

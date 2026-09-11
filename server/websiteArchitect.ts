@@ -14,6 +14,7 @@ import {
 
 import { meteredChat } from "./aiCall";
 import type { SpendMeter } from "./aiSpend";
+import { GENERATED_SECTION_PROMPT, validateGeneratedSection } from './generatedSectionContract';
 
 export interface ArchitectResult {
   success: boolean;
@@ -433,7 +434,7 @@ You MUST include:
       plan,
     };
   } catch (error: any) {
-    console.error("Architect analysis error:", error);
+    console.error("Architect analysis error:", error instanceof Error ? error.message : String(error));
     return {
       success: false,
       error: error.message || "Failed to analyze website",
@@ -454,7 +455,7 @@ export async function buildFromPlan(
         messages: [
         {
           role: "system",
-          content: BUILD_SYSTEM_PROMPT + `\n\n${buildBusinessContextPrompt(businessContext)}`,
+          content: BUILD_SYSTEM_PROMPT + GENERATED_SECTION_PROMPT + `\n\n${buildBusinessContextPrompt(businessContext)}`,
         },
         {
           role: "user",
@@ -495,7 +496,7 @@ Create ALL pages with ALL sections. Make it look professional and cohesive.`,
       phasesCompleted: plan.buildPhases.length,
     };
   } catch (error: any) {
-    console.error("Build from plan error:", error);
+    console.error("Build from plan error:", error instanceof Error ? error.message : String(error));
     return {
       success: false,
       error: error.message || "Failed to build website",
@@ -639,6 +640,7 @@ function generateUnsplashUrl(category: string, width: number = 800, height: numb
 }
 
 function sanitizeProps(props: any, componentType: string): any {
+  if (componentType === 'custom') return validateGeneratedSection(props);
   const registry = componentRegistry[componentType as keyof typeof componentRegistry];
   if (!registry) return props;
 
@@ -681,12 +683,12 @@ function sanitizeProps(props: any, componentType: string): any {
 
   // Handle team members array
   if (props.members && Array.isArray(props.members)) {
-    sanitized.members = props.members.map((member: any, index: number) => ({
+    sanitized.members = props.members.filter((member: any) => typeof member.name === 'string' && member.name.trim()).map((member: any, index: number) => ({
       id: member.id || `member_${index}`,
-      name: member.name || `Team Member ${index + 1}`,
+      name: member.name,
       role: member.role || '',
       bio: member.bio || '',
-      imageUrl: member.imageUrl || generateUnsplashUrl('people', 400, 400, index),
+      imageUrl: member.imageUrl || undefined,
     }));
   }
 

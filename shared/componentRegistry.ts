@@ -922,6 +922,10 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
+      { key: 'accentColor', label: 'Booking accent', type: 'color', group: 'style' },
+      { key: 'variant', label: 'Booking layout', type: 'select', group: 'content', options: ['default', 'compact', 'inline'] },
+      { key: 'displayMode', label: 'Date picker', type: 'select', group: 'content', options: ['calendar', 'list'] },
+      { key: 'headingVisible', label: 'Show heading', type: 'select', group: 'content', options: ['true', 'false'] },
     ],
   },
 

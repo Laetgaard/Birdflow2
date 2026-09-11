@@ -15,6 +15,8 @@ import { runOnboardingTurn, runAgent, type AgentStreamEvent } from "@/lib/aiAgen
 import type { PaletteProposal, FontPairProposal, BuildReport } from "@shared/aiBuilderSchema";
 import type { OnboardingAnswers, OnboardingChatMessage } from "@shared/schema";
 import type { WebsitePlan } from "@shared/websitePlanSchema";
+import type { WebsiteReadiness } from '@shared/websiteReadiness';
+import type { WebsiteBriefSnapshot } from '@shared/onboardingDirections';
 import { websiteTemplates } from "@shared/websiteTemplates";
 import {
   ArrowRight,
@@ -96,6 +98,7 @@ type DecisionData = {
   brandGuide: BrandGuide;
   report: BuildReport | null;
   generationStatus?: GenStatus | null;
+  readiness?: WebsiteReadiness | null;
   builderRevision?: number;
   previewFingerprint?: string | null;
   designDirections?: DesignDirection[];
@@ -399,7 +402,7 @@ function LogoCard({ url, businessName, t }: { url: string; businessName: string;
 }
 
 /** The concrete plan the agent proposes before the long build. */
-function PlanPreviewCard({ plan }: { plan: WebsitePlan }) {
+function PlanPreviewCard({ plan, websiteBrief }: { plan: WebsitePlan; websiteBrief?: WebsiteBriefSnapshot }) {
   return (
     <div className="mt-2 rounded-xl border bg-card overflow-hidden" data-testid="plan-preview-card">
       <div className="p-3 bg-accent/60 flex items-center gap-2.5">
@@ -412,6 +415,16 @@ function PlanPreviewCard({ plan }: { plan: WebsitePlan }) {
         </div>
       </div>
       <div className="p-3 space-y-2">
+        {websiteBrief && (
+          <div className="rounded-lg border p-3 text-xs space-y-2" data-testid="website-brief-summary">
+            <p className="font-semibold">{websiteBrief.brief.language === 'en' ? 'Your requirements — review before building' : 'Dine ønsker — gennemgå inden opbygning'}</p>
+            <p>{websiteBrief.brief.practice?.audience ?? websiteBrief.brief.audience}</p>
+            <p>{websiteBrief.brief.design?.feeling}</p>
+            {websiteBrief.brief.practice?.services?.map(service => <p key={service.key}>{service.name}{service.durationMinutes !== undefined ? ' · ' + service.durationMinutes + ' min' : ''}{service.priceMinor !== undefined ? ' · ' + service.priceMinor / 100 + ' DKK' : ''}</p>)}
+            {websiteBrief.brief.practice?.bookingMode === 'native' && <p>{websiteBrief.brief.language === 'en' ? 'Booking is requested. Services and availability still need separate setup.' : 'Booking er ønsket. Ydelser og åbningstider skal opsættes særskilt.'}</p>}
+            <details><summary>{websiteBrief.brief.language === 'en' ? 'Supplied information' : 'Oplysninger til hjemmesiden'}</summary>{websiteBrief.brief.facts.map(fact => <p key={fact.id} className="mt-1">{fact.value}</p>)}</details>
+          </div>
+        )}
         {plan.pages.map((page) => (
           <div key={page.id} className="rounded-lg bg-muted/50 p-2.5">
             <div className="flex items-center justify-between">
@@ -1564,7 +1577,7 @@ export default function OnboardingPage() {
                             />
                           )}
                           {display.kind === "sitePlan" && (
-                            <PlanPreviewCard plan={(display.value as { plan: WebsitePlan }).plan} />
+                            <PlanPreviewCard plan={(display.value as { plan: WebsitePlan }).plan} websiteBrief={(display.value as { websiteBrief?: WebsiteBriefSnapshot }).websiteBrief} />
                           )}
                         </div>
                       ))}
@@ -1749,6 +1762,7 @@ export default function OnboardingPage() {
                   businessName={answers.businessName || decision.website.name}
                   pages={decision.pages}
                   designDirections={decision.stage === "decision" ? decision.designDirections : []}
+                  readiness={decision.readiness}
                   selectedDirectionId={decision.stage === "decision" ? decision.selectedDirectionId : null}
                   brandGuide={decision.brandGuide}
                   meeting={meeting}

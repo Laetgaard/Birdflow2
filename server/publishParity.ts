@@ -35,7 +35,7 @@ import type { ParityResult } from "@shared/selfReview";
 import type { PrimitiveNode } from "@shared/customComponents";
 import { componentRegistry } from "@shared/componentRegistry";
 import { resolveDesignTokens, resolveTokensDeep } from "@shared/designTokens";
-import { generateComponentRenderer } from "./publisher/templates";
+import { generateComponentRenderer, generateBookingForm, generateTrustedRuntime } from "./publisher/templates";
 
 const MAX_PROBLEMS = 12;
 const MAX_SAMPLES_PER_COMPONENT = 8;
@@ -104,12 +104,7 @@ async function loadRenderer(language: string): Promise<PublishedRenderer> {
     "react/jsx-runtime": jsxRuntime,
     "@/theme.json": NEUTRAL_THEME,
     "@/components/CartProvider": { useCart: () => ({ addItem: () => {}, items: [] }) },
-    // The booking form is a client component with its own data needs — the
-    // static render only proves the section around it appears.
-    "@/components/BookingForm": {
-      __esModule: true,
-      default: () => React.createElement("div", { "data-booking": "true" }),
-    },
+    "@/components/WebsiteProvider": { useWebsite: () => ({ websiteId: 'parity-check' }) },
     "next/link": {
       __esModule: true,
       default: ({ href, children, ...rest }: { href: string; children?: React.ReactNode }) =>
@@ -125,6 +120,18 @@ async function loadRenderer(language: string): Promise<PublishedRenderer> {
     if (name in stubs) return stubs[name];
     throw new MissingStubError(name);
   };
+  // Compile the exact emitted dependencies too. Static rendering never runs
+  // their data-loading effects, so no booking or network request is made.
+  const esbuild = await import('esbuild');
+  for (const [name, source] of [
+    ['@/components/trustedRuntime', generateTrustedRuntime()],
+    ['@/components/BookingForm', generateBookingForm(language as 'da' | 'en')],
+  ]) {
+    const { code } = esbuild.transformSync(source, { loader: 'tsx', jsx: 'automatic', format: 'cjs', target: 'node18' });
+    const dependency = { exports: {} };
+    new Function('require', 'module', 'exports', code)(requireShim, dependency, dependency.exports);
+    stubs[name] = dependency.exports;
+  }
   const moduleShim: { exports: Record<string, unknown> } = { exports: {} };
   factory(requireShim, moduleShim, moduleShim.exports, React);
   const renderer = (moduleShim.exports as { default?: PublishedRenderer }).default;

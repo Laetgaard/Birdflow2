@@ -261,6 +261,9 @@ export type OnboardingChatMessage = {
 // uploads) are written by the client via /api/onboarding/session/record,
 // never round-tripped through the model.
 export type OnboardingAnswers = {
+  websiteBrief?: import('./onboardingDirections').WebsiteBriefSnapshot;
+  planBriefFingerprint?: string;
+  practice?: import("./practiceProfile").PracticeProfile;
   path?: "ai" | "diy" | "import";
   /**
    * The language the customer picked right after the AI-vs-DIY fork. Mirrored
@@ -567,6 +570,7 @@ export type DesignTokens = {
 };
 
 export type BuilderStateData = {
+  websiteBrief?: import('./onboardingDirections').WebsiteBriefSnapshot;
   /**
    * Explicit version of the persisted site-state format. Historical records
    * may omit this; the publish migration layer detects and upgrades those

@@ -53,7 +53,6 @@ import { readFileSync } from 'node:fs';
  */
 const NOT_COMPARABLE_BY_DEFAULTS: Partial<Record<ComponentType, string>> = {
   'product-grid': 'shows live products; the two sides differ only in their loading/empty placeholder',
-  booking: 'the published site renders its own BookingForm client component',
   container: 'empty in both; the builder adds a drop hint that is editor chrome (covered below)',
   // custom is no longer excluded: componentRegistry.custom.defaultProps now carries a
   // fixed-ID tree so componentFor('custom') renders the same visible content on both sides.
@@ -784,7 +783,8 @@ describe('design tokens resolve to the same picture on both sides', () => {
     // A generated project cannot import @shared, so if this step is ever
     // dropped the customer's live site ships "{color.primary}" as a CSS value
     // and silently loses every brand colour. Nothing else would fail.
-    const source = readFileSync('server/publisher/generator.ts', 'utf8');
+    expect(readFileSync('server/publisher/generator.ts', 'utf8')).toContain('preparePublishedState(processedBuilderState)');
+    const source = readFileSync('server/publisher/prepareState.ts', 'utf8');
     expect(source).toContain('resolveDesignTokens(globalStyles)');
     expect(source).toContain('resolveTokensDeep(processedBuilderState.pages, resolvedTokens)');
   });

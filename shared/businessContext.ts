@@ -1,3 +1,4 @@
+import { practiceProfileSchema, practiceProfilePrompt, type PracticeProfile } from './practiceProfile';
 /**
  * Persistent business context ("Forretningsfakta") for one website.
  *
@@ -39,6 +40,7 @@ export type BusinessFact = {
 };
 
 export type BusinessContext = {
+  practice?: PracticeProfile;
   businessName?: string;
   industry?: string;
   /** What the business does, in the customer's own words. */
@@ -101,6 +103,7 @@ const contactSchema = z.object({
 });
 
 export const businessContextSchema = z.object({
+  practice: practiceProfileSchema.optional(),
   businessName: z.string().max(200).optional(),
   industry: z.string().max(200).optional(),
   description: z.string().max(2000).optional(),
@@ -146,6 +149,7 @@ export function deriveBusinessContext(args: {
   };
 
   const merged: BusinessContext = {
+    practice: existing?.practice,
     businessName: pick(existing?.businessName, args.businessName, 200),
     industry: pick(existing?.industry, args.industry, 200),
     description: pick(existing?.description, args.description, 2000),
@@ -279,7 +283,7 @@ export function buildBusinessContextPrompt(
       ctx.services?.length ||
       ctx.conversionGoals?.length ||
       ctx.facts?.length ||
-      ctx.forbiddenClaims?.length);
+      ctx.forbiddenClaims?.length || ctx.practice);
 
   if (!hasAny) {
     lines.push(t.none);
@@ -307,6 +311,7 @@ export function buildBusinessContextPrompt(
     }
   }
 
+  if (ctx?.practice) lines.push(practiceProfilePrompt(ctx.practice));
   lines.push(...t.rules.map((r) => `REGEL: ${r}`.replace(/^REGEL/, lang === "en" ? "RULE" : "REGEL")));
   lines.push(t.footer);
   return lines.join("\n");

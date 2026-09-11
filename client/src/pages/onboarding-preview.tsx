@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import { useRoute } from "wouter";
 import { Loader2 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
@@ -27,7 +27,9 @@ export default function OnboardingPreviewPage() {
   const websiteId = params?.websiteId ?? null;
   const directionId = new URLSearchParams(window.location.search).get("directionId");
 
-  const { data, error, loading } = usePreviewData(websiteId, token, directionId);
+  const renderer = new URLSearchParams(window.location.search).get('renderer') === 'published' ? 'published' : 'builder';
+  const { data, error, loading } = usePreviewData(websiteId, token, directionId, renderer);
+  const publishedFrame = useRef<HTMLIFrameElement>(null);
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [device, setDevice] = useState<PreviewDevice>("desktop");
 
@@ -36,10 +38,16 @@ export default function OnboardingPreviewPage() {
   useEffect(() => {
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
+      if (event.source === publishedFrame.current?.contentWindow) {
+        window.parent?.postMessage(event.data, window.location.origin);
+        return;
+      }
+      if (event.source !== window.parent) return;
       const payload = event.data;
       if (!payload || payload.type !== "bf-preview") return;
+      publishedFrame.current?.contentWindow?.postMessage(payload, window.location.origin);
       if (typeof payload.pageId === "string") setActivePageId(payload.pageId);
-      if (payload.device === "desktop" || payload.device === "mobile") setDevice(payload.device);
+      if (payload.device === "desktop" || payload.device === "tablet" || payload.device === "mobile") setDevice(payload.device);
     };
     window.addEventListener("message", onMessage);
     // Tell the parent we are ready for instructions.
@@ -102,9 +110,16 @@ export default function OnboardingPreviewPage() {
     );
   }
 
+  if (renderer === 'published' && data?.publishedHtml) {
+    return <iframe ref={publishedFrame} srcDoc={data.publishedHtml} title="Udgivelsesvisning"
+      sandbox="allow-scripts allow-same-origin" style={{ width: '100%', height: '100vh', border: 0, display: 'block' }}
+      onLoad={() => publishedFrame.current?.contentWindow?.postMessage({ type: 'bf-preview', pageId: activePageId }, window.location.origin)} />;
+  }
+
   return (
     <div className="min-h-screen bg-neutral-100">
       <ReadOnlySitePreview
+        language={data?.language}
         pages={data?.pages ?? []}
         websiteId={data?.websiteId ?? websiteId ?? ""}
         activePageId={activePageId ?? undefined}

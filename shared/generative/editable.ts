@@ -371,6 +371,7 @@ export type SemanticEdit =
   | { kind: 'set-text'; target: SemanticTarget; value: string }
   | { kind: 'set-link'; target: SemanticTarget; href: string }
   | { kind: 'set-image'; target: SemanticTarget; src: string; mediaId?: string; alt?: string }
+  | { kind: 'set-image-presentation'; target: SemanticTarget; property: 'objectFit' | 'objectPosition'; value: string; device?: Exclude<StyleBucketKey, 'hoverStyles'> }
   | { kind: 'set-color'; target: SemanticTarget; value: string }
   | { kind: 'set-style'; target: SemanticTarget; styleKey: string; value: string; device?: StyleBucketKey }
   | { kind: 'add-item'; fieldKey: string }
@@ -466,6 +467,15 @@ export function applySemanticEdit(tree: PrimitiveNode, schema: EditableSchema, e
       node.src = edit.src;
       if (edit.mediaId !== undefined) node.mediaId = edit.mediaId;
       if (edit.alt !== undefined) node.alt = edit.alt;
+      return { ok: true, tree: next, selectNodeId: node.id };
+    }
+    case 'set-image-presentation': {
+      if (effectiveType !== 'image' || node.type !== 'image') return { ok: false, error: 'Image presentation requires an image field' };
+      if (!['objectFit', 'objectPosition'].includes(edit.property)) return { ok: false, error: 'Unsupported image presentation property' };
+      const bucket = edit.device ?? 'styles';
+      if (!['styles', 'tabletStyles', 'mobileStyles'].includes(bucket) || !setNodeStyleValue(node, bucket, edit.property, edit.value)) {
+        return { ok: false, error: 'Invalid image presentation' };
+      }
       return { ok: true, tree: next, selectNodeId: node.id };
     }
     case 'set-color': {

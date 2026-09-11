@@ -12,6 +12,7 @@
  * OpenAI key and a Vercel token.
  */
 import { describe, it, expect } from "vitest";
+import { renderBookingView, visibleText } from './helpers/renderParity';
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -67,10 +68,12 @@ describe("published sites", () => {
   });
 
   it("format dates for the site's own locale", () => {
-    expect(generateBookingForm("da")).toContain(`"${SITE_LOCALE.da}"`);
-    expect(generateBookingForm("en")).toContain(`"${SITE_LOCALE.en}"`);
-    expect(generateBookingForm("da")).toContain('"januar"');
-    expect(generateBookingForm("en")).toContain('"January"');
+    for (const language of ['da', 'en'] as const) {
+      expect(generateBookingForm(language)).toContain(`language={"${language}"}`);
+      const html = renderBookingView(language, {step:'datetime'});
+      const month = new Intl.DateTimeFormat(SITE_LOCALE[language], {month:'long',year:'numeric'}).format(new Date());
+      expect(visibleText(html)).toContain(month);
+    }
   });
 
   it("bake the chosen language into every generated component", () => {
@@ -218,7 +221,7 @@ describe("everything the AI writes", () => {
     const generator = read("server/onboardingGenerator.ts");
     expect(generator).toContain("copyLanguageInstruction(lang)");
     expect(generator).toMatch(
-      /processAIBuildRequest\(\s*buildEnhancePrompt\(input\),\s*builtState,\s*"creative",\s*lang,/
+      /processAIBuildRequest\([\s\S]*?buildEnhancePrompt\(input\)[\s\S]*?builtState,\s*"creative",\s*lang,/
     );
   });
 

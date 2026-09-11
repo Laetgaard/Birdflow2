@@ -201,6 +201,19 @@ describe("builder output quality contract", () => {
     expect(result.error).toContain("no substantive content after sanitization");
   });
 
+  it('never fills a missing practitioner identity or portrait with stock people', async () => {
+    const requestPlan = plan();
+    requestPlan.pages[0].sections[0].assetIntent = { type: 'none', purpose: 'Text introduction' };
+    meteredChatMock.mockResolvedValue(aiResponse({ pages: [{
+      id: 'home', name: 'Home', path: '/', components: [{
+        id: 'team', type: 'team', props: { title: 'Your practitioner', members: [{ name: 'Sofie Lund', role: 'Psykolog' }, { role: 'Unspecified' }] }, styles: {},
+      }],
+    }] }));
+    const result = await buildFromPlan(requestPlan);
+    expect(result.success).toBe(true);
+    expect(result.builderState?.pages[0].components[0].props.members).toEqual([{ id: 'member_0', name: 'Sofie Lund', role: 'Psykolog', bio: '', imageUrl: undefined }]);
+  });
+
   it("accepts a known alias and preserves a supplied customer image", async () => {
     meteredChatMock.mockResolvedValue(aiResponse({
       pages: [{

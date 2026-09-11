@@ -1,3 +1,5 @@
+import { preparePublishedState } from './prepareState';
+import { tmpdir } from 'os';
 import * as fs from 'fs';
 import * as path from 'path';
 import { randomUUID } from 'crypto';
@@ -7,11 +9,6 @@ import type { ThemeConfig } from '../../shared/rendering/types';
 import { themeFromGlobalStyles } from '../../shared/rendering/theme';
 import { resolveApprovedFontStack } from '../../shared/fonts';
 import {
-  TOKEN_FALLBACKS,
-  resolveDesignTokens,
-  resolveTokensDeep,
-} from '../../shared/designTokens';
-import {
   composePageComponents,
   migrateSiteStructure,
   pageSeo,
@@ -19,7 +16,6 @@ import {
 } from '../../shared/siteStructure';
 import { missingRendererCases, unrenderableComponents, describeUnrenderable } from './coverage';
 import { validateBuilderStateForPublish } from './validate';
-import { normalizePages } from './normalize';
 import { migrateSiteStateToCurrent } from './migrations';
 import { ObjectStorageService, ObjectNotFoundError } from '../replit_integrations/object_storage/objectStorage';
 import {
@@ -37,6 +33,7 @@ import {
   generateComponentRenderer,
   generateContactForm,
   generateBookingForm,
+  generateTrustedRuntime,
   generateProductGrid,
   generateProductDetailPage,
   resolveProductPageDesign,
@@ -214,7 +211,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
   const { state: builderState } = migrateSiteStateToCurrent(sourceBuilderState);
   const language = config.language ?? DEFAULT_SITE_LANGUAGE;
   
-  const outputDir = path.join('/tmp', 'publish', websiteId, Date.now().toString());
+  const outputDir = path.join(tmpdir(), 'publish', websiteId, Date.now().toString());
   
   await fs.promises.mkdir(outputDir, { recursive: true });
   await fs.promises.mkdir(path.join(outputDir, 'app'), { recursive: true });
@@ -254,30 +251,9 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     processedBuilderState = replaceObjectStorageUrls(processedBuilderState, urlMappings) as BuilderStateData;
   }
 
-  const globalStyles = processedBuilderState.globalStyles || {};
-
-  // A style may point at the brand ("{color.primary}") rather than repeat it.
-  // Generated projects cannot import from @shared, so rather than shipping a
-  // second copy of the resolver that could drift from the editor's, the
-  // references are resolved here — with the same shared function the builder
-  // preview uses — and the project receives finished values.
-  //
-  // This happens BEFORE sanitising, so a resolved brand value is subject to
-  // the same checks as anything else that reaches a generated stylesheet.
-  const resolvedTokens = resolveDesignTokens(globalStyles);
-  processedBuilderState = {
-    ...processedBuilderState,
-    pages: resolveTokensDeep(processedBuilderState.pages, resolvedTokens),
-    // The shared header and footer are drawn on every page, so they go
-    // through the same resolution as the sections around them.
-    ...(processedBuilderState.siteChrome
-      ? { siteChrome: resolveTokensDeep(processedBuilderState.siteChrome, resolvedTokens) }
-      : {}),
-  };
-
-  // Defense in depth: strip unsafe SVG markup from custom components even if
-  // an unsanitized tree made it into the stored state.
-  processedBuilderState = sanitizeBuilderStateCustomContent(processedBuilderState);
+  const prepared = preparePublishedState(processedBuilderState);
+  processedBuilderState = prepared.state;
+  const theme = prepared.theme;
 
   // Normalise component props: coerce known enum drifts (e.g. alignment
   // "middle" → "center") and apply legacy field renames so that old websites
@@ -353,6 +329,7 @@ export async function generateNextJsProject(config: GeneratorConfig): Promise<st
     { path: 'components/ComponentRenderer.tsx', content: componentRendererSource },
     { path: 'components/ContactForm.tsx', content: generateContactForm(language) },
     { path: 'components/BookingForm.tsx', content: generateBookingForm(language) },
+    { path: 'components/trustedRuntime.js', content: generateTrustedRuntime() },
     { path: 'components/ProductGrid.tsx', content: generateProductGrid(language) },
     { path: 'components/AnalyticsTracker.tsx', content: generateAnalyticsTracker() },
     { path: 'components/CookieBanner.tsx', content: generateCookieBanner(language) },
