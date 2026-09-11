@@ -153,6 +153,27 @@ export async function getActivePublishJob(
 }
 
 /**
+ * Returns the most recently completed publish attempt when it is recent enough
+ * to be useful in the builder. The builder stores dismissal per job locally,
+ * while the server remains authoritative about its terminal result.
+ */
+export async function getRecentTerminalPublishJob(
+  websiteId: string,
+  completedSince: Date,
+): Promise<PublishJob | null> {
+  const result = await db.execute(
+    sql`SELECT * FROM publish_jobs
+        WHERE website_id = ${websiteId}
+          AND status IN ('published', 'failed')
+          AND completed_at >= ${completedSince.toISOString()}
+        ORDER BY completed_at DESC NULLS LAST, created_at DESC
+        LIMIT 1`,
+  );
+  const rows = result.rows as Record<string, unknown>[];
+  return rows.length > 0 ? toJob(rows[0]) : null;
+}
+
+/**
  * Stable project identity recovered from the last successful activation.
  * This is the authoritative first lookup for an older/shared site; the
  * generated project name is only used when no trusted historic reference

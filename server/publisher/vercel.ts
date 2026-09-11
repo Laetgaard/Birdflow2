@@ -16,6 +16,23 @@ export type DeploymentResult = {
   aliases?: string[];
 };
 
+/**
+ * Promotion errors retain only the HTTP class needed for safe recovery. The
+ * response body is logged on the server but is never propagated to the builder.
+ */
+export class VercelPromotionError extends Error {
+  readonly isDefinitive: boolean;
+
+  constructor(readonly status: number) {
+    super('Vercel rejected the production activation for this version.');
+    this.name = 'VercelPromotionError';
+    // These responses mean Vercel did not accept the promotion request. A 409
+    // may still mean a competing Vercel operation is in progress, so it stays
+    // recoverable rather than releasing the activation reservation.
+    this.isDefinitive = [400, 404, 410, 422].includes(status);
+  }
+}
+
 async function vercelFetch(
   endpoint: string,
   config: VercelConfig,
@@ -240,9 +257,14 @@ export async function promoteDeployment(
     { method: 'POST' },
   );
   if (!res.ok) {
-    throw new Error(
-      `Could not activate the ready Vercel deployment: ${await res.text()}`,
-    );
+    const responseText = await res.text();
+    console.warn('[Publish] Vercel promotion rejected', {
+      projectId,
+      deploymentId,
+      status: res.status,
+      responseText,
+    });
+    throw new VercelPromotionError(res.status);
   }
 }
 
@@ -266,7 +288,12 @@ export async function getDeploymentProductionState(
   if (deployment.readyState === 'ERROR' || deployment.readyState === 'CANCELED') {
     return 'failed';
   }
-  if (deployment.target === 'preview') return 'preview';
+  // Preview deployments are intentionally created without a target. Vercel can
+  // report that as either "preview" or an omitted target, but a READY response
+  // from this endpoint is still safe to retry promotion for this exact id.
+  if (deployment.target === 'preview' || deployment.readyState === 'READY') {
+    return 'preview';
+  }
   return 'unknown';
 }
 

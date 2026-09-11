@@ -9,6 +9,7 @@ import {
   getProjectDomain,
   getProductionAliasUrlWithRetry,
   promoteDeployment,
+  VercelPromotionError,
   type VercelConfig,
 } from './vercel';
 import type { BuilderStateData } from '../../shared/schema';
@@ -415,6 +416,12 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
         errorMessage: error.message,
         timestamp: new Date().toISOString(),
       };
+    } else if (error instanceof VercelPromotionError) {
+      failureDetails = {
+        stage: 'activation',
+        errorMessage: error.message,
+        timestamp: new Date().toISOString(),
+      };
     } else if (error instanceof PublishTypeError) {
       // Gate failure: at least one implicit-any or type error in ComponentRenderer.
       const firstErr = error.tscErrors[0];
@@ -438,7 +445,12 @@ export async function publishWebsite(config: PublishConfig): Promise<PublishResu
 
     return {
       success: false,
-      errorCode: error instanceof DeploymentIdentityError ? error.code : undefined,
+      errorCode:
+        error instanceof DeploymentIdentityError
+          ? error.code
+          : error instanceof VercelPromotionError && error.isDefinitive
+            ? 'ACTIVATION_NOT_PROMOTED'
+            : undefined,
       error: errMsg,
       failureDetails,
     };

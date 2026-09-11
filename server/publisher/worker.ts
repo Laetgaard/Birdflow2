@@ -39,6 +39,7 @@ import {
   getDeploymentProductionState,
   getProductionAliasUrlWithRetry,
   promoteDeployment,
+  VercelPromotionError,
   type VercelConfig,
 } from './vercel';
 import type { SiteLanguage } from '../../shared/siteLanguage';
@@ -101,13 +102,13 @@ export async function reconcileExpiredPublishActivations(
       continue;
     }
 
-    const state = await getDeploymentProductionState(job.vercelDeploymentId, config);
+    let state = await getDeploymentProductionState(job.vercelDeploymentId, config);
+    let productionConfirmed = state === 'production';
     if (state === 'unknown') {
       console.warn('[Publish] activation reconciliation deferred', {
         publishJobId: job.id,
         reason: 'Vercel did not confirm the deployment target',
       });
-      continue;
     }
     if (state === 'failed') {
       await failPublishJob(job.id, {
@@ -125,6 +126,18 @@ export async function reconcileExpiredPublishActivations(
         // view and preserves the ordering fence.
         await promoteDeployment(job.vercelProjectId, job.vercelDeploymentId, config);
       } catch (error) {
+        if (error instanceof VercelPromotionError && error.isDefinitive) {
+          await failPublishJob(job.id, {
+            errorCode: 'ACTIVATION_NOT_PROMOTED',
+            errorMessage:
+              'Vercel rejected the production activation for this version. Your existing website was not changed; you can publish again.',
+            failureDetails: {
+              stage: 'activation',
+              timestamp: new Date().toISOString(),
+            },
+          });
+          continue;
+        }
         console.warn('[Publish] activation promotion retry deferred', {
           publishJobId: job.id,
           error: error instanceof Error ? error.message : String(error),
@@ -140,12 +153,15 @@ export async function reconcileExpiredPublishActivations(
         });
         continue;
       }
+      state = afterRetry;
+      productionConfirmed = afterRetry === 'production';
       if (afterRetry !== 'production') {
         console.warn('[Publish] activation reconciliation deferred', {
           publishJobId: job.id,
-          reason: 'promotion has not been confirmed by Vercel yet',
+          reason: afterRetry === 'unknown'
+            ? 'Vercel did not confirm the retried promotion'
+            : 'promotion has not been confirmed by Vercel yet',
         });
-        continue;
       }
     }
 
@@ -180,6 +196,17 @@ export async function reconcileExpiredPublishActivations(
       }
     } catch (error) {
       if (error instanceof DeploymentIdentityError) {
+        if (!productionConfirmed) {
+          // Vercel's target field can lag or be omitted for promoted preview
+          // deployments. The stable public URL is an equally strong proof when
+          // it contains this job's immutable snapshot identity; until then,
+          // leave the activation reservation in place and retry safely.
+          console.warn('[Publish] activation reconciliation deferred', {
+            publishJobId: job.id,
+            reason: 'public URL still serves a different version',
+          });
+          continue;
+        }
         await failPublishJob(job.id, {
           errorCode: error.code,
           errorMessage: error.message,
@@ -309,7 +336,11 @@ export async function runPublishJob(cfg: WorkerConfig): Promise<void> {
     });
 
     if (!result.success || !result.deploymentUrl) {
-      if (activationClaimed && result.errorCode !== 'ACTIVATION_DEPLOYMENT_MISMATCH') {
+      if (
+        activationClaimed &&
+        result.errorCode !== 'ACTIVATION_DEPLOYMENT_MISMATCH' &&
+        result.errorCode !== 'ACTIVATION_NOT_PROMOTED'
+      ) {
         // Promotion may have reached Vercel just before a timeout or process
         // failure. Keep the durable activating reservation for reconciliation;
         // do not falsely report that production was left untouched.

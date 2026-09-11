@@ -30,6 +30,7 @@ import {
   createPublishJobWithSnapshot,
   getPublishJob,
   getActivePublishJob,
+  getRecentTerminalPublishJob,
   getPublishJobByDeploymentId,
   getLatestPublishedVercelProjectId,
   completePublishJob,
@@ -3369,6 +3370,22 @@ export async function registerRoutes(
         return res.status(503).json({ message: "Publish system is starting up. Please try again in a moment." });
       }
 
+      // A running job always wins over validation of this tab's snapshot. A
+      // second tab can legitimately hold an older revision, but it must adopt
+      // the active publish rather than being told its publish failed.
+      const idempotencyKey: string | undefined = req.body?.idempotencyKey;
+      const existingActive = await getActivePublishJob(req.params.id);
+      if (existingActive) {
+        if (idempotencyKey && existingActive.idempotencyKey === idempotencyKey) {
+          return res.status(202).json({ jobId: existingActive.id, status: existingActive.status });
+        }
+        return res.status(409).json({
+          message: "A publish is already in progress. Please wait for it to complete before publishing again.",
+          jobId: existingActive.id,
+          status: existingActive.status,
+        });
+      }
+
       const builderState = await storage.getBuilderState(req.params.id);
       if (!builderState) return res.status(400).json({ message: "No builder state found" });
       if (!Number.isInteger(req.body?.expectedRevision) || req.body.expectedRevision !== builderState.revision) {
@@ -3412,23 +3429,6 @@ export async function registerRoutes(
         targetVersion: compatibility.report.targetVersion,
         migrationsApplied: compatibility.report.migrationsApplied,
       });
-
-      // Idempotency: check for an already-running job before inserting.
-      // createPublishJob will still throw a unique-constraint error (23505) if
-      // two requests race through this check simultaneously — that is caught
-      // below and converted to 409.
-      const idempotencyKey: string | undefined = req.body?.idempotencyKey;
-      const existingActive = await getActivePublishJob(req.params.id);
-      if (existingActive) {
-        // Same idempotency key → return the existing job (not an error)
-        if (idempotencyKey && existingActive.idempotencyKey === idempotencyKey) {
-          return res.status(202).json({ jobId: existingActive.id, status: existingActive.status });
-        }
-        return res.status(409).json({
-          message: "A publish is already in progress. Please wait for it to complete before publishing again.",
-          jobId: existingActive.id,
-        });
-      }
 
       // Collect Stripe credentials (optional; warning only when absent)
       let stripeSecretKey: string | undefined;
@@ -3540,13 +3540,73 @@ export async function registerRoutes(
         return res.status(409).json({ code: error.code, message: error.message });
       }
       if (error?.code === '23505' || /unique.*publish_jobs_one_active/i.test(error?.message ?? '')) {
-        return res.status(409).json({ message: "A publish is already in progress for this site." });
+        // The active-row check above is intentionally not the only guard: two
+        // requests can pass it before one transaction commits. Read the winner
+        // back before responding so the losing tab can adopt its real job.
+        const winner = await getActivePublishJob(req.params.id);
+        if (winner) {
+          return res.status(409).json({
+            message: "A publish is already in progress for this site.",
+            jobId: winner.id,
+            status: winner.status,
+          });
+        }
+        return res.status(500).json({
+          message: "Publishing could not reserve a job. Please try again.",
+        });
       }
       res.status(500).json({ message: error.message });
     }
   });
 
   // ── Poll publish job status ───────────────────────────────────────────────
+  const publishJobPayload = (job: Awaited<ReturnType<typeof getPublishJob>>) => {
+    if (!job) return null;
+    return {
+      jobId: job.id,
+      status: job.status,
+      productionUrl: job.productionUrl,
+      errorCode: job.errorCode,
+      // Error text can include raw Vercel responses. The builder maps this safe
+      // structured context to customer-facing wording instead of exposing it.
+      failureDetails: job.failureDetails
+        ? {
+            stage: job.failureDetails.stage,
+            pageName: job.failureDetails.pageName,
+            componentType: job.failureDetails.componentType,
+          }
+        : null,
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+      completedAt: job.completedAt,
+    };
+  };
+
+  // Builder recovery endpoint. A page refresh loses the in-memory job ID, so
+  // callers can look up the one active job for this website. Once it finishes,
+  // return the most recent terminal result for 24 hours so the customer can
+  // still see it exactly until they dismiss that job locally.
+  app.get(
+    "/api/websites/:id/publish-job",
+    requireAuth,
+    requireWebsitePermission("publish"),
+    async (req, res) => {
+      try {
+        if (!isPublishJobSchemaReady()) {
+          return res.status(503).json({ message: "Publish system is starting up." });
+        }
+        const activeJob = await getActivePublishJob(req.params.id);
+        const job = activeJob ?? await getRecentTerminalPublishJob(
+          req.params.id,
+          new Date(Date.now() - 24 * 60 * 60 * 1000),
+        );
+        return res.json({ job: publishJobPayload(job) });
+      } catch (error: any) {
+        return res.status(500).json({ message: error.message });
+      }
+    },
+  );
+
   app.get("/api/publish-jobs/:jobId", requireAuth, async (req, res) => {
     try {
       if (!isPublishJobSchemaReady()) {
@@ -3558,16 +3618,7 @@ export async function registerRoutes(
       if ("failure" in access) {
         return res.status(access.failure.status).json({ message: access.failure.message });
       }
-      res.json({
-        jobId: job.id,
-        status: job.status,
-        productionUrl: job.productionUrl,
-        errorCode: job.errorCode,
-        errorMessage: job.errorMessage,
-        failureDetails: job.failureDetails ?? null,
-        createdAt: job.createdAt,
-        updatedAt: job.updatedAt,
-      });
+      res.json(publishJobPayload(job));
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }

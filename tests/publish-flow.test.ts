@@ -20,6 +20,7 @@ import {
   getOrCreateProject,
   promoteDeployment,
   recoverVerifiedProjectForLiveUrl,
+  VercelPromotionError,
 } from '../server/publisher/vercel';
 import {
   ensurePublishJobSchema,
@@ -277,6 +278,24 @@ describe('safe production activation', () => {
       '/v10/projects/project-id/promote/deployment-id',
     );
     expect(fetchMock.mock.calls[0][1]).toMatchObject({ method: 'POST' });
+    vi.unstubAllGlobals();
+  });
+
+  it('classifies Vercel’s definitive activation rejection without exposing its response body', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: false,
+      status: 422,
+      text: async () => '{"error":{"message":"internal deployment detail"}}',
+    }));
+
+    await expect(
+      promoteDeployment('project-id', 'deployment-id', baseConfig),
+    ).rejects.toMatchObject({
+      name: 'VercelPromotionError',
+      status: 422,
+      isDefinitive: true,
+      message: 'Vercel rejected the production activation for this version.',
+    } satisfies Partial<VercelPromotionError>);
     vi.unstubAllGlobals();
   });
 
