@@ -218,6 +218,21 @@ export function linkTargets(html: string): string[] {
 }
 
 /** The inline styles on the outermost element. */
+/**
+ * Builder markup with the editor's own wrapper removed.
+ *
+ * The preview wraps every section in a `.bf-section` div carrying selection and
+ * hover chrome; the published site has no such element. Comparing the two
+ * outermost elements therefore compares the builder's chrome against the
+ * publisher's section, which is not a like-for-like test.
+ */
+export function unwrapBuilderSection(html: string): string {
+  const opening = /^<div class="bf-section"[^>]*>/.exec(html);
+  if (!opening) return html;
+  const inner = html.slice(opening[0].length);
+  return inner.endsWith('</div>') ? inner.slice(0, -'</div>'.length) : inner;
+}
+
 export function rootStyle(html: string): Record<string, string> {
   const match = html.match(/^<[a-zA-Z][^>]*\bstyle="([^"]*)"/);
   if (!match) return {};

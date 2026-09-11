@@ -101,6 +101,94 @@ describe('every component type draws the same thing in preview and on the publis
   });
 });
 
+describe('styles the customer set reach the markup', () => {
+  /**
+   * Until now every type was compared with its *default* props and styles, so a
+   * style one renderer honoured and the other ignored looked identical. These
+   * set values no default carries.
+   *
+   * Where the value lands is deliberately not asserted: both renderers wrap
+   * sections in motion and layout elements, at different depths, so comparing
+   * one outermost element against the other compares a wrapper with a section.
+   * What matters is that a colour the customer chose is not silently dropped.
+   */
+  const OVERRIDES: Record<string, string> = {
+    backgroundColor: 'rgb(1, 2, 3)',
+    textColor: 'rgb(4, 5, 6)',
+    padding: '77px 33px',
+    borderRadius: '19px',
+  };
+
+  // An empty container draws nothing on the published site, so it is compared
+  // with a child, as the container test above does.
+  const STYLED_WITH_CHILD = new Set<ComponentType>(['container']);
+
+  // Booking is two different components by design - the builder shows an
+  // editing widget, the published site its own BookingForm - and is already
+  // excluded from the content comparison above for the same reason.
+  const renderable = RENDERABLE_COMPONENT_TYPES.filter(
+    (type) => !STYLED_WITH_CHILD.has(type) && type !== 'booking'
+  );
+
+  it.each(renderable)('%s keeps them on both sides', (type) => {
+    const definition = componentRegistry[type];
+    const styles: Record<string, unknown> = { ...definition.defaultStyles };
+    const expected: string[] = [];
+    for (const [key, value] of Object.entries(OVERRIDES)) {
+      if (key in definition.defaultStyles) {
+        styles[key] = value;
+        expected.push(value);
+      }
+    }
+    if (expected.length === 0) return;
+
+    const component = {
+      id: `styled-${type}`,
+      type,
+      props: { ...definition.defaultProps },
+      styles,
+    } as BuilderComponentData;
+
+    const builder = renderBuilder(component);
+    const published = renderPublished(component);
+    const disagreements = expected
+      .filter((value) => builder.includes(value) !== published.includes(value))
+      .map((value) => `${value}: builder=${builder.includes(value)} published=${published.includes(value)}`);
+    expect(disagreements).toEqual([]);
+  });
+
+  it('keeps a container\'s own styles once it has something in it', () => {
+    const child: BuilderComponentData = {
+      ...componentFor('rich-text'),
+      id: 'styled-child',
+      props: { ...componentRegistry['rich-text'].defaultProps, content: '<p>Indhold</p>' },
+    } as BuilderComponentData;
+    const container: BuilderComponentData = {
+      ...componentFor('container'),
+      id: 'styled-container',
+      props: { ...componentRegistry.container.defaultProps, children: [child.id] },
+      styles: { ...componentRegistry.container.defaultStyles, backgroundColor: 'rgb(1, 2, 3)', padding: '77px 33px' },
+    } as BuilderComponentData;
+
+    const all = [container, child];
+    for (const value of ['rgb(1, 2, 3)', '77px 33px']) {
+      expect(renderBuilder(container, all)).toContain(value);
+      expect(renderPublished(container, all)).toContain(value);
+    }
+  });
+
+  it('draws a spacer in the colour it was given', () => {
+    // The preview branch used to hard-code transparent while the published site
+    // drew the colour, so a coloured spacer appeared only after publishing.
+    const spacer = {
+      ...componentFor('spacer'),
+      styles: { ...componentRegistry.spacer.defaultStyles, backgroundColor: 'rgb(1, 2, 3)' },
+    } as BuilderComponentData;
+    expect(renderBuilder(spacer)).toContain('rgb(1, 2, 3)');
+    expect(renderPublished(spacer)).toContain('rgb(1, 2, 3)');
+  });
+});
+
 describe('image alt text', () => {
   // Alt text was not editable anywhere: it was always derived from a title or
   // left empty, and the two renderers derived it differently.

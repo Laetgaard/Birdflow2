@@ -2927,7 +2927,10 @@ function SpacerComponent({ props, styles, isSelected, onClick, isPreview }: Comp
   const height = props.height || styles.minHeight || '60px';
 
   if (isPreview) {
-    return <section style={{ height, backgroundColor: 'transparent' }} />;
+    // A spacer can be given a colour, and the published site draws it. Hard-
+    // coding transparent here made the read-only preview disagree with the
+    // live page — and with the editing branch below, which already honours it.
+    return <section style={{ height, backgroundColor: styles.backgroundColor || 'transparent' }} />;
   }
 
   return (
