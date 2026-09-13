@@ -1,6 +1,8 @@
 import { bookingTimeError } from '../../shared/bookingRequest';
 import { createBookingView } from '../../shared/rendering/bookingView';
 import { groupBookingServices, groupServiceIds, mergeServiceSlots } from '../../shared/rendering/bookingServices';
+import { SVG_SHAPES, renderSvgShape } from '../../shared/svgShapes';
+import { createSectionDecoration } from '../../shared/rendering/sectionDecoration';
 import { createBehaviorRuntime } from '../../shared/rendering/behaviorRuntime';
 import type { ThemeConfig, PageData, BuilderComponentData } from '../../shared/rendering/types';
 import { BREAKPOINTS, REDUCED_MOTION_QUERY } from '../../shared/rendering/contract';
@@ -2624,7 +2626,11 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import theme from '@/theme.json';
 import { useCart } from '@/components/CartProvider';
 import BookingForm from '@/components/BookingForm';
-import { createBehaviorRuntime, computeMotion as sharedComputeMotion, motionPhaseStyle as sharedMotionPhaseStyle, sectionMotionSpec as sharedSectionMotionSpec, staggerChildSpec as sharedStaggerChildSpec } from '@/components/trustedRuntime';
+import { createBehaviorRuntime, computeMotion as sharedComputeMotion, motionPhaseStyle as sharedMotionPhaseStyle, sectionMotionSpec as sharedSectionMotionSpec, staggerChildSpec as sharedStaggerChildSpec, createSectionDecoration, SVG_SHAPES, renderSvgShape } from '@/components/trustedRuntime';
+
+// Same decoration helpers the editor uses, bound to the same shape registry.
+const { sectionDecorationLayers: sharedSectionDecorationLayers, shapeDividerMarkup: sharedShapeDividerMarkup, hasSectionDecoration: sharedHasSectionDecoration } =
+  createSectionDecoration(SVG_SHAPES, renderSvgShape);
 
 type BuilderPage = {
   id: string;
@@ -4447,23 +4453,65 @@ function VideoEmbedSection({ props, styles }: { props: ComponentProps; styles: C
 
 function DividerSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
   const baseStyle = getBaseStyle(styles);
-  const dividerStyle = (props as any).style || 'solid';
-  const accentColor = styles.accentColor || '#e2e8f0';
-  
+  // Mirrors the editor's divider: dots, an ornament and a label were all
+  // available there but shipped as a plain rule here.
+  const dividerStyle = (props as any).style || (styles as any).dividerStyle || 'solid';
+  const accentColor = styles.accentColor || styles.textColor || '#e2e8f0';
+  const thickness = (styles as any).dividerThickness || '1px';
+  const widthProp = (styles as any).dividerWidth || 'full';
+  const maxWidth = widthProp === 'narrow' ? '200px' : widthProp === 'medium' ? '480px' : widthProp === 'full' ? '100%' : (widthProp || '100%');
+  const label = (props as any).badge || '';
+
+  const renderDivider = () => {
+    if (dividerStyle === 'dots') {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', maxWidth, margin: '0 auto' }}>
+          {[0, 1, 2, 3, 4].map(i => <div key={i} style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: accentColor, opacity: 0.2 + i * 0.15 }} />)}
+        </div>
+      );
+    }
+    if (dividerStyle === 'ornamental') {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', maxWidth, margin: '0 auto' }}>
+          <div style={{ flex: 1, height: '1px', background: \`linear-gradient(90deg, transparent, \${accentColor})\`, opacity: 0.4 }} />
+          <div style={{ fontSize: '14px', color: accentColor, opacity: 0.5, flexShrink: 0 }}>◆</div>
+          <div style={{ flex: 1, height: '1px', background: \`linear-gradient(90deg, \${accentColor}, transparent)\`, opacity: 0.4 }} />
+        </div>
+      );
+    }
+    if (label) {
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', maxWidth, margin: '0 auto' }}>
+          <div style={{ flex: 1, height: thickness, backgroundColor: accentColor, opacity: 0.2 }} />
+          <span style={{ fontSize: '12px', fontWeight: 600, color: accentColor, whiteSpace: 'nowrap', opacity: 0.55, letterSpacing: '0.05em', textTransform: 'uppercase' }}>{label}</span>
+          <div style={{ flex: 1, height: thickness, backgroundColor: accentColor, opacity: 0.2 }} />
+        </div>
+      );
+    }
+    if (dividerStyle === 'gradient') {
+      return <div style={{ height: thickness, background: \`linear-gradient(90deg, transparent, \${accentColor}, transparent)\`, maxWidth, margin: '0 auto', opacity: 0.5 }} />;
+    }
+    return <hr style={{ border: 'none', borderTop: \`\${thickness} \${dividerStyle === 'dashed' ? 'dashed' : 'solid'} \${accentColor}\`, maxWidth, margin: '0 auto', opacity: 0.25 }} />;
+  };
+
   return (
     <section style={baseStyle}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
-        <hr style={{ 
-          border: 'none', 
-          height: '2px', 
-          background: dividerStyle === 'gradient' 
-            ? \`linear-gradient(90deg, transparent, \${accentColor}, transparent)\`
-            : accentColor,
-          borderStyle: dividerStyle === 'dashed' ? 'dashed' : 'solid',
-          borderColor: dividerStyle === 'dashed' ? accentColor : 'transparent',
-          borderWidth: dividerStyle === 'dashed' ? '1px' : '0',
-        }} />
+        {renderDivider()}
       </div>
+    </section>
+  );
+}
+
+/** A decorative shape used as the boundary between two sections. */
+function ShapeDividerSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
+  const baseStyle = getBaseStyle(styles);
+  const markup = sharedShapeDividerMarkup(props as any, styles as any);
+  return (
+    <section style={{ ...baseStyle, lineHeight: 0 }}>
+      {markup
+        ? <div aria-hidden="true" style={{ width: '100%', lineHeight: 0 }} dangerouslySetInnerHTML={{ __html: markup }} />
+        : <div style={{ height: (styles as any).shapeHeight || '80px' }} />}
     </section>
   );
 }
@@ -5695,6 +5743,8 @@ export default function ComponentRenderer({
         return <StatsCounterSection props={component.props} styles={component.styles} />;
       case 'video-embed':
         return <VideoEmbedSection props={component.props} styles={component.styles} />;
+      case 'shape-divider':
+        return <ShapeDividerSection props={component.props} styles={component.styles} />;
       case 'divider':
         return <DividerSection props={component.props} styles={component.styles} />;
       case 'spacer':
@@ -5755,11 +5805,30 @@ export default function ComponentRenderer({
   const componentElement = renderComponent();
   if (!componentElement) return null;
 
+  // Decorative shapes live on the section wrapper, not in each section type,
+  // so every type gains them at once. They are aria-hidden and inert, so they
+  // change nothing about what the page reads out or what can be clicked.
+  const decorationLayers: Array<{ key: string; svg: string; style: Record<string, string | number> }> =
+    sharedHasSectionDecoration(component.styles as any) ? sharedSectionDecorationLayers(component.styles as any) : [];
+  const decorated = decorationLayers.length ? (
+    <div style={{ position: 'relative', overflow: 'hidden' }}>
+      {decorationLayers.map(layer => (
+        <div
+          key={layer.key}
+          aria-hidden="true"
+          style={{ position: 'absolute', pointerEvents: 'none', ...layer.style } as React.CSSProperties}
+          dangerouslySetInnerHTML={{ __html: layer.svg }}
+        />
+      ))}
+      {componentElement}
+    </div>
+  ) : componentElement;
+
   const isParallax = !!(component.styles.motion && (component.styles.motion as any).effect === 'parallax');
   const parallaxSpeed = isParallax ? (Number((component.styles.motion as any).scrollSpeed) || 0.3) : 0;
   const animated = (
     <AnimatedWrapper styles={component.styles}>
-      {componentElement}
+      {decorated}
     </AnimatedWrapper>
   );
   if (isParallax) {
@@ -5872,11 +5941,20 @@ export default function ContactForm({ styles, props }: Props) {
  * JavaScript separately so type erasure never introduces implicit-any errors
  * into a generated site's strict TSX. No customer code is evaluated here. */
 export function generateTrustedRuntime(): string {
-  return [
-    ['createBehaviorRuntime', createBehaviorRuntime], ['createBookingView', createBookingView],
-    ['computeMotion', computeMotion], ['motionPhaseStyle', motionPhaseStyle],
-    ['sectionMotionSpec', sectionMotionSpec], ['staggerChildSpec', staggerChildSpec],
-  ].map(([name, fn]) => `export const ${name} = ${fn.toString()};`).join('\n');
+  // Data as well as functions: the shape registry rides along so the emitted
+  // renderer draws decorations from the same source the editor does.
+  const entries: Array<[string, string]> = [
+    ['createBehaviorRuntime', createBehaviorRuntime.toString()],
+    ['createBookingView', createBookingView.toString()],
+    ['computeMotion', computeMotion.toString()],
+    ['motionPhaseStyle', motionPhaseStyle.toString()],
+    ['sectionMotionSpec', sectionMotionSpec.toString()],
+    ['staggerChildSpec', staggerChildSpec.toString()],
+    ['SVG_SHAPES', JSON.stringify(SVG_SHAPES)],
+    ['renderSvgShape', renderSvgShape.toString()],
+    ['createSectionDecoration', createSectionDecoration.toString()],
+  ];
+  return entries.map(([name, source]) => `export const ${name} = ${source};`).join('\n');
 }
 
 export function generateBookingForm(lang: SiteLanguage = DEFAULT_SITE_LANGUAGE): string {

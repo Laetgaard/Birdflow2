@@ -96,6 +96,7 @@ const categories: CategoryDefinition[] = [
     icon: <Layout className="h-3.5 w-3.5" />,
     sections: [
       { type: "divider", label: "Divider" },
+      { type: "shape-divider", label: "Formdeler" },
       { type: "spacer", label: "Mellemrum" },
       { type: "marquee", label: "Marquee" },
       { type: "container", label: "Container" },

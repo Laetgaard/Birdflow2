@@ -47,6 +47,7 @@ export const PUBLISHER_RENDERS: ComponentTypeCoverage<Coverage> = {
   'contact-form': { component: 'ContactFormSection', where: 'renderer' },
   'video-embed': { component: 'VideoEmbedSection', where: 'renderer' },
   divider: { component: 'DividerSection', where: 'renderer' },
+  'shape-divider': { component: 'ShapeDividerSection', where: 'renderer' },
   spacer: { component: 'SpacerSection', where: 'renderer' },
   newsletter: { component: 'NewsletterSection', where: 'renderer' },
   'before-after': { component: 'BeforeAfterSection', where: 'renderer' },

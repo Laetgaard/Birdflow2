@@ -33,6 +33,7 @@ import {
   type ComponentItem,
   type StyledText
 } from "@shared/componentRegistry";
+import { decorationShapeOptions } from "@shared/rendering/sectionDecoration";
 import ImageCropper from "./ImageCropper";
 import CustomComponentEditor from "./CustomComponentEditor";
 import { uploadImage } from "@/lib/builderUpload";
@@ -1299,6 +1300,101 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
                 className="h-8 rounded-md border"
                 style={{ background: component.styles.backgroundGradient }}
               />
+            )}
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* Decorative shapes — an edge divider and an illustration behind the
+            content. Available on every section type, so it lives here rather
+            than in any one component's registry fields. */}
+        <div className="space-y-3">
+          <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+            Dekoration
+          </h4>
+
+          <div className="space-y-2">
+            {([
+              { key: 'topShape', label: 'Form øverst' },
+              { key: 'bottomShape', label: 'Form nederst' },
+              { key: 'backgroundShape', label: 'Baggrundsillustration' },
+            ] as const).map(({ key, label }) => (
+              <div key={key} className="space-y-1">
+                <Label className="text-xs">{label}</Label>
+                <Select
+                  value={(component.styles as any)[key] || 'none'}
+                  onValueChange={value => onUpdate({ styles: { [key]: value === 'none' ? undefined : value } })}
+                >
+                  <SelectTrigger className="h-8 text-xs" data-testid={`select-${key}`}>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Ingen</SelectItem>
+                    {decorationShapeOptions().map(shape => (
+                      <SelectItem key={shape.id} value={shape.id}>{shape.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+
+            {((component.styles as any).topShape || (component.styles as any).bottomShape) && (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Formfarve</Label>
+                  <Input
+                    type="color"
+                    className="h-8 p-1"
+                    value={(component.styles as any).shapeColor || '#ffffff'}
+                    onChange={event => onUpdate({ styles: { shapeColor: event.target.value } })}
+                    data-testid="input-shape-color"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Formhøjde</Label>
+                  <Input
+                    className="h-8 text-xs"
+                    placeholder="80px"
+                    value={(component.styles as any).shapeHeight || ''}
+                    onChange={event => onUpdate({ styles: { shapeHeight: event.target.value } })}
+                    data-testid="input-shape-height"
+                  />
+                </div>
+              </div>
+            )}
+
+            {(component.styles as any).backgroundShape && (
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Illustrationsfarve</Label>
+                  <Input
+                    type="color"
+                    className="h-8 p-1"
+                    value={(component.styles as any).backgroundShapeColor || '#e0e7ff'}
+                    onChange={event => onUpdate({ styles: { backgroundShapeColor: event.target.value } })}
+                    data-testid="input-background-shape-color"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Placering</Label>
+                  <Select
+                    value={(component.styles as any).backgroundShapePlacement || 'top-right'}
+                    onValueChange={value => onUpdate({ styles: { backgroundShapePlacement: value } })}
+                  >
+                    <SelectTrigger className="h-8 text-xs" data-testid="select-background-shape-placement">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="top-left">Øverst til venstre</SelectItem>
+                      <SelectItem value="top-right">Øverst til højre</SelectItem>
+                      <SelectItem value="bottom-left">Nederst til venstre</SelectItem>
+                      <SelectItem value="bottom-right">Nederst til højre</SelectItem>
+                      <SelectItem value="center">Midt i</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             )}
           </div>
         </div>
