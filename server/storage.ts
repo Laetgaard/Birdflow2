@@ -1495,9 +1495,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getActiveBookingServices(websiteId: string): Promise<BookingService[]> {
+    // Same order as the published site's own route, which sorts by sort_order.
+    // Without this the editor and the live page can list one website's
+    // services differently, which also makes deduplication unstable.
     return db.select().from(bookingServices).where(
       and(eq(bookingServices.websiteId, websiteId), eq(bookingServices.active, 'true'))
-    );
+    ).orderBy(bookingServices.sortOrder, bookingServices.createdAt);
   }
 
   async getBookingService(serviceId: string, websiteId?: string): Promise<BookingService | undefined> {
@@ -3443,8 +3446,11 @@ export class DatabaseStorage implements IStorage {
       // Check if date is in active range
       const inRange = !dateRange || (dateStr >= dateRange.startDate && (!dateRange.endDate || dateStr <= dateRange.endDate));
       
-      // Check if day of week is available
-      const dayAvailable = weeklySchedule.length === 0 || availableDays.has(dayOfWeek);
+      // Check if day of week is available. A service with no opening hours at
+      // all is not bookable on every day — it is bookable on none, unless the
+      // owner placed an open slot (merged in below). Claiming otherwise sends
+      // visitors to days that then show no times.
+      const dayAvailable = availableDays.has(dayOfWeek);
       
       // Check if date is blocked
       const blockedRecord = blockedDateRecords.find(b => {
@@ -3479,9 +3485,11 @@ export class DatabaseStorage implements IStorage {
       );
     const todayStart = new Date(new Date().setHours(0, 0, 0, 0));
     const availableSet = new Set(availableDates);
+    const blockedSet = new Set(blockedDates.map(b => b.date));
     for (const slot of openSlotRows) {
       if (slot.serviceId && slot.serviceId !== serviceId) continue;
       if (new Date(slot.date + 'T00:00:00') < todayStart) continue;
+      if (blockedSet.has(slot.date)) continue;
       if (!availableSet.has(slot.date)) {
         availableSet.add(slot.date);
         availableDates.push(slot.date);

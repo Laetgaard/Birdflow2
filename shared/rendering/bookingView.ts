@@ -12,7 +12,16 @@ export type BookingViewProps = {
   status: 'idle' | 'loading' | 'success' | 'error';
   services: Array<{ id: string; name: string; description?: string; price: string; currency: string; durationMinutes?: number; duration_minutes?: number }>;
   members: Array<{ id: string; name: string; serviceIds?: string[] }>;
-  slots: Array<{ time: string; available: boolean }>;
+  slots: Array<{ time: string; available: boolean; serviceId?: string; openSlotId?: string; teamMemberId?: string | null }>;
+  /** Days this service can actually be booked on, 'YYYY-MM-DD'. Undefined means
+   * "not known" — every future day stays selectable, which is what already
+   * published sites, whose bundle predates this prop, keep doing. */
+  availableDates?: string[];
+  loadingDates?: boolean;
+  /** 'YYYY-MM' — supply it, with onMonthChange, to drive the calendar month
+   * from the host so it can fetch availability for the month on show. */
+  visibleMonth?: string;
+  onMonthChange?: (month: string) => void;
   selectedService: string; selectedMember: string; selectedDate: string; selectedTime: string;
   customer: { name: string; email: string; phone: string; notes: string };
   loadingSlots?: boolean; loadingServices?: boolean; error?: string;
@@ -32,13 +41,21 @@ export function createBookingView(React: typeof ReactTypes) {
   return function BookingView(p: BookingViewProps) {
     const en = p.language === 'en';
     const t = en ? {
-      title: 'Book an appointment', service: 'Service', practitioner: 'Practitioner', any: 'Any available practitioner', date: 'Date and time', details: 'Your details', next: 'Continue', back: 'Back', book: 'Confirm booking', empty: 'No services are available for booking yet.', loading: 'Loading services…', slots: 'Available times', noSlots: 'No available times on this date. Please choose another date.', loadingSlots: 'Loading available times…', name: 'Name', email: 'Email', phone: 'Phone (optional)', notes: 'Message (optional)', success: 'Your booking is confirmed', another: 'Make another booking', previousMonth: 'Previous month', nextMonth: 'Next month', failed: 'Something went wrong. Please try again.', submitting: 'Confirming…'
+      title: 'Book an appointment', service: 'Service', practitioner: 'Practitioner', any: 'Any available practitioner', date: 'Date and time', details: 'Your details', next: 'Continue', back: 'Back', book: 'Confirm booking', empty: 'No services are available for booking yet.', loading: 'Loading services…', slots: 'Available times', noSlots: 'No available times on this date. Please choose another date.', loadingSlots: 'Loading available times…', name: 'Name', email: 'Email', phone: 'Phone (optional)', notes: 'Message (optional)', success: 'Your booking is confirmed', another: 'Make another booking', previousMonth: 'Previous month', nextMonth: 'Next month', failed: 'Something went wrong. Please try again.', submitting: 'Confirming…', dayAvailable: 'available', dayUnavailable: 'not available', loadingDates: 'Loading available dates…'
     } : {
-      title: 'Book en tid', service: 'Ydelse', practitioner: 'Behandler', any: 'En ledig behandler', date: 'Dato og tidspunkt', details: 'Dine oplysninger', next: 'Fortsæt', back: 'Tilbage', book: 'Bekræft booking', empty: 'Der er endnu ingen ydelser, der kan bookes.', loading: 'Indlæser ydelser…', slots: 'Ledige tider', noSlots: 'Ingen ledige tider denne dag. Vælg venligst en anden dato.', loadingSlots: 'Indlæser ledige tider…', name: 'Navn', email: 'E-mail', phone: 'Telefon (valgfrit)', notes: 'Besked (valgfrit)', success: 'Din booking er bekræftet', another: 'Book en ny tid', previousMonth: 'Forrige måned', nextMonth: 'Næste måned', failed: 'Der opstod en fejl. Prøv igen.', submitting: 'Bekræfter…'
+      title: 'Book en tid', service: 'Ydelse', practitioner: 'Behandler', any: 'En ledig behandler', date: 'Dato og tidspunkt', details: 'Dine oplysninger', next: 'Fortsæt', back: 'Tilbage', book: 'Bekræft booking', empty: 'Der er endnu ingen ydelser, der kan bookes.', loading: 'Indlæser ydelser…', slots: 'Ledige tider', noSlots: 'Ingen ledige tider denne dag. Vælg venligst en anden dato.', loadingSlots: 'Indlæser ledige tider…', name: 'Navn', email: 'E-mail', phone: 'Telefon (valgfrit)', notes: 'Besked (valgfrit)', success: 'Din booking er bekræftet', another: 'Book en ny tid', previousMonth: 'Forrige måned', nextMonth: 'Næste måned', failed: 'Der opstod en fejl. Prøv igen.', submitting: 'Bekræfter…', dayAvailable: 'ledig', dayUnavailable: 'ikke ledig', loadingDates: 'Henter ledige datoer…'
     };
     const locale = en ? 'en-DK' : 'da-DK';
     const uid = React.useId();
-    const [month, setMonth] = React.useState(() => new Date(new Date().getFullYear(), new Date().getMonth(), 1));
+    const monthKeyOf = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}`;
+    const [innerMonth, setInnerMonth] = React.useState(() => monthKeyOf(new Date()));
+    const monthKey = p.visibleMonth || innerMonth;
+    const month = new Date(Number(monthKey.slice(0, 4)), Number(monthKey.slice(5, 7)) - 1, 1);
+    const goMonth = (delta: number) => {
+      const next = monthKeyOf(new Date(month.getFullYear(), month.getMonth() + delta, 1));
+      setInnerMonth(next);
+      p.onMonthChange?.(next);
+    };
     const selected = p.services.find(service => service.id === p.selectedService);
     const members = p.members.filter(member => !member.serviceIds?.length || member.serviceIds.includes(p.selectedService));
     const compact = p.props.variant === 'compact';
@@ -51,6 +68,7 @@ export function createBookingView(React: typeof ReactTypes) {
     const dateValue = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     const today = dateValue(new Date());
     const step = p.step === 'person' ? 'service' : p.step;
+    const knownDates = Array.isArray(p.availableDates) ? p.availableDates : null;
     const editing = (field: string) => ({ contentEditable: !!p.editing && p.editingField === field, suppressContentEditableWarning: true,
       onDoubleClick: p.editing ? (event: ReactTypes.MouseEvent) => { event.stopPropagation(); p.onEditField?.(field); } : undefined,
       onBlur: p.editing ? (event: ReactTypes.FocusEvent<HTMLElement>) => { if (p.editingField === field) { p.onTextChange?.(field, event.currentTarget.textContent || ''); p.onEditField?.(null); } } : undefined });
@@ -76,17 +94,33 @@ export function createBookingView(React: typeof ReactTypes) {
       ),
       step === 'datetime' && h('div', null,
         h('h3', null, t.date),
+        p.loadingDates && h('p', { role: 'status' }, t.loadingDates),
         p.props.displayMode === 'list' ? h('label', null, t.date, h('input', { type: 'date', min: today, value: p.selectedDate, disabled: p.editing, style: fieldStyle, onChange: (event: ReactTypes.ChangeEvent<HTMLInputElement>) => p.onDate(event.target.value) })) : h('div', { 'data-booking-calendar': '', style: { maxWidth: 420, margin: '0 auto' } },
           h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12 } },
-            h('button', { 'data-preview-local-interaction': '', type: 'button', style: buttonStyle, 'aria-label': t.previousMonth, disabled: p.editing || dateValue(month).slice(0, 7) <= today.slice(0, 7), onClick: () => setMonth(value => new Date(value.getFullYear(), value.getMonth() - 1, 1)) }, '‹'),
+            h('button', { 'data-preview-local-interaction': '', type: 'button', style: buttonStyle, 'aria-label': t.previousMonth, disabled: p.editing || monthKey <= today.slice(0, 7), onClick: () => goMonth(-1) }, '‹'),
             h('strong', { 'aria-live': 'polite' }, new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(month)),
-            h('button', { 'data-preview-local-interaction': '', type: 'button', style: buttonStyle, 'aria-label': t.nextMonth, disabled: p.editing, onClick: () => setMonth(value => new Date(value.getFullYear(), value.getMonth() + 1, 1)) }, '›')),
+            h('button', { 'data-preview-local-interaction': '', type: 'button', style: buttonStyle, 'aria-label': t.nextMonth, disabled: p.editing, onClick: () => goMonth(1) }, '›')),
           h('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(7, minmax(0, 1fr))', gap: 2 } },
             (en ? ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'] : ['Ma', 'Ti', 'On', 'To', 'Fr', 'Lø', 'Sø']).map(day => h('span', { key: day, style: { textAlign: 'center' } }, day)),
             Array.from({ length: (month.getDay() + 6) % 7 }, (_, i) => h('span', { key: `empty-${i}` })),
             Array.from({ length: new Date(month.getFullYear(), month.getMonth() + 1, 0).getDate() }, (_, i) => {
               const day = new Date(month.getFullYear(), month.getMonth(), i + 1); const date = dateValue(day);
-              return h('button', { 'data-preview-local-interaction': '', key: date, type: 'button', 'aria-label': new Intl.DateTimeFormat(locale, { dateStyle: 'full' }).format(day), 'aria-pressed': date === p.selectedDate, disabled: p.editing || date < today, style: { ...buttonStyle, minHeight: 38, padding: '6px 0', border: date === p.selectedDate ? `2px solid ${accent}` : '1px solid transparent', opacity: date < today ? 0.4 : 1 }, onClick: () => p.onDate(date) }, i + 1);
+              const past = date < today;
+              // Availability is only enforced once the host has told us what it
+              // is; until then every future day stays open, so a failed lookup
+              // can never make a bookable site look closed.
+              const bookable = !knownDates || knownDates.indexOf(date) >= 0;
+              const unavailable = past || !bookable;
+              return h('button', { 'data-preview-local-interaction': '', key: date, type: 'button',
+                'aria-label': `${new Intl.DateTimeFormat(locale, { dateStyle: 'full' }).format(day)} – ${unavailable ? t.dayUnavailable : t.dayAvailable}`,
+                'aria-pressed': date === p.selectedDate, 'aria-disabled': unavailable || undefined,
+                disabled: p.editing || unavailable,
+                style: { ...buttonStyle, minHeight: 38, padding: '6px 0 2px', border: date === p.selectedDate ? `2px solid ${accent}` : '1px solid transparent', opacity: past ? 0.35 : !bookable ? 0.45 : 1 },
+                onClick: () => p.onDate(date) },
+                i + 1,
+                // A dot, not just a shade: the bookable state must not rest on
+                // colour or opacity alone.
+                h('span', { 'aria-hidden': 'true', style: { display: 'block', width: 4, height: 4, margin: '2px auto 0', borderRadius: '50%', background: unavailable ? 'transparent' : accent } }));
             }))),
         p.selectedDate && h('div', { style: { marginTop: 20 } }, h('h4', null, t.slots), p.loadingSlots ? h('p', { role: 'status' }, t.loadingSlots) : !p.slots.some(slot => slot.available) ? h('p', { role: 'status' }, t.noSlots) : h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } }, p.slots.map(slot => h('button', { 'data-preview-local-interaction': '', key: slot.time, type: 'button', 'aria-pressed': slot.time === p.selectedTime, disabled: p.editing || !slot.available, onClick: () => p.onTime(slot.time), style: { ...buttonStyle, borderWidth: slot.time === p.selectedTime ? 2 : 1, opacity: slot.available ? 1 : 0.4 } }, slot.time))))
       ),

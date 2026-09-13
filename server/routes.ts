@@ -3930,6 +3930,18 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Service name is required" });
       }
 
+      // Saving the same service twice used to create a second row, and the
+      // visitor then saw two identical cards with the bookable times split
+      // between them. Hand back the existing one instead.
+      const existing = (await storage.getBookingServices(req.params.id)).find(candidate =>
+        candidate.name.trim().toLowerCase() === String(name).trim().toLowerCase()
+        && candidate.durationMinutes === (durationMinutes || 30)
+        && Number(candidate.price) === Number(price || '0')
+        && (candidate.currency || 'USD') === (currency || 'USD'));
+      if (existing) {
+        return res.status(200).json({ ...existing, isActive: existing.active === 'true', deduplicated: true });
+      }
+
       const service = await storage.createBookingService({
         websiteId: req.params.id,
         name,
@@ -4410,6 +4422,53 @@ export async function registerRoutes(
     }
   });
 
+  // Which dates in a month can actually be booked, across every service id a
+  // deduplicated card stands for. A date bookable through any one of them is
+  // bookable for the visitor, so the calendar can dim the rest honestly.
+  app.get("/api/public/websites/:websiteId/booking-availability", async (req, res) => {
+    try {
+      const raw = typeof req.query.serviceIds === "string" ? req.query.serviceIds
+        : typeof req.query.serviceId === "string" ? req.query.serviceId : "";
+      const serviceIds = raw.split(",").map(id => id.trim()).filter(Boolean).slice(0, 10);
+      if (!serviceIds.length) {
+        return res.status(400).json({ message: "serviceIds is required", code: "MISSING_FIELDS" });
+      }
+
+      const now = new Date();
+      const month = parseInt(String(req.query.month), 10) || now.getMonth() + 1;
+      const year = parseInt(String(req.query.year), 10) || now.getFullYear();
+      if (month < 1 || month > 12 || year < 1970 || year > 9999) {
+        return res.status(400).json({ message: "Invalid month or year", code: "MISSING_FIELDS" });
+      }
+
+      const results = await Promise.all(serviceIds.map(serviceId =>
+        storage.getFullServiceAvailability(serviceId, req.params.websiteId, month, year)));
+
+      const available = new Set<string>();
+      for (const result of results) for (const date of result.availableDates) available.add(date);
+
+      // A day only reads as blocked when no id in the group can serve it;
+      // otherwise one duplicate's holiday would grey out a bookable day.
+      const blocked: { date: string; reason?: string }[] = [];
+      const seen = new Set<string>();
+      for (const result of results) {
+        for (const entry of result.blockedDates) {
+          if (available.has(entry.date) || seen.has(entry.date)) continue;
+          seen.add(entry.date);
+          blocked.push(entry);
+        }
+      }
+
+      res.json({
+        availableDates: Array.from(available).sort(),
+        blockedDates: blocked,
+        serviceIds,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // ============ PUBLIC API ROUTES (for published websites) ============
   // These routes will be used by published websites to submit data
 
@@ -4454,7 +4513,7 @@ export async function registerRoutes(
       
       if (!customerName || !customerEmail || !service || !serviceId || !date || (!openSlotId && (!time || !/^\d{2}:\d{2}$/.test(time)))) {
         console.log(`[Booking] REJECTED: Missing required fields`);
-        return res.status(400).json({ message: "Customer name, email, service, service ID, date, and time are required" });
+        return res.status(400).json({ message: "Customer name, email, service, service ID, date, and time are required", code: "MISSING_FIELDS" });
       }
 
       const timeError = bookingTimeError(date, time, openSlotId);
@@ -4463,12 +4522,12 @@ export async function registerRoutes(
       const website = await storage.getWebsite(websiteId);
       if (!website) {
         console.log(`[Booking] REJECTED: Website not found: ${websiteId}`);
-        return res.status(404).json({ message: "Website not found" });
+        return res.status(404).json({ message: "Website not found", code: "NOT_CONFIGURED" });
       }
       console.log(`[Booking] Website found: ${website.name}`);
       const requestedService = await storage.getBookingService(serviceId, websiteId);
       if (!requestedService || requestedService.active !== "true") {
-        return res.status(400).json({ message: "Selected service is not available" });
+        return res.status(400).json({ message: "Selected service is not available", code: "MISSING_FIELDS" });
       }
 
       // Validate the requested team member (if any) belongs to this website
@@ -4477,7 +4536,7 @@ export async function registerRoutes(
         const member = await storage.getTeamMember(teamMemberId, websiteId);
         if (!member || !member.active) {
           console.log(`[Booking] REJECTED: Unknown team member ${teamMemberId}`);
-          return res.status(400).json({ message: "Selected team member is not available" });
+          return res.status(400).json({ message: "Selected team member is not available", code: "MISSING_FIELDS" });
         }
         requestedMemberId = member.id;
       }
@@ -4498,9 +4557,10 @@ export async function registerRoutes(
         // Slot settings win over request values.
         const slotServiceId = slot.serviceId || serviceId || null;
         let serviceName = service;
+        let serviceCurrency = requestedService.currency || null;
         if (slot.serviceId && slot.serviceId !== serviceId) {
           const svc = await storage.getBookingService(slot.serviceId, websiteId);
-          if (svc) serviceName = svc.name;
+          if (svc) { serviceName = svc.name; serviceCurrency = svc.currency || serviceCurrency; }
         }
 
         booking = await storage.createBookingFromOpenSlotTransactional(slot.id, websiteId, {
@@ -4510,6 +4570,7 @@ export async function registerRoutes(
             customerPhone,
             service: serviceName,
             serviceId: slotServiceId,
+            currency: serviceCurrency,
             date: new Date(slot.date + 'T00:00:00'),
             time: slot.time,
             durationMinutes: slot.durationMinutes || null,
@@ -4578,6 +4639,7 @@ export async function registerRoutes(
           customerPhone,
           service,
           serviceId: serviceId || null,
+          currency: requestedService.currency || null,
           date: new Date(String(date).slice(0, 10) + 'T00:00:00.000Z'),
           time: time || null,
           durationMinutes,
@@ -4590,8 +4652,17 @@ export async function registerRoutes(
 
       res.status(201).json(booking);
     } catch (error: any) {
-      console.error(`[Booking] ERROR: Failed to create booking for website ${websiteId}:`, error.message);
-      res.status(error.status || 500).json({ message: error.message, code: error.code });
+      const status = error.status || (error.code === "SLOT_UNAVAILABLE" || error.code === "MEMBER_CONFLICT" ? 409 : 500);
+      if (status === 409) {
+        console.warn(`[Booking] CONFLICT for website ${websiteId}:`, error.message);
+        return res.status(409).json({ message: error.message, code: error.code });
+      }
+      // A failure here is ours, not the visitor's: log it against a short
+      // reference the customer can quote rather than leaking internals, and
+      // never let the client read it as "you filled the form in wrong".
+      const ref = crypto.randomBytes(4).toString("hex");
+      console.error(`[Booking] ERROR ref=${ref} website=${websiteId}:`, error);
+      res.status(status).json({ message: "Failed to create booking", code: "SERVER_ERROR", requestId: ref });
     }
   });
 

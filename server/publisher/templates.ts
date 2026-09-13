@@ -1,5 +1,6 @@
 import { bookingTimeError } from '../../shared/bookingRequest';
 import { createBookingView } from '../../shared/rendering/bookingView';
+import { groupBookingServices, groupServiceIds, mergeServiceSlots } from '../../shared/rendering/bookingServices';
 import { createBehaviorRuntime } from '../../shared/rendering/behaviorRuntime';
 import type { ThemeConfig, PageData, BuilderComponentData } from '../../shared/rendering/types';
 import { BREAKPOINTS, REDUCED_MOTION_QUERY } from '../../shared/rendering/contract';
@@ -237,6 +238,9 @@ function timeToMinutes(value: string | null | undefined): number | null {
 }
 
 export async function POST(request: NextRequest) {
+  // Short, quotable reference. Logged next to the real cause so an owner can
+  // match what the customer saw against this deployment's logs.
+  const requestId = Math.random().toString(36).slice(2, 10);
   try {
     const body = await request.json();
     const { customerName, customerEmail, customerPhone, serviceId, service, date, time, notes } = body;
@@ -245,14 +249,15 @@ export async function POST(request: NextRequest) {
     const place = body.place || null;
     
     if (!customerName || !customerEmail || !service || !date) {
-      return NextResponse.json({ message: 'Customer name, email, service, and date are required' }, { status: 400 });
+      return NextResponse.json({ message: 'Customer name, email, service, and date are required', code: 'MISSING_FIELDS' }, { status: 400 });
     }
 
     const timeError = bookingTimeError(date, time, openSlotId);
     if (timeError) return NextResponse.json({ message: timeError, code: "INVALID_BOOKING_TIME" }, { status: 400 });
 
     if (!SUPABASE_SERVICE_KEY) {
-      return NextResponse.json({ message: 'Server not configured' }, { status: 500 });
+      console.error('[Booking ' + requestId + '] SUPABASE_SERVICE_ROLE_KEY is not set on this deployment');
+      return NextResponse.json({ message: 'Booking is not configured on this deployment', code: 'NOT_CONFIGURED', requestId }, { status: 500 });
     }
 
     const { createClient } = await import('@supabase/supabase-js');
@@ -263,26 +268,32 @@ export async function POST(request: NextRequest) {
     const effectiveWebsiteId = await getWebsiteIdFromHost(host, supabase);
     
     if (!effectiveWebsiteId) {
-      return NextResponse.json({ message: 'Could not determine website' }, { status: 400 });
+      return NextResponse.json({ message: 'Could not determine website', code: 'MISSING_FIELDS' }, { status: 400 });
     }
 
-    // Get service details if serviceId provided
+    // Get service details if serviceId provided. Scoped to this website: an id
+    // from another tenant must not resolve here.
     let durationMinutes = null;
     let price = null;
+    let currency = null;
     if (serviceId) {
       const { data: serviceData } = await supabase
         .from('booking_services')
-        .select('duration_minutes, price')
+        .select('duration_minutes, price, currency')
         .eq('id', serviceId)
+        .eq('website_id', effectiveWebsiteId)
         .single();
       if (serviceData) {
         durationMinutes = serviceData.duration_minutes;
         price = serviceData.price;
+        currency = serviceData.currency;
       }
     }
 
     let data: any = null;
-    let bookingDate = date;
+    // 'YYYY-MM-DD' or a full ISO string both reduce to the same calendar day.
+    const requestedDay = String(date).slice(0, 10);
+    let bookingDate = requestedDay;
     let bookingTime = time || null;
 
     if (openSlotId) {
@@ -296,8 +307,8 @@ export async function POST(request: NextRequest) {
         .select();
 
       if (claimError) {
-        console.error('Open slot claim error:', claimError);
-        return NextResponse.json({ message: 'Failed to create booking', error: 'Failed to create booking' }, { status: 500 });
+        console.error('[Booking ' + requestId + '] Open slot claim error:', claimError);
+        return NextResponse.json({ message: 'Failed to create booking', error: 'Failed to create booking', code: 'SERVER_ERROR', requestId }, { status: 500 });
       }
 
       const claimed = (claimedRows || [])[0];
@@ -317,13 +328,14 @@ export async function POST(request: NextRequest) {
       if (claimed.service_id && claimed.service_id !== serviceId) {
         const { data: slotService } = await supabase
           .from('booking_services')
-          .select('name, price')
+          .select('name, price, currency')
           .eq('id', claimed.service_id)
           .eq('website_id', effectiveWebsiteId)
           .single();
         if (slotService) {
           slotServiceName = slotService.name;
           price = slotService.price;
+          currency = slotService.currency;
         }
       }
 
@@ -334,26 +346,27 @@ export async function POST(request: NextRequest) {
         customer_name: customerName,
         customer_email: customerEmail,
         customer_phone: customerPhone || null,
-        date: new Date(claimed.date + 'T00:00:00').toISOString(),
+        date: String(claimed.date).slice(0, 10) + 'T00:00:00',
         time: claimed.time || null,
         duration_minutes: claimed.duration_minutes || durationMinutes,
         team_member_id: claimed.team_member_id || teamMemberId || null,
         place: place || null,
         send_reminder: true,
         price: price,
+        currency: currency || undefined,
         notes: notes || null,
         status: 'pending',
       }).select().single();
 
       if (insertResult.error || !insertResult.data) {
-        console.error('Booking error:', insertResult.error);
+        console.error('[Booking ' + requestId + '] Insert error (open slot path):', insertResult.error);
         // Revert the claim so the slot is not lost
         await supabase
           .from('booking_open_slots')
           .update({ status: 'open' })
           .eq('id', claimed.id)
           .eq('website_id', effectiveWebsiteId);
-        return NextResponse.json({ message: 'Failed to create booking', error: 'Failed to create booking' }, { status: 500 });
+        return NextResponse.json({ message: 'Failed to create booking', error: 'Failed to create booking', code: 'SERVER_ERROR', requestId }, { status: 500 });
       }
 
       data = insertResult.data;
@@ -364,7 +377,7 @@ export async function POST(request: NextRequest) {
         .eq('id', claimed.id)
         .eq('website_id', effectiveWebsiteId);
     } else {
-      const dateOnly = new Date(date).toISOString().split('T')[0];
+      const dateOnly = requestedDay;
       const startOfDay = \`\${dateOnly}T00:00:00\`;
       const endOfDay = \`\${dateOnly}T23:59:59\`;
 
@@ -436,20 +449,21 @@ export async function POST(request: NextRequest) {
         customer_name: customerName,
         customer_email: customerEmail,
         customer_phone: customerPhone || null,
-        date: new Date(date).toISOString(),
+        date: requestedDay + 'T00:00:00',
         time: time || null,
         duration_minutes: durationMinutes,
         team_member_id: teamMemberId || null,
         place: place || null,
         send_reminder: true,
         price: price,
+        currency: currency || undefined,
         notes: notes || null,
         status: 'pending',
       }).select().single();
 
       if (insertResult.error || !insertResult.data) {
-        console.error('Booking error:', insertResult.error);
-        return NextResponse.json({ message: 'Failed to create booking', error: 'Failed to create booking' }, { status: 500 });
+        console.error('[Booking ' + requestId + '] Insert error:', insertResult.error);
+        return NextResponse.json({ message: 'Failed to create booking', error: 'Failed to create booking', code: 'SERVER_ERROR', requestId }, { status: 500 });
       }
 
       data = insertResult.data;
@@ -532,8 +546,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json(data);
   } catch (err) {
-    console.error('Booking error:', err);
-    return NextResponse.json({ message: 'Booking failed' }, { status: 500 });
+    console.error('[Booking ' + requestId + '] Unhandled error:', err);
+    return NextResponse.json({ message: 'Booking failed', code: 'SERVER_ERROR', requestId }, { status: 500 });
   }
 }
 `;
@@ -789,14 +803,20 @@ export async function GET(request: NextRequest) {
     }
 
     const { searchParams } = new URL(request.url);
-    const serviceId = searchParams.get('serviceId');
+    // One visitor-facing card can stand for several duplicate service rows;
+    // accept the whole group so the calendar reflects all of them at once.
+    const requestedIds = (searchParams.get('serviceIds') || searchParams.get('serviceId') || '')
+      .split(',').map((value: string) => value.trim()).filter(Boolean).slice(0, 10);
     const month = parseInt(searchParams.get('month') || String(new Date().getMonth() + 1));
     const year = parseInt(searchParams.get('year') || String(new Date().getFullYear()));
 
-    if (!serviceId) {
+    if (!requestedIds.length) {
       return NextResponse.json({ message: 'serviceId is required' }, { status: 400 });
     }
 
+    const perService = [] as Array<{ availableDates: string[]; blockedDates: { date: string; reason?: string }[]; dateRanges: any[]; weeklySchedule: any[] }>;
+
+    for (const serviceId of requestedIds) {
     // Verify service belongs to this website (security: prevent cross-tenant access)
     const { data: serviceCheck } = await supabase
       .from('booking_services')
@@ -806,7 +826,7 @@ export async function GET(request: NextRequest) {
       .single();
 
     if (!serviceCheck) {
-      return NextResponse.json({ message: 'Service not found' }, { status: 404 });
+      continue;
     }
 
     // Get weekly schedule (scoped by websiteId via service ownership check above)
@@ -862,8 +882,11 @@ export async function GET(request: NextRequest) {
         dateStr >= range.startDate && (!range.endDate || dateStr <= range.endDate)
       );
       
-      // Check if day of week is available
-      const dayAvailable = weeklySchedule.length === 0 || availableDays.has(dayOfWeek);
+      // Check if day of week is available. No opening hours means no bookable
+      // weekday — only the owner's open slots (merged in below) make a date
+      // bookable. The old "empty schedule means every day" rule offered dates
+      // that then had no times behind them.
+      const dayAvailable = availableDays.has(dayOfWeek);
       
       // Check if date is blocked
       const blockedRecord = (blockedRecords || []).find((b: any) => {
@@ -912,7 +935,36 @@ export async function GET(request: NextRequest) {
 
     availableDates.sort();
 
-    return NextResponse.json({ availableDates, blockedDates, dateRanges, weeklySchedule });
+    perService.push({ availableDates, blockedDates, dateRanges, weeklySchedule });
+    }
+
+    if (!perService.length) {
+      return NextResponse.json({ message: 'Service not found' }, { status: 404 });
+    }
+
+    // A date bookable through any id in the group is bookable for the visitor.
+    const unionAvailable = new Set<string>();
+    for (const entry of perService) for (const date of entry.availableDates) unionAvailable.add(date);
+
+    // Only report a date as blocked when no id in the group can serve it —
+    // otherwise one duplicate's holiday would grey out a bookable day.
+    const unionBlocked: { date: string; reason?: string }[] = [];
+    const seenBlocked = new Set<string>();
+    for (const entry of perService) {
+      for (const blockedEntry of entry.blockedDates) {
+        if (unionAvailable.has(blockedEntry.date) || seenBlocked.has(blockedEntry.date)) continue;
+        seenBlocked.add(blockedEntry.date);
+        unionBlocked.push(blockedEntry);
+      }
+    }
+
+    return NextResponse.json({
+      availableDates: Array.from(unionAvailable).sort(),
+      blockedDates: unionBlocked,
+      dateRanges: perService[0].dateRanges,
+      weeklySchedule: perService[0].weeklySchedule,
+      serviceIds: requestedIds,
+    });
   } catch (err) {
     console.error('Availability error:', err);
     return NextResponse.json({ message: 'Failed to fetch availability' }, { status: 500 });
@@ -5837,11 +5889,22 @@ import { createBookingView } from '@/components/trustedRuntime';
 
 const BookingView = createBookingView(React);
 
+// Grouping of duplicate service rows, inlined from the platform so the editor
+// and this page collapse them identically. Type annotations do not survive
+// serialisation, so each carries its signature here.
+type BookingGroup = { key: string; primaryId: string; ids: string[]; service: BookingService };
+const groupBookingServices: (services: BookingService[]) => BookingGroup[] = ${groupBookingServices.toString()};
+const groupServiceIds: (groups: BookingGroup[], serviceId: string) => string[] = ${groupServiceIds.toString()};
+const mergeServiceSlots: (sets: Array<{ serviceId: string; slots: TimeSlot[] }>) => TimeSlot[] = ${mergeServiceSlots.toString()};
+
 type BookingService = {
   id: string;
   name: string;
   description?: string;
+  /** Supabase returns snake_case; the platform's own API returns camelCase.
+   * Both shapes reach this component, so both are accepted. */
   duration_minutes: number;
+  durationMinutes?: number;
   price: string;
   currency: string;
 };
@@ -5849,6 +5912,9 @@ type BookingService = {
 type TimeSlot = {
   time: string;
   available: boolean;
+  /** Which service row offers this time — a group's times can come from any
+   * of its duplicates, and the booking must name the one that owns it. */
+  serviceId?: string;
   openSlotId?: string;
   teamMemberId?: string | null;
 };
@@ -5900,6 +5966,19 @@ export default function BookingForm({ styles, props }: Props) {
   // Calendar and availability state
   const [timeSlots, setTimeSlots] = useState<TimeSlot[]>([]);
   const [loadingSlots, setLoadingSlots] = useState(false);
+  const [availableDates, setAvailableDates] = useState<string[] | undefined>(undefined);
+  const [loadingDates, setLoadingDates] = useState(false);
+  const [visibleMonth, setVisibleMonth] = useState(() => {
+    const now = new Date();
+    return now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  });
+
+  // Several rows can describe one offering. Show one card, keep every id: the
+  // bookable times may sit on any one of them.
+  const groups = React.useMemo(() => groupBookingServices(services), [services]);
+  const visibleServices = React.useMemo(() => groups.map((group: any) => group.service), [groups]);
+  const selectedIds = React.useMemo(() => groupServiceIds(groups, selectedService), [groups, selectedService]);
+  const selectedKey = selectedIds.join(',');
 
   useEffect(() => {
     const fetchServices = async () => {
@@ -5939,15 +6018,42 @@ export default function BookingForm({ styles, props }: Props) {
     setTimeSlots([]); setSelectedTime(''); setLoadingSlots(false);
     if (!selectedService || !selectedDate || !websiteId) return;
     setLoadingSlots(true); setErrorMessage('');
-    const query = new URLSearchParams({ serviceId: selectedService, date: selectedDate });
-    if (selectedMember) query.set('teamMemberId', selectedMember);
-    fetch('/api/slots?' + query, { signal: controller.signal })
-      .then(async response => { if (!response.ok) throw new Error('slots'); return response.json(); })
-      .then(data => { if (!controller.signal.aborted) setTimeSlots(Array.isArray(data) ? data : []); })
+    // One duplicate failing must not blank the step, so a failed id simply
+    // contributes no times.
+    Promise.all(selectedIds.map((id: string) => {
+      const query = new URLSearchParams({ serviceId: id, date: selectedDate });
+      if (selectedMember) query.set('teamMemberId', selectedMember);
+      return fetch('/api/slots?' + query, { signal: controller.signal })
+        .then(async response => { if (!response.ok) throw new Error('slots'); return response.json(); })
+        .then(data => ({ serviceId: id, slots: Array.isArray(data) ? data : [] }))
+        .catch(() => ({ serviceId: id, slots: [] }));
+    }))
+      .then(sets => { if (!controller.signal.aborted) setTimeSlots(mergeServiceSlots(sets)); })
       .catch(() => { if (!controller.signal.aborted) setErrorMessage(${lit(t.bookingErrorGeneric)}); })
       .finally(() => { if (!controller.signal.aborted) setLoadingSlots(false); });
     return () => controller.abort();
-  }, [selectedService, selectedDate, selectedMember, websiteId, slotReload]);
+  }, [selectedKey, selectedDate, selectedMember, websiteId, slotReload]);
+
+  // Which days the group can actually serve, for the month on show.
+  useEffect(() => {
+    const controller = new AbortController();
+    setAvailableDates(undefined);
+    if (!selectedIds.length) return;
+    setLoadingDates(true);
+    const query = new URLSearchParams({
+      serviceIds: selectedKey,
+      month: String(Number(visibleMonth.slice(5, 7))),
+      year: String(Number(visibleMonth.slice(0, 4))),
+    });
+    fetch('/api/availability?' + query, { signal: controller.signal })
+      .then(async response => { if (!response.ok) throw new Error('availability'); return response.json(); })
+      .then(data => { if (!controller.signal.aborted && Array.isArray(data?.availableDates)) setAvailableDates(data.availableDates); })
+      // Unknown beats wrong: a failed lookup leaves every future day open
+      // rather than making a bookable site look closed.
+      .catch(() => {})
+      .finally(() => { if (!controller.signal.aborted) setLoadingDates(false); });
+    return () => controller.abort();
+  }, [selectedKey, visibleMonth]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -5958,9 +6064,15 @@ export default function BookingForm({ styles, props }: Props) {
     }
     setStatus('loading');
     setErrorMessage('');
-    const service = services.find(s => s.id === selectedService);
     const chosenSlot = timeSlots.find(s => s.time === selectedTime);
-    const bookingDateTime = selectedDate + 'T00:00:00.000Z';
+    // The chosen time may belong to a duplicate the visitor never saw. Book
+    // against the id that owns it, or the server has no such availability.
+    const submitServiceId = chosenSlot?.serviceId || selectedService;
+    const service = services.find(s => s.id === submitServiceId) || services.find(s => s.id === selectedService);
+    // A booking day is a calendar day, not an instant. Send it as-is and let
+    // the server normalise once; attaching a UTC midnight here made the stored
+    // day drift for anyone east or west of UTC.
+    const bookingDateTime = selectedDate;
     
     try {
       const res = await fetch('/api/bookings', {
@@ -5970,7 +6082,7 @@ export default function BookingForm({ styles, props }: Props) {
           customerName: name,
           customerEmail: email,
           customerPhone: phone || null,
-          serviceId: selectedService,
+          serviceId: submitServiceId,
           service: service?.name || 'Service',
           date: bookingDateTime,
           time: selectedTime,
@@ -5987,18 +6099,31 @@ export default function BookingForm({ styles, props }: Props) {
         } catch (parseErr) {
           payload = null;
         }
-        if (res.status === 409 && payload?.code === 'MEMBER_CONFLICT') {
+        // Switch on the server's code, never on the status alone: a 400 or 500
+        // is not the visitor failing to fill the form in, and saying so sends
+        // them back to re-type details that were already correct.
+        const code = payload?.code || (res.status === 409 ? 'SLOT_UNAVAILABLE' : 'SERVER_ERROR');
+        if (code === 'MEMBER_CONFLICT') {
           setErrorMessage(${lit(t.bookingErrorMemberConflict)});
           setSelectedTime('');
           setStep('datetime');
           await refreshSlots();
-        } else if (res.status === 409) {
+        } else if (code === 'SLOT_UNAVAILABLE') {
           setErrorMessage(${lit(t.bookingErrorSlotTaken)});
           setSelectedTime('');
           setStep('datetime');
           await refreshSlots();
-        } else {
+        } else if (code === 'INVALID_BOOKING_TIME') {
+          setErrorMessage(${lit(t.bookingErrorInvalidTime)});
+          setSelectedTime('');
+          setStep('datetime');
+        } else if (code === 'MISSING_FIELDS') {
           setErrorMessage(${lit(t.bookingErrorRequired)});
+        } else if (code === 'NOT_CONFIGURED') {
+          setErrorMessage(${lit(t.bookingErrorNotConfigured)});
+        } else {
+          const reference = payload?.requestId ? ' (' + ${lit(t.bookingErrorReference)} + ': ' + payload.requestId + ')' : '';
+          setErrorMessage(${lit(t.bookingErrorServer)} + reference);
         }
         setStatus('error');
       } else {
@@ -6006,20 +6131,26 @@ export default function BookingForm({ styles, props }: Props) {
         setStatus('success');
         if (typeof window !== 'undefined') {
           window.dispatchEvent(new CustomEvent('analytics:booking_submit', { 
-            detail: { serviceId: selectedService, serviceName: service?.name } 
+            detail: { serviceId: submitServiceId, serviceName: service?.name } 
           }));
           if (data.id) {
             window.dispatchEvent(new CustomEvent('analytics:booking_created', { 
-              detail: { bookingId: data.id, serviceId: selectedService, serviceName: service?.name } 
+              detail: { bookingId: data.id, serviceId: submitServiceId, serviceName: service?.name } 
             }));
           }
         }
       }
     } catch (err) {
-      setErrorMessage(${lit(t.bookingErrorGeneric)});
+      // The request never produced a response — a connection problem, not a
+      // rejection of anything the visitor typed.
+      setErrorMessage(${lit(t.bookingErrorNetwork)});
       setStatus('error');
     }
   };
+
+  // An error belongs to the attempt that produced it. Without this the red
+  // alert follows the visitor back to step 1 and reads as a fresh rejection.
+  const clearError = () => { setErrorMessage(''); setStatus(current => (current === 'error' ? 'idle' : current)); };
 
   const resetForm = () => {
     setStep('service');
@@ -6034,16 +6165,18 @@ export default function BookingForm({ styles, props }: Props) {
     setStatus('idle');
     setErrorMessage('');
     setTimeSlots([]);
+    setAvailableDates(undefined);
   };
 
-  return <BookingView props={props} styles={styles} language={${lit(lang)}} services={services} members={teamMembers} slots={timeSlots}
+  return <BookingView props={props} styles={styles} language={${lit(lang)}} services={visibleServices} members={teamMembers} slots={timeSlots}
+    availableDates={availableDates} loadingDates={loadingDates} visibleMonth={visibleMonth} onMonthChange={setVisibleMonth}
     loadingServices={loadingServices} loadingSlots={loadingSlots} error={errorMessage} step={step} status={status}
     selectedService={selectedService} selectedMember={selectedMember} selectedDate={selectedDate} selectedTime={selectedTime}
     customer={{ name, email, phone, notes }}
-    onService={(id: string) => { setSelectedService(id); setSelectedMember(''); setSelectedDate(''); setSelectedTime(''); }}
-    onMember={(id: string) => { setSelectedMember(id); setSelectedTime(''); }} onDate={(date: string) => { setSelectedDate(date); setSelectedTime(''); }} onTime={setSelectedTime}
+    onService={(id: string) => { clearError(); setSelectedService(id); setSelectedMember(''); setSelectedDate(''); setSelectedTime(''); }}
+    onMember={(id: string) => { clearError(); setSelectedMember(id); setSelectedTime(''); }} onDate={(date: string) => { clearError(); setSelectedDate(date); setSelectedTime(''); }} onTime={(value: string) => { clearError(); setSelectedTime(value); }}
     onCustomer={(field: string, value: string) => { if (field === 'name') setName(value); else if (field === 'email') setEmail(value); else if (field === 'phone') setPhone(value); else setNotes(value); }}
-    onNext={() => setStep(step === 'service' ? 'datetime' : 'details')} onBack={() => setStep(step === 'details' ? 'datetime' : 'service')}
+    onNext={() => { clearError(); setStep(step === 'service' ? 'datetime' : 'details'); }} onBack={() => { clearError(); setStep(step === 'details' ? 'datetime' : 'service'); }}
     onReset={resetForm} onSubmit={handleSubmit} />;
 }
 `;

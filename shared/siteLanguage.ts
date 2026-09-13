@@ -131,6 +131,16 @@ export type PublishedSiteStrings = {
   bookingErrorMemberConflict: string;
   bookingErrorSlotTaken: string;
   bookingErrorGeneric: string;
+  /** The submitted date or time was not a shape the server accepts. */
+  bookingErrorInvalidTime: string;
+  /** The booking reached the server and the server failed. Not the visitor's fault. */
+  bookingErrorServer: string;
+  /** The request never reached the server at all. */
+  bookingErrorNetwork: string;
+  /** Booking is not finished being set up on this site. */
+  bookingErrorNotConfigured: string;
+  /** Prefix for the support reference shown with a server failure. */
+  bookingErrorReference: string;
   bookingAnyone: string;
   bookingLoadingTimes: string;
   bookingOpenSlot: string;
@@ -299,6 +309,11 @@ export const PUBLISHED_SITE_STRINGS: Record<SiteLanguage, PublishedSiteStrings> 
     bookingErrorMemberConflict: "Den valgte person er ikke ledig på dette tidspunkt.",
     bookingErrorSlotTaken: "Tidspunktet er ikke længere ledigt. Vælg venligst et andet.",
     bookingErrorGeneric: "Noget gik galt. Prøv venligst igen.",
+    bookingErrorInvalidTime: "Den valgte dato eller tid kunne ikke bruges. Vælg venligst et andet tidspunkt.",
+    bookingErrorServer: "Din booking kunne ikke gennemføres lige nu. Det er ikke din skyld – prøv igen om lidt, eller kontakt os direkte.",
+    bookingErrorNetwork: "Vi kunne ikke få forbindelse. Tjek din internetforbindelse, og prøv igen.",
+    bookingErrorNotConfigured: "Booking er endnu ikke helt sat op på denne side. Kontakt os venligst direkte.",
+    bookingErrorReference: "Reference",
     bookingAnyone: "Hvem som helst",
     bookingLoadingTimes: "Henter tider…",
     bookingOpenSlot: "Åben tid",
@@ -463,6 +478,11 @@ export const PUBLISHED_SITE_STRINGS: Record<SiteLanguage, PublishedSiteStrings> 
     bookingErrorMemberConflict: "The selected person is not available at this time.",
     bookingErrorSlotTaken: "This time slot is no longer available. Please select a different time.",
     bookingErrorGeneric: "Something went wrong. Please try again.",
+    bookingErrorInvalidTime: "The selected date or time could not be used. Please choose another time.",
+    bookingErrorServer: "Your booking could not be completed right now. This is not your fault — please try again shortly, or contact us directly.",
+    bookingErrorNetwork: "We could not reach the server. Please check your connection and try again.",
+    bookingErrorNotConfigured: "Booking is not fully set up on this site yet. Please contact us directly.",
+    bookingErrorReference: "Reference",
     bookingAnyone: "Anyone available",
     bookingLoadingTimes: "Loading times…",
     bookingOpenSlot: "Open slot",

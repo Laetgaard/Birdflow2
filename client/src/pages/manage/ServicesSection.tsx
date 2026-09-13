@@ -57,6 +57,11 @@ export function ServicesSection({ websiteId, accessToken }: SectionProps) {
   const [bookingServices, setBookingServices] = useState<BookingService[]>([]);
   const [editingService, setEditingService] = useState<BookingService | null>(null);
   const [isServiceDialogOpen, setIsServiceDialogOpen] = useState(false);
+  const [savingService, setSavingService] = useState(false);
+  // Service ids with no weekly opening hours and no open slots. Those cannot
+  // be booked on any date, and the booking calendar now says so plainly — so
+  // the owner needs to see it here, before a visitor does.
+  const [unbookableServiceIds, setUnbookableServiceIds] = useState<string[]>([]);
   const [serviceForm, setServiceForm] = useState<Partial<BookingService>>({
     name: '',
     description: '',
@@ -154,8 +159,31 @@ export function ServicesSection({ websiteId, accessToken }: SectionProps) {
     setIsServiceDialogOpen(true);
   };
 
+  useEffect(() => {
+    if (!accessToken || !websiteId || !bookingServices.length) { setUnbookableServiceIds([]); return; }
+    let cancelled = false;
+    const now = new Date();
+    Promise.all(bookingServices.map(async service => {
+      try {
+        const res = await fetch(
+          `/api/public/websites/${websiteId}/booking-availability?serviceIds=${encodeURIComponent(service.id)}&month=${now.getMonth() + 1}&year=${now.getFullYear()}`,
+        );
+        if (!res.ok) return null;
+        const data = await res.json();
+        return Array.isArray(data?.availableDates) && data.availableDates.length === 0 ? service.id : null;
+      } catch {
+        return null;
+      }
+    })).then(ids => { if (!cancelled) setUnbookableServiceIds(ids.filter((id): id is string => !!id)); });
+    return () => { cancelled = true; };
+  }, [accessToken, websiteId, bookingServices]);
+
   const handleSaveService = async () => {
     if (!accessToken || !websiteId || !serviceForm.name) return;
+    // A second click while the first save is in flight used to create a
+    // duplicate service row.
+    if (savingService) return;
+    setSavingService(true);
 
     try {
       const url = editingService
@@ -176,13 +204,19 @@ export function ServicesSection({ websiteId, accessToken }: SectionProps) {
 
       if (editingService) {
         setBookingServices(bookingServices.map(s => s.id === savedService.id ? savedService : s));
+      } else if (savedService.deduplicated) {
+        setBookingServices(bookingServices.some(s => s.id === savedService.id)
+          ? bookingServices.map(s => s.id === savedService.id ? savedService : s)
+          : [...bookingServices, savedService]);
       } else {
         setBookingServices([...bookingServices, savedService]);
       }
 
       toast({
-        title: editingService ? "Ydelse opdateret" : "Ydelse oprettet",
-        description: `${savedService.name} er blevet ${editingService ? 'opdateret' : 'tilføjet'}.`,
+        title: savedService.deduplicated ? "Ydelsen findes allerede" : editingService ? "Ydelse opdateret" : "Ydelse oprettet",
+        description: savedService.deduplicated
+          ? `${savedService.name} findes allerede og blev ikke oprettet igen.`
+          : `${savedService.name} er blevet ${editingService ? 'opdateret' : 'tilføjet'}.`,
       });
 
       setIsServiceDialogOpen(false);
@@ -193,6 +227,8 @@ export function ServicesSection({ websiteId, accessToken }: SectionProps) {
         description: error.message,
         variant: "destructive",
       });
+    } finally {
+      setSavingService(false);
     }
   };
 
@@ -602,7 +638,7 @@ export function ServicesSection({ websiteId, accessToken }: SectionProps) {
               </div>
               <DialogFooter>
                 <Button variant="outline" onClick={() => setIsServiceDialogOpen(false)}>Annuller</Button>
-                <Button onClick={handleSaveService} disabled={!serviceForm.name} data-testid="button-save-service">
+                <Button onClick={handleSaveService} disabled={!serviceForm.name || savingService} data-testid="button-save-service">
                   {editingService ? 'Gem ændringer' : 'Tilføj ydelse'}
                 </Button>
               </DialogFooter>
@@ -653,6 +689,14 @@ export function ServicesSection({ websiteId, accessToken }: SectionProps) {
                     <h3 className="font-semibold text-lg">{service.name}</h3>
                     {service.description && (
                       <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{service.description}</p>
+                    )}
+                    {service.isActive && unbookableServiceIds.includes(service.id) && (
+                      <p
+                        className="mt-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5"
+                        data-testid={`service-unbookable-${service.id}`}
+                      >
+                        Ingen ledige datoer denne måned. Tilføj åbningstider under “Tilgængelighed”, ellers kan kunder ikke booke ydelsen.
+                      </p>
                     )}
                   </div>
 
