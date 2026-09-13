@@ -47,9 +47,24 @@ export async function generatePublishedPreview(args: { state: BuilderStateData; 
         return new Response(JSON.stringify({id:'preview-only',success:true,preview:true}), {status:200,headers:{'Content-Type':'application/json'}});
       }
       if (method !== 'GET') throw new Error('Preview cannot submit a booking, form or payment.');
-      const allowed = ['/api/booking-services','/api/team-members','/api/slots'];
-      if (!allowed.includes(url.pathname)) throw new Error('Data unavailable in this preview');
-      return originalFetch('/api/public/websites/' + encodeURIComponent(identity.websiteId) + url.pathname.slice(4) + url.search, {signal:init.signal});
+      // The published host's flat paths do not all map onto the platform's
+      // nested public routes by chopping the '/api' prefix — /api/slots takes
+      // its service in the query string, the platform takes it in the path.
+      const search = new URLSearchParams(url.search);
+      let suffix;
+      if (url.pathname === '/api/booking-services' || url.pathname === '/api/team-members') {
+        suffix = url.pathname.slice(4);
+      } else if (url.pathname === '/api/slots') {
+        const serviceId = search.get('serviceId') || '';
+        search.delete('serviceId');
+        suffix = '/services/' + encodeURIComponent(serviceId) + '/slots';
+      } else if (url.pathname === '/api/availability') {
+        suffix = '/booking-availability';
+      } else {
+        throw new Error('Data unavailable in this preview');
+      }
+      const query = search.toString();
+      return originalFetch('/api/public/websites/' + encodeURIComponent(identity.websiteId) + suffix + (query ? '?' + query : ''), {signal:init.signal});
     };
     const root = createRoot(document.getElementById('root'));
     let active = 0;

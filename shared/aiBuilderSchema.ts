@@ -22,7 +22,7 @@ export const componentTypes = [
   'gallery', 'pricing-table', 'faq', 'stats-counter', 'contact-form', 'video-embed',
   'divider', 'spacer', 'newsletter', 'before-after', 'logo-cloud', 'marquee', 'tabs',
   'comparison-table', 'split-section', 'rich-text', 'team', 'timeline', 'services',
-  'container',
+  'container', 'shape-divider',
 ] as const satisfies readonly ComponentType[];
 
 export const ComponentPropsSchema = z.object({
@@ -65,6 +65,10 @@ export const ComponentPropsSchema = z.object({
     prefix: z.string().optional(),
     suffix: z.string().optional(),
   })).optional(),
+  // Shape divider block: which registry shape to draw, and its orientation.
+  shapeId: z.string().optional(),
+  flipX: z.boolean().optional(),
+  flipY: z.boolean().optional(),
 });
 
 /**
@@ -150,6 +154,25 @@ export const ComponentStylesSchema = z.object({
   minHeight: z.string().optional(),
   overflow: z.string().optional(),
   accentColor: z.string().optional().describe(TOKEN_HINT),
+  // Divider appearance. These existed on ComponentStyles but not here, so any
+  // state round-tripping through this schema lost them silently.
+  dividerStyle: z.string().optional(),
+  dividerThickness: z.string().optional(),
+  dividerWidth: z.string().optional(),
+  backgroundOpacity: z.number().optional(),
+  // Decorative shapes on a section's edges and behind its content.
+  topShape: z.string().optional(),
+  bottomShape: z.string().optional(),
+  shapeColor: z.string().optional().describe(TOKEN_HINT),
+  shapeHeight: z.string().optional(),
+  shapeOpacity: z.number().optional(),
+  flipTopShape: z.boolean().optional(),
+  flipBottomShape: z.boolean().optional(),
+  backgroundShape: z.string().optional(),
+  backgroundShapeColor: z.string().optional().describe(TOKEN_HINT),
+  backgroundShapePlacement: z.enum(['top-left', 'top-right', 'bottom-left', 'bottom-right', 'center']).optional(),
+  backgroundShapeSize: z.string().optional(),
+  backgroundShapeOpacity: z.number().optional(),
   buttonStyle: z.enum(['solid', 'outline', 'ghost', 'gradient']).optional(),
   buttonRadius: z.string().optional(),
   cardStyle: z.enum(['flat', 'elevated', 'bordered', 'glass']).optional(),

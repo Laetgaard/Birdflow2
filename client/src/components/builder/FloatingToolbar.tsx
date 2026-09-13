@@ -64,6 +64,7 @@ const COMPONENT_LABELS: Record<string, string> = {
   'contact-form': 'Kontaktformular',
   'video-embed': 'Video',
   'divider': 'Divider',
+  'shape-divider': 'Formdeler',
   'spacer': 'Mellemrum',
   'services': 'Services',
   'timeline': 'Tidslinje',

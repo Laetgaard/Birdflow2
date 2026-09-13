@@ -316,8 +316,8 @@ describe("generate_image budget", () => {
 
 describe("AI component type coverage", () => {
   it("the AI can now place every registry type except custom", () => {
-    // Was 19 of 32; custom stays out because it has its own tool.
-    expect(componentTypes.length).toBe(31);
+    // Was 19 of 33; custom stays out because it has its own tool.
+    expect(componentTypes.length).toBe(32);
     expect(componentTypes).not.toContain("custom");
     for (const t of ["team", "timeline", "services", "logo-cloud", "marquee", "tabs", "rich-text"]) {
       expect(componentTypes, `${t} should be reachable`).toContain(t as any);

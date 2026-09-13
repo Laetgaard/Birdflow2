@@ -1,10 +1,15 @@
-export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'product-detail' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after' | 'logo-cloud' | 'marquee' | 'tabs' | 'comparison-table' | 'split-section' | 'rich-text' | 'team' | 'timeline' | 'services' | 'container' | 'custom';
+export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'product-detail' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after' | 'logo-cloud' | 'marquee' | 'tabs' | 'comparison-table' | 'split-section' | 'rich-text' | 'team' | 'timeline' | 'services' | 'container' | 'shape-divider' | 'custom';
 
 import type { PrimitiveNode, EditableSchema } from './customComponents';
+import { SVG_SHAPES } from './svgShapes';
 import { createDefaultCustomTree } from './customComponents';
 import { APPROVED_FONTS } from './fonts';
 
 export type FieldType = 'text' | 'textarea' | 'color' | 'select' | 'image' | 'image-array' | 'items' | 'range' | 'styled-text' | 'boolean';
+
+/** Shapes the divider block offers, straight from the shared registry so the
+ * two never drift apart. */
+export const SHAPE_DIVIDER_IDS = Object.keys(SVG_SHAPES);
 
 export type StyledText = {
   text: string;
@@ -285,6 +290,7 @@ export const editableTextFields: Record<ComponentType, string[]> = {
   'contact-form': ['styledTitle', 'styledDescription', 'buttonText'],
   'video-embed': ['styledTitle', 'styledDescription'],
   'divider': [],
+  'shape-divider': [],
   'spacer': [],
   'newsletter': ['styledTitle', 'styledSubtitle', 'buttonText', 'successMessage'],
   'before-after': ['title', 'beforeLabel', 'afterLabel'],
@@ -393,6 +399,10 @@ export type ComponentProps = {
   videoProvider?: 'youtube' | 'vimeo' | 'custom';
   layout?: 'grid' | 'masonry' | 'carousel' | 'image-left' | 'image-right' | 'vertical' | 'horizontal' | 'grid-2' | 'grid-3' | 'grid-4' | 'side-by-side' | 'stacked' | 'gallery-focus' | 'numbered' | 'centered' | 'split-left' | 'split-right' | 'minimal' | 'bold' | 'video-bg';
   badge?: string;
+  // Shape divider block: which registry shape to draw, and its orientation.
+  shapeId?: string;
+  flipX?: boolean | string;
+  flipY?: boolean | string;
   eyebrow?: string;
   secondaryButtonText?: string;
   secondaryButtonLink?: string;
@@ -580,6 +590,20 @@ export type ComponentStyles = {
   dividerStyle?: 'solid' | 'dashed' | 'dotted' | 'gradient' | 'dots' | 'ornamental' | string;
   dividerThickness?: string;
   dividerWidth?: 'narrow' | 'medium' | 'full' | string;
+  // Decorative SVG shapes, drawn on the section's edges and behind its
+  // content. Ids come from SVG_SHAPES; see shared/rendering/sectionDecoration.
+  topShape?: string;
+  bottomShape?: string;
+  shapeColor?: string;
+  shapeHeight?: string;
+  shapeOpacity?: number;
+  flipTopShape?: boolean;
+  flipBottomShape?: boolean;
+  backgroundShape?: string;
+  backgroundShapeColor?: string;
+  backgroundShapePlacement?: 'top-left' | 'top-right' | 'bottom-left' | 'bottom-right' | 'center' | string;
+  backgroundShapeSize?: string;
+  backgroundShapeOpacity?: number;
   // Header glassmorphism
   glassmorphism?: boolean | string;
   /**
@@ -1174,6 +1198,36 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'accentColor', label: 'Divider Color', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '24px' },
+    ],
+  },
+
+  'shape-divider': {
+    type: 'shape-divider',
+    name: 'Formdeler',
+    icon: 'waves',
+    defaultProps: {
+      shapeId: 'wave-gentle',
+      flipX: false,
+      flipY: false,
+    },
+    defaultStyles: {
+      backgroundColor: 'transparent',
+      padding: '0',
+      // A literal, like the plain divider's. The colour picker accepts a
+      // design token, but a stored default must render the same whether or
+      // not the site has been migrated to tokens.
+      accentColor: '#6366f1',
+      shapeHeight: '80px',
+      shapeOpacity: 1,
+    },
+    fields: [
+      { key: 'shapeId', label: 'Form', type: 'select', group: 'content', options: SHAPE_DIVIDER_IDS },
+      { key: 'flipX', label: 'Vend vandret', type: 'boolean', group: 'content' },
+      { key: 'flipY', label: 'Vend lodret', type: 'boolean', group: 'content' },
+      { key: 'shapeHeight', label: 'Højde', type: 'text', group: 'style', placeholder: '80px' },
+      { key: 'shapeOpacity', label: 'Gennemsigtighed', type: 'range', group: 'style', min: 0, max: 1, step: 0.05 },
+      { key: 'accentColor', label: 'Formfarve', type: 'color', group: 'style' },
+      { key: 'backgroundColor', label: 'Baggrund', type: 'color', group: 'style' },
     ],
   },
 

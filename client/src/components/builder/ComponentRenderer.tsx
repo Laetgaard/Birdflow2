@@ -11,6 +11,9 @@ import { MOTION_TABLES, computeMotion, sectionMotionSpec } from '@shared/motion'
 import { useMotionPhase } from './useMotionPhase';
 import { resolveDesignTokens, resolveTokensDeep } from '@shared/designTokens';
 import { resolveNavItems, type NavItem } from '@shared/siteStructure';
+import { SVG_SHAPES, renderSvgShape } from '@shared/svgShapes';
+import { sanitizeSvg } from '@shared/svgSanitizer';
+import { sectionDecorationLayers, hasSectionDecoration } from '@shared/rendering/sectionDecoration';
 
 function getStyledTextStyle(styledText: StyledText | undefined, defaultStyle?: React.CSSProperties): React.CSSProperties {
   if (!styledText) return defaultStyle || {};
@@ -542,6 +545,13 @@ function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: b
     fontFamily: styles.fontFamily ? resolveApprovedFontStack(styles.fontFamily) : undefined,
     ...(styles.backgroundGradient && styles.backgroundGradient !== 'none' && {
       background: styles.backgroundGradient,
+    }),
+    // The published renderer has always honoured these; the canvas did not,
+    // so a background illustration showed on the live site but not here.
+    ...(styles.backgroundImage && {
+      backgroundImage: styles.backgroundImage,
+      backgroundSize: styles.backgroundSize || 'cover',
+      backgroundPosition: styles.backgroundPosition || 'center',
     }),
     ...(styles.letterSpacing && { letterSpacing: styles.letterSpacing }),
     ...(styles.lineHeight && { lineHeight: styles.lineHeight }),
@@ -2924,6 +2934,30 @@ function DividerComponent({ props, styles, isSelected, onClick, isPreview }: Com
   );
 }
 
+/** A decorative shape used as the boundary between two sections. */
+function ShapeDividerComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
+  const baseStyle = getBaseStyle(styles, isSelected, isPreview);
+  const definition = SVG_SHAPES[String(props.shapeId || 'wave-gentle')];
+  const color = String(styles.accentColor || styles.textColor || '#6366f1');
+  const markup = definition
+    ? sanitizeSvg(renderSvgShape(definition, {
+        colors: Object.fromEntries(definition.colorSlots.map(slot => [slot.id, color])),
+        height: styles.shapeHeight || '80px',
+        flipX: props.flipX === true || props.flipX === 'true',
+        flipY: props.flipY === true || props.flipY === 'true',
+        opacity: typeof styles.shapeOpacity === 'number' ? styles.shapeOpacity : undefined,
+      }))
+    : '';
+
+  return (
+    <section style={{ ...baseStyle, lineHeight: 0 }} onClick={onClick}>
+      {markup
+        ? <div aria-hidden="true" style={{ width: '100%', lineHeight: 0 }} dangerouslySetInnerHTML={{ __html: markup }} />
+        : <div style={{ height: styles.shapeHeight || '80px' }} />}
+    </section>
+  );
+}
+
 function SpacerComponent({ props, styles, isSelected, onClick, isPreview }: ComponentRenderProps) {
   const height = props.height || styles.minHeight || '60px';
 
@@ -4163,6 +4197,8 @@ export default function ComponentRenderer({ language = "da", component: storedCo
         return <ContactFormComponent {...commonProps} />;
       case 'video-embed':
         return <VideoEmbedComponent {...commonProps} />;
+      case 'shape-divider':
+        return <ShapeDividerComponent {...commonProps} />;
       case 'divider':
         return <DividerComponent {...commonProps} />;
       case 'spacer':
@@ -4242,9 +4278,22 @@ export default function ComponentRenderer({ language = "da", component: storedCo
   const componentElement = renderComponent();
   if (!componentElement) return null;
 
+  // Decorative shapes sit in the section wrapper rather than in each section
+  // type, so every type gains them at once. Sections are already positioned,
+  // and the layers are aria-hidden, so nothing here changes what is read out.
+  const decorationLayers = hasSectionDecoration(component.styles) ? sectionDecorationLayers(component.styles) : [];
+
   return (
-    <div {...wrapperProps}>
+    <div {...wrapperProps} style={{ ...wrapperProps.style, ...(decorationLayers.length ? { position: 'relative', overflow: 'hidden' } : null) }}>
       {headingFontRule && <style>{headingFontRule}</style>}
+      {decorationLayers.map(layer => (
+        <div
+          key={layer.key}
+          aria-hidden="true"
+          style={{ position: 'absolute', pointerEvents: 'none', ...layer.style } as React.CSSProperties}
+          dangerouslySetInnerHTML={{ __html: layer.svg }}
+        />
+      ))}
       <AnimatedWrapper styles={component.styles} isPreview={isPreview}>
         {componentElement}
       </AnimatedWrapper>
