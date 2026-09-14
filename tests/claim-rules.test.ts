@@ -610,6 +610,28 @@ describe("gate bypasses stay closed — add_section, SEO, navigation, novel prop
     expect(findings).toHaveLength(0);
   });
 
+  it("responsive and hover style buckets are styles, not copy", () => {
+    const state = makeState(DA_CTX);
+    const findings = checkMutationClaims(
+      {
+        action: "update_custom_component",
+        pageId: "home",
+        componentId: "c1",
+        tree: {
+          id: "r",
+          type: "box",
+          styles: { aspectRatio: "1200 / 600" },
+          mobileStyles: { aspectRatio: "375 / 187.5" },
+          children: [
+            { id: "t", type: "text", text: "Ro i hverdagen", styles: { left: "10%", top: "10%" }, mobileStyles: { left: "0%", top: "10.6667%" }, tabletStyles: { left: "5%" }, hoverStyles: { opacity: "0.9" } },
+          ],
+        },
+      },
+      state
+    );
+    expect(findings).toHaveLength(0);
+  });
+
   it("scrub cleans rich text and unknown props in generated states", () => {
     const state = makeState(DA_CTX, "Velkommen hos os.");
     state.pages[0].components.push(

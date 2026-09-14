@@ -91,6 +91,8 @@ import { buildReport } from "./aiReport";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
 import { sanitizeBuilderStateCustomContent, brandGuideToDesignTokens, buildBrandContext } from "@shared/customComponents";
 import { prepareAccountComponent, prepareAccountComponentVersion } from "./accountComponentValidation";
+import { adaptTreeToBrand } from "./accountComponentAdapt";
+import type { PrimitiveNode } from "@shared/customComponents";
 import { emailService } from "./email/service";
 import { getUncachableResendClient } from "./replit_integrations/resendClient";
 import { parseBookingPriceCents } from "./parseBookingPrice";
@@ -9000,37 +9002,7 @@ ${invoice.description ? `<p><em>${escapeHtml(invoice.description)}</em></p>` : "
 
       const targetBuilder = await storage.getBuilderState(targetWebsiteId);
       const targetBrand = (targetBuilder?.state as any)?.brandGuide ?? null;
-
-      const adaptPrompt = [
-        "You are a visual design adapter. You receive a component tree (JSON) and a target brand guide.",
-        "Return ONLY the adapted component tree as valid JSON, with no explanation.",
-        "Rules:",
-        "1. Replace color hex values with the target brand's palette equivalents.",
-        "2. Replace font families with the target brand's heading/body fonts.",
-        "3. Keep the structure, layout and content identical.",
-        "4. Do not add or remove nodes.",
-        `Target brand guide: ${JSON.stringify(targetBrand ?? {})}`,
-        `Component tree: ${JSON.stringify(comp.tree)}`,
-      ].join("\n");
-
-      let adaptedTree = comp.tree;
-      try {
-        const { meteredChat } = await import("./aiCall");
-        const { createSpendMeter } = await import("./aiSpend");
-        const adaptMeter = createSpendMeter("assistant");
-        const result = await meteredChat(
-          "assistant",
-          { messages: [{ role: "user", content: adaptPrompt }], temperature: 0.3 },
-          adaptMeter
-        );
-        const text = (result.choices[0]?.message?.content ?? "").trim();
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          adaptedTree = JSON.parse(jsonMatch[0]);
-        }
-      } catch {
-        // Fallback to the original tree if AI fails
-      }
+      const adaptedTree = await adaptTreeToBrand(comp.tree as PrimitiveNode, targetBrand);
 
       res.json({
         adaptedTree,
