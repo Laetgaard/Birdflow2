@@ -338,7 +338,10 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     if (ctaEls.length) { let bestIdx = 0; let bestSat = -1; ctaEls.slice(0, 10).forEach((c, i) => { const s = saturation(cs(c).backgroundColor); if (s > bestSat) { bestSat = s; bestIdx = i; } }); if (ctas[bestIdx]) ctas[bestIdx].primary = true; }
     const images: any[] = [];
     for (const img of q<Element>("img, svg")) { const info = imageInfo(img); if (info && (info.src || info.svgMarkup)) images.push(info); if (images.length >= 40) break; }
-    for (const s of scope) { const bg = bgImageUrl(s); if (bg) images.unshift({ src: bg, alt: "", isBackground: true, displayWidth: r.w, displayHeight: r.h }); }
+    // The background is imported like any image but it is not the section's
+    // picture: it goes last, flagged, so the first image stays the photo the
+    // visitor sees in front of it.
+    for (const s of scope) { const bg = bgImageUrl(s); if (bg && !images.some((img) => img.src === bg)) images.push({ src: bg, alt: "", isBackground: true, displayWidth: r.w, displayHeight: r.h }); }
     const forms = q<HTMLFormElement>("form").map((f) => ({
       action: abs(f.getAttribute("action")),
       fields: Array.from(f.querySelectorAll("input, textarea, select")).filter((i) => !/hidden|submit|button/i.test((i as HTMLInputElement).type || "")).map((i) => { const input = i as HTMLInputElement; const label = input.id ? f.querySelector(`label[for='${input.id}']`) : input.closest("label"); return { type: (input.tagName === "TEXTAREA" ? "textarea" : input.tagName === "SELECT" ? "select" : input.type || "text").slice(0, 40), name: (input.name || "").slice(0, 120) || undefined, label: (label ? text(label) : input.placeholder || "").slice(0, 200) || undefined, required: input.required || undefined }; }).slice(0, 20),

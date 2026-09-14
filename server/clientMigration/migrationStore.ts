@@ -110,6 +110,19 @@ export async function setAssets(id: string, assets: MigrationAssetRecord[]): Pro
   await updateJob(id, { assets: assets as unknown[] });
 }
 
+/** Drop one phase's warnings, for a phase about to run again. */
+export async function clearWarnings(id: string, phase: MigrationPhase): Promise<void> {
+  await ready();
+  await db.execute(sql`
+    UPDATE client_migration_jobs
+    SET warnings = COALESCE(
+      (SELECT jsonb_agg(w) FROM jsonb_array_elements(warnings) AS w WHERE w->>'phase' <> ${phase}),
+      '[]'::jsonb
+    ), updated_at = now()
+    WHERE id = ${id}
+  `);
+}
+
 /**
  * Take (or renew) the lease on a job. Only a job that is queued, running or
  * paused with an expired or absent lease — or one this process already owns —
@@ -234,8 +247,11 @@ export async function deletePage(jobId: string, pageId: string): Promise<boolean
 export async function resetPagesForRetry(jobId: string, phase: MigrationPhase): Promise<void> {
   await ready();
   // A retry of a phase only clears that phase's failures; finished units keep
-  // their results so nothing expensive is repeated.
-  if (phase === "capture") {
+  // their results so nothing expensive is repeated. Discovery is the
+  // exception: re-running it means the page list itself was wrong.
+  if (phase === "discover") {
+    await db.delete(clientMigrationPages).where(eq(clientMigrationPages.jobId, jobId));
+  } else if (phase === "capture") {
     await db.update(clientMigrationPages).set({ captureStatus: "pending", captureError: null, updatedAt: new Date() })
       .where(and(eq(clientMigrationPages.jobId, jobId), eq(clientMigrationPages.captureStatus, "failed")));
   } else if (phase === "extract") {

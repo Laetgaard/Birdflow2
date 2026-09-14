@@ -60,28 +60,32 @@ export const MIGRATION_ACTIVE_STATUSES: MigrationStatus[] = [
 
 export const MAX_MIGRATION_PAGES = 60;
 export const DEFAULT_MIGRATION_PAGES = 30;
-export const MAX_MIGRATION_CEILING_USD = 60;
-export const DEFAULT_MIGRATION_CEILING_USD = 12;
-export const MAX_MIGRATION_ASSETS = 80;
+export const MAX_MIGRATION_CEILING_USD = 150;
+export const DEFAULT_MIGRATION_CEILING_USD = 20;
+export const MAX_MIGRATION_ASSETS = 300;
+export const DEFAULT_MIGRATION_ASSETS = 160;
 export const MAX_SECTIONS_PER_PAGE = 24;
 
 /**
- * What a site of this many pages needs to be planned, rebuilt and verified.
+ * What a site of this many pages needs to be planned, rebuilt pixel-close
+ * and verified.
  *
  * A flat ceiling is the wrong shape: it is generous for a five-page site and
- * starves a thirty-page one, and a starved build quietly degrades sections to
- * plain text instead of rebuilding them. Roughly $0.80 a page plus a fixed
- * amount for the whole-site steps matches what the rebuild agent actually
- * costs. The admin can still override it per job.
+ * starves a thirty-page one. Every section is placed deterministically first,
+ * so the ceiling never decides whether the site is complete — only how many
+ * sections get the agent's faithful upgrade on top. Costed for the reasoning
+ * model with a screenshot in every call: about $0.15 a call, four calls per
+ * upgraded section, three upgrades per page, plus the plan and the vision
+ * review. The admin can still override it per job.
  */
 export function recommendedCeilingUsd(maxPages: number): number {
   const pages = Math.max(1, Math.min(MAX_MIGRATION_PAGES, Math.round(maxPages || DEFAULT_MIGRATION_PAGES)));
-  return Math.min(MAX_MIGRATION_CEILING_USD, Math.max(DEFAULT_MIGRATION_CEILING_USD, Math.round(6 + 0.8 * pages)));
+  return Math.min(MAX_MIGRATION_CEILING_USD, Math.max(DEFAULT_MIGRATION_CEILING_USD, Math.round(10 + 2.2 * pages)));
 }
 
 export const migrationLimitsSchema = z.object({
   maxPages: z.number().int().min(1).max(MAX_MIGRATION_PAGES).default(DEFAULT_MIGRATION_PAGES),
-  maxAssets: z.number().int().min(0).max(MAX_MIGRATION_ASSETS).default(MAX_MIGRATION_ASSETS),
+  maxAssets: z.number().int().min(0).max(MAX_MIGRATION_ASSETS).default(DEFAULT_MIGRATION_ASSETS),
   ceilingUsd: z.number().min(1).max(MAX_MIGRATION_CEILING_USD).default(DEFAULT_MIGRATION_CEILING_USD),
 });
 export type MigrationLimits = z.infer<typeof migrationLimitsSchema>;
@@ -614,8 +618,15 @@ export type MigrationFidelity = {
   orderScore: number;
 };
 
+/**
+ * What became of each planned section. `placed` is the deterministic floor;
+ * `upgraded` means the agent replaced or refined it; `upgrade_failed` and
+ * `upgrade_skipped` mean the floor stays. (`agent` is the older name for
+ * `upgraded`, still found on rows built before the floor existed.)
+ */
+export type MigrationSectionBuildStatus = "placed" | "upgraded" | "upgrade_failed" | "upgrade_skipped" | "agent" | "failed" | "skipped" | "noted";
 export type MigrationPageBuildProgress = {
-  sections: Record<string, { status: "placed" | "agent" | "failed" | "skipped" | "noted"; componentId?: string; attempts: number; note?: string }>;
+  sections: Record<string, { status: MigrationSectionBuildStatus; componentId?: string; attempts: number; note?: string }>;
   agentSpendUsd: number;
 };
 

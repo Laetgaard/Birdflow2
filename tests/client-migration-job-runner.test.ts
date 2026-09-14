@@ -30,6 +30,7 @@ vi.mock("../server/clientMigration/migrationStore", () => ({
   listJobs: async () => Array.from(jobs.values()),
   updateJob: async (id: string, patch: Row) => { const row = jobs.get(id); if (!row) return undefined; Object.assign(row, patch, { updatedAt: now() }); return { ...row }; },
   addWarning: async (id: string, warning: Row) => { const row = jobs.get(id); if (row) row.warnings = [...(row.warnings ?? []), warning]; },
+  clearWarnings: async (id: string, phase: string) => { const row = jobs.get(id); if (row) row.warnings = (row.warnings ?? []).filter((w: Row) => w.phase !== phase); },
   setAssets: async (id: string, assets: Row[]) => { const row = jobs.get(id); if (row) row.assets = assets; },
   claimJob: vi.fn(async (id: string, owner: string) => {
     const row = jobs.get(id);
@@ -59,8 +60,9 @@ vi.mock("../server/clientMigration/migrationStore", () => ({
   getPage: async (jobId: string, pageId: string) => { const p = pages.get(pageId); return p && p.jobId === jobId ? { ...p } : undefined; },
   updatePage: async (pageId: string, patch: Row) => { const p = pages.get(pageId); if (p) Object.assign(p, patch); return p ? { ...p } : undefined; },
   resetPagesForRetry: async (jobId: string, phase: string) => {
-    for (const p of Array.from(pages.values())) {
+    for (const [id, p] of Array.from(pages.entries())) {
       if (p.jobId !== jobId) continue;
+      if (phase === "discover") { pages.delete(id); continue; }
       if (phase === "capture" && p.captureStatus === "failed") p.captureStatus = "pending";
       if (phase === "build" && p.buildStatus === "building") p.buildStatus = "pending";
     }

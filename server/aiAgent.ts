@@ -415,6 +415,13 @@ export async function runAgentLoop(args: {
   tools: AgentTool[];
   systemPrompt: string;
   userMessage: string;
+  /**
+   * The opening user turn as content parts — text plus images — for runs
+   * that need the model to SEE something (a screenshot of what to rebuild).
+   * When given it replaces `userMessage` as the first user turn; an image
+   * pasted into a text string is noise to the model and tokens to the bill.
+   */
+  userContent?: OpenAI.Chat.ChatCompletionContentPart[];
   /** Mutated as tools run: applied mutations, notes, images. */
   ctx: AgentContext;
   emit?: (event: AgentEvent) => void;
@@ -474,7 +481,7 @@ export async function runAgentLoop(args: {
 
   const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: args.systemPrompt },
-    { role: "user", content: args.userMessage },
+    { role: "user", content: args.userContent?.length ? args.userContent : args.userMessage },
   ];
 
   let steps = 0;

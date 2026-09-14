@@ -1,18 +1,21 @@
 /**
  * Rebuild one source page inside the client's builder state.
  *
- * Standard sections are placed deterministically — exact source text and
- * imported image paths, no model, no cost. Only sections the plan marked
- * `custom` go through the agent loop, and even then behind the fidelity
- * guard, with the section's screenshot crop and DOM extraction as the
- * brief. At the end every planned section must have a component, or the
- * page is marked with what is missing; it is never quietly left with holes.
+ * Every section is placed twice over, in a fixed order. First the floor: a
+ * real section chosen deterministically from the extraction — exact source
+ * text, imported images, the background behind the hero — at no cost. Then,
+ * for the sections the plan wants rebuilt faithfully, the upgrade: the agent
+ * is shown a screenshot crop of the original and the floor it may replace,
+ * and builds a custom component in its place. If the agent cannot, will not
+ * or may not (budget), the floor stays. A page can therefore never end up as
+ * a run of bare text again: the worst outcome of an upgrade is no upgrade.
  *
  * One page is one unit of work: its result is saved before the next page
  * starts, and a page caught mid-build by a crash is rebuilt from scratch —
  * deterministic placement makes that safe.
  */
 
+import type OpenAI from "openai";
 import type { BuilderStateData, BuilderPage } from "@shared/schema";
 import type { BuilderMutation } from "@shared/aiBuilderSchema";
 import { applyMutation, validateMutation } from "../../aiBuilder";
@@ -23,9 +26,9 @@ import { assumedCallCostUsd, type SpendMeter } from "../../aiSpend";
 import { makeFidelityGuard } from "./fidelityGuard";
 import { applyBusinessContext } from "./businessFacts";
 import { migrationToolCatalogue } from "./migrationToolCatalogue";
-import { buildPlacementMutation, sectionEvidence, MIGRATION_ID_PREFIX } from "../plan/sectionMapper";
+import { backgroundPath, buildPlacementMutation, defaultTargetFor, sectionEvidence, MIGRATION_ID_PREFIX } from "../plan/sectionMapper";
 import { cropSection, readMigrationFile } from "../capture/pageCapture";
-import type { ExtractedSection, MigrationPageBuildProgress, MigrationPagePlan, MigrationPlan, PageExtraction } from "@shared/clientMigration";
+import type { ExtractedSection, MigrationPageBuildProgress, MigrationPagePlan, MigrationPlan, MigrationTarget, PageExtraction } from "@shared/clientMigration";
 
 export type PageBuildInput = {
   state: BuilderStateData;
@@ -51,6 +54,12 @@ export type PageBuildResult = {
 };
 
 const MAX_AGENT_STEPS = 8;
+/**
+ * A run shorter than this cannot write: the loop forces `finish` on its last
+ * allowed turn, so a one- or two-step run pays for a call that is structurally
+ * unable to place anything. Better to keep the floor than to buy nothing.
+ */
+const MIN_AGENT_STEPS = 3;
 
 function rewriteHrefFactory(input: PageBuildInput): (href: string | undefined) => string {
   const origin = (() => { try { return new URL(input.extraction.url).origin; } catch { return ""; } })();
@@ -121,6 +130,13 @@ function mergedSection(extraction: PageExtraction, plan: MigrationPagePlan["sect
   };
 }
 
+/** The standard section that stands in for a custom rebuild, or under it. */
+export function floorTargetFor(section: ExtractedSection, planned: MigrationTarget): MigrationTarget {
+  if (planned.kind === "section" || planned.kind === "component") return planned;
+  const guess = defaultTargetFor(section, false);
+  return guess.kind === "section" || guess.kind === "component" ? guess : { kind: "component", componentType: "rich-text" };
+}
+
 async function sectionCropDataUrl(input: PageBuildInput, section: ExtractedSection): Promise<string | undefined> {
   if (!input.desktopScreenshotPath) return undefined;
   try {
@@ -132,16 +148,26 @@ async function sectionCropDataUrl(input: PageBuildInput, section: ExtractedSecti
   }
 }
 
-function customSectionBrief(section: ExtractedSection, brief: string, imagePaths: string[], language: "da" | "en"): string {
+const SYSTEM_PROMPT = [
+  "You are BirdFlow's migration agent. You rebuild ONE section of a customer's existing website inside BirdFlow by CALLING TOOLS; you never output website JSON as text.",
+  "Fidelity is the only goal: the same words, the same images, the same layout, readable on a phone. Text and image paths are supplied to you; anything not supplied must not appear.",
+  "Tools: `create_custom_component` builds the section from primitive boxes/text/images/buttons (use it for a faithful layout); `add_section` or `add_component` place a standard block when one reproduces the original exactly; `update_custom_component` refines what you built; `remove_component` removes the standard section you are replacing; `get_page` and `get_component` let you look; `finish` ends the run.",
+  "Layout rules the builder enforces: use flex or grid with flexible widths; never `position: absolute`; never fixed pixel widths on the outer box; images by their supplied paths only, with alt text.",
+  "Work like this: build the section with one tool call, remove the standard section it replaces, then call finish. Do not read the whole site first.",
+].join("\n");
+
+export function customSectionBrief(section: ExtractedSection, brief: string, imagePaths: string[], background: string | undefined, language: "da" | "en", floor: { componentId: string; position: number; pageId: string }): string {
   const content = {
     headings: section.headings, paragraphs: section.paragraphs.slice(0, 12), lists: section.lists.slice(0, 3), quotes: section.quotes.slice(0, 6),
     ctas: section.ctas, items: section.items.slice(0, 12).map((item) => ({ title: item.title, text: item.text?.slice(0, 400), price: item.price, personName: item.personName, role: item.role, image: item.imageSrc && imagePaths.includes(item.imageSrc) ? item.imageSrc : undefined })),
-    images: imagePaths, layout: { columns: section.columns, widthPx: Math.round(section.bbox.w), heightPx: Math.round(section.bbox.h), background: section.bgColor, backgroundImage: section.bgImage && imagePaths.includes(section.bgImage) ? section.bgImage : undefined, textColor: section.textColor, textAlign: section.textAlign, headingFont: section.headingFont, bodyFont: section.bodyFont, headingSizePx: section.headingSize },
+    images: imagePaths.map((src) => ({ path: src, alt: section.images.find((img) => img.src === src)?.alt ?? "" })),
+    backgroundImage: background,
+    layout: { columns: section.columns, widthPx: Math.round(section.bbox.w), heightPx: Math.round(section.bbox.h), background: section.bgColor, textColor: section.textColor, textAlign: section.textAlign, headingFont: section.headingFont, bodyFont: section.bodyFont, headingSizePx: section.headingSize },
   };
   return [
-    `Rebuild ONE section of the customer's existing website as faithfully as you can. ${brief}`,
-    `Prefer add_custom_component with a box tree that reproduces the layout (columns, spacing, colours, alignment, sizes). If — and only if — a standard section reproduces it exactly, use add_component instead.`,
-    `Use ONLY the text below, verbatim, in ${language === "en" ? "English" : "Danish"} as given. Use ONLY the image paths listed. Never invent copy, testimonials, prices or images. Give every box flexible widths so it works on a phone. Then call finish.`,
+    `Rebuild this section of the customer's website as faithfully as you can. ${brief}`,
+    `A standard version of it already sits on page "${floor.pageId}" as component "${floor.componentId}" at position ${floor.position}. Build the faithful version with create_custom_component at position ${floor.position}, then remove_component "${floor.componentId}". If the standard version already matches the original, change nothing and call finish.`,
+    `Use ONLY the text below, verbatim, in ${language === "en" ? "English" : "Danish"} as given. Use ONLY the image paths listed${background ? ", and the background image path as the section background" : ""}. Never invent copy, testimonials, prices or images. Give every box flexible widths so it works on a phone.`,
     `Section content and layout (JSON):\n${JSON.stringify(content).slice(0, 12_000)}`,
   ].join("\n\n");
 }
@@ -159,6 +185,8 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
   const guard = makeFidelityGuard({ evidence, allowedImagePaths: input.allowedImagePaths, label: input.pagePlan.targetName });
   const tools = migrationToolCatalogue();
   const ordered = [...input.pagePlan.sections].sort((a, b) => a.order - b.order);
+  const callCost = assumedCallCostUsd("migrationBuild");
+  const pageState = () => state.pages.find((p) => p.id === page.id)!;
   let position = 0;
 
   for (let index = 0; index < ordered.length; index++) {
@@ -172,104 +200,110 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
 
     const ctx = { pageId: page.id, pageOrdinal: input.pageOrdinal, sectionIndex: index, position, allowedImagePaths: input.allowedImagePaths, rewriteHref };
     let attempts = 0;
-    let placedId: string | undefined;
     let lastError: string | undefined;
 
-    if (target.kind !== "custom") {
-      while (attempts < 2 && !placedId) {
-        attempts++;
-        const mutation = buildPlacementMutation(section, sectionPlan, ctx);
-        if (!mutation) { lastError = "No placement for this target"; break; }
-        const result = place(state, mutation);
-        if (result.error) { lastError = result.error; log(`[${key}] placement refused: ${result.error}`); break; }
-        state = result.state;
-        placedId = (mutation as any).component?.id;
-      }
+    // ── 1. The floor: a real section, deterministically, for free ──────────
+    let floorId: string | undefined;
+    for (const floorTarget of [floorTargetFor(section, target), { kind: "component", componentType: "rich-text" } as MigrationTarget]) {
+      if (floorId) break;
+      attempts++;
+      const mutation = buildPlacementMutation(section, { ...sectionPlan, target: floorTarget }, ctx);
+      if (!mutation) { lastError = "No placement for this target"; continue; }
+      const result = place(state, mutation);
+      if (result.error) { lastError = result.error; log(`[${key}] placement refused: ${result.error}`); continue; }
+      state = result.state;
+      floorId = (mutation as any).component?.id;
     }
-
-    if (!placedId && (target.kind === "custom" || lastError)) {
-      const brief = target.kind === "custom" ? target.brief : `Standard placement was refused (${lastError}); rebuild it as a custom component instead.`;
-      const before = input.meter.spentUsd;
-      const room = input.agentBudgetUsd - progress.agentSpendUsd;
-      if (room < assumedCallCostUsd("migrationBuild")) {
-        // Out of agent budget: a faithful fallback beats nothing on the page.
-        const fallback = buildPlacementMutation(section, { ...sectionPlan, target: { kind: "component", componentType: "rich-text" } }, ctx);
-        const result = fallback ? place(state, fallback) : { state, error: "no fallback" };
-        if (!result.error) { state = result.state; placedId = (fallback as any).component.id; notes.push(`${key}: rebuilt as text because the page's agent budget was used up.`); }
-        else lastError = result.error;
-      } else {
-        attempts++;
-        // The page's budget is checked before a section, but the loop inside it
-        // could spend several times over before the next check — which is how
-        // one section used to consume a whole page's allowance and leave every
-        // later section to fall back to plain text. Let the section run only as
-        // many steps as its share can actually pay for.
-        const affordableSteps = Math.max(1, Math.min(MAX_AGENT_STEPS, Math.floor(room / assumedCallCostUsd("migrationBuild"))));
-        const crop = await sectionCropDataUrl(input, section);
-        const imagePaths = section.images.map((img) => img.src).filter((src) => input.allowedImagePaths.has(src));
-        const currentPage = state.pages.find((p) => p.id === page.id)!;
-        const countBefore = currentPage.components.length;
-        const agentCtx: AgentContext = {
-          websiteId: "migration",
-          state,
-          applied: [],
-          notes: [],
-          createdImages: [],
-          imageCache: new Map(Array.from({ length: 8 }, (_, i) => [`blocked-${i}`, ""])),
-          spendMeter: input.meter,
-          approvedLargeChanges: true,
-          guard,
-        };
-        const userMessage = customSectionBrief(section, brief, imagePaths, input.language)
-          + `\n\nPlace it on page "${page.id}" at position ${position}.`
-          + (crop ? `\n\n[A screenshot crop of the original section is attached as an image.]` : "");
-        try {
-          const result = await runAgentLoop({
-            tools,
-            systemPrompt: `You are BirdFlow's migration agent. You rebuild sections of a customer's existing website inside BirdFlow by CALLING TOOLS. You never output website JSON. Fidelity is the only goal: same words, same images, same layout, responsive on mobile. Text and images are supplied to you; anything not supplied must not appear.`,
-            userMessage: crop ? `${userMessage}\n\n<image>${crop}</image>` : userMessage,
-            ctx: agentCtx,
-            maxSteps: affordableSteps,
-            role: "migrationBuild",
-            spendMeter: input.meter,
-            finalTurn: { toolName: "finish", reminder: "Call finish now.", satisfied: () => agentCtx.applied.length > 0 },
-            maxToolErrors: 6,
-          });
-          state = agentCtx.state;
-          const after = state.pages.find((p) => p.id === page.id)!;
-          const added = after.components.slice(countBefore);
-          if (added.length) {
-            // Stamp our id convention so a rebuild-after-crash can clear it.
-            added.forEach((component, n) => { component.id = `${MIGRATION_ID_PREFIX}-${input.pageOrdinal}-${index}-c${n}`; });
-            placedId = added[0].id;
-            position = after.components.length;
-          } else {
-            lastError = `agent finished without placing anything (${result.status === "finished" ? result.stopReason : result.status})`;
-          }
-          notes.push(...agentCtx.notes.slice(0, 5));
-        } catch (error: any) {
-          lastError = error?.message ?? String(error);
-        }
-        progress.agentSpendUsd += Math.max(0, input.meter.spentUsd - before);
-      }
-      if (!placedId && target.kind === "custom") {
-        // The agent could not do it: keep the content as text so nothing is lost.
-        const fallback = buildPlacementMutation(section, { ...sectionPlan, target: { kind: "component", componentType: "rich-text" } }, { ...ctx, position });
-        const result = fallback ? place(state, fallback) : { state, error: "no fallback" };
-        if (!result.error) { state = result.state; placedId = (fallback as any).component.id; notes.push(`${key}: agent could not rebuild it (${lastError}); placed as text.`); }
-      }
-    }
-
-    if (placedId) {
-      const currentPage = state.pages.find((p) => p.id === page.id)!;
-      position = currentPage.components.findIndex((c) => c.id === placedId) + 1 || currentPage.components.length;
-      progress.sections[key] = { status: target.kind === "custom" ? "agent" : "placed", componentId: placedId, attempts };
-    } else {
+    if (!floorId) {
       progress.sections[key] = { status: "failed", attempts, note: lastError };
       notes.push(`${key}: not rebuilt — ${lastError}`);
+      continue;
+    }
+    position = pageState().components.findIndex((c) => c.id === floorId) + 1 || pageState().components.length;
+
+    // ── 2. The upgrade: the agent replaces the floor with a faithful build ──
+    if (target.kind !== "custom") {
+      progress.sections[key] = { status: "placed", componentId: floorId, attempts };
+      continue;
+    }
+    const before = input.meter.spentUsd;
+    const room = input.agentBudgetUsd - progress.agentSpendUsd;
+    if (room < MIN_AGENT_STEPS * callCost) {
+      progress.sections[key] = { status: "upgrade_skipped", componentId: floorId, attempts, note: "The page's agent budget was used up; the standard section stays." };
+      notes.push(`${key}: kept the standard section because the page's agent budget was used up.`);
+      continue;
+    }
+    attempts++;
+    const maxSteps = Math.min(MAX_AGENT_STEPS, Math.floor(room / callCost));
+    const crop = await sectionCropDataUrl(input, section);
+    const imagePaths = section.images.filter((img) => !img.isBackground).map((img) => img.src).filter((src) => input.allowedImagePaths.has(src));
+    const background = backgroundPath(section, input.allowedImagePaths);
+    const idsBefore = new Set(pageState().components.map((c) => c.id));
+    const agentCtx: AgentContext = {
+      websiteId: "migration",
+      state,
+      applied: [],
+      notes: [],
+      createdImages: [],
+      imageCache: new Map(Array.from({ length: 8 }, (_, i) => [`blocked-${i}`, ""])),
+      spendMeter: input.meter,
+      approvedLargeChanges: true,
+      guard,
+    };
+    const floorPosition = position - 1;
+    const userMessage = customSectionBrief(section, target.brief, imagePaths, background, input.language, { componentId: floorId, position: floorPosition, pageId: page.id });
+    // The crop goes in as an image the model can see, never as text.
+    const userContent: OpenAI.Chat.ChatCompletionContentPart[] = [
+      { type: "text", text: userMessage + (crop ? "\n\nThe screenshot of the original section is attached." : "") },
+      ...(crop ? [{ type: "image_url" as const, image_url: { url: crop, detail: "high" as const } }] : []),
+    ];
+    let upgradedId: string | undefined;
+    try {
+      const result = await runAgentLoop({
+        tools,
+        systemPrompt: SYSTEM_PROMPT,
+        userMessage,
+        userContent,
+        ctx: agentCtx,
+        maxSteps,
+        role: "migrationBuild",
+        spendMeter: input.meter,
+        finalTurn: { toolName: "finish", reminder: "Call finish now.", satisfied: () => agentCtx.applied.length > 0 },
+        maxToolErrors: 6,
+      });
+      state = agentCtx.state;
+      const after = pageState();
+      const added = after.components.filter((c) => !idsBefore.has(c.id));
+      if (added.length) {
+        // Stamp our id convention so a rebuild-after-crash can clear it.
+        added.forEach((component, n) => { component.id = `${MIGRATION_ID_PREFIX}-${input.pageOrdinal}-${index}-c${n}`; });
+        upgradedId = added[0].id;
+        // The floor has been replaced; if the agent forgot to remove it, do it here.
+        if (after.components.some((c) => c.id === floorId)) {
+          const removed = place(state, { action: "remove_component", pageId: page.id, componentId: floorId } as BuilderMutation);
+          if (!removed.error) state = removed.state;
+        }
+      } else if (agentCtx.applied.length) {
+        // The agent improved the floor in place rather than replacing it.
+        upgradedId = floorId;
+      } else {
+        lastError = `the agent made no change (${result.status === "finished" ? result.stopReason : result.status})`;
+      }
+      notes.push(...agentCtx.notes.slice(0, 5));
+    } catch (error: any) {
+      lastError = error?.message ?? String(error);
+    }
+    progress.agentSpendUsd += Math.max(0, input.meter.spentUsd - before);
+
+    if (upgradedId) {
+      position = pageState().components.findIndex((c) => c.id === upgradedId) + 1 || pageState().components.length;
+      progress.sections[key] = { status: "upgraded", componentId: upgradedId, attempts };
+    } else {
+      progress.sections[key] = { status: "upgrade_failed", componentId: floorId, attempts, note: lastError };
+      notes.push(`${key}: the agent could not rebuild it (${lastError}); the standard section stays.`);
     }
   }
 
-  const finalPage = state.pages.find((p) => p.id === page.id)!;
+  const finalPage = pageState();
   return { state, page: finalPage, progress, notes };
 }

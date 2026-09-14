@@ -186,6 +186,9 @@ async function runJob(jobId: string): Promise<void> {
       const attempt = await store.bumpPhaseAttempt(jobId, phase);
       if (attempt > MAX_PHASE_ATTEMPTS) throw new PhaseFailure("unknown", `Phase ${phase} failed ${MAX_PHASE_ATTEMPTS} times.`);
       await store.updateJob(jobId, { phase, status: "running" });
+      // A phase that runs again reports only what happens this time; the
+      // admin should not read last attempt's failures next to this one's.
+      await store.clearWarnings(jobId, phase);
       rt.log(`phase ${phase} (attempt ${attempt})`);
       await runPhase(rt, phase);
       await store.heartbeat(jobId, PROCESS_ID, { spentUsd: meter.spentUsd, spendByRole: rt.spendByRole }, phase);
@@ -235,7 +238,7 @@ async function warn(rt: Runtime, phase: MigrationPhase, code: string, message: s
 
 async function withBrowser<T>(rt: Runtime, fn: (session: BrowserSession) => Promise<T>): Promise<T> {
   const origin = rt.job.canonicalOrigin ?? new URL(rt.job.sourceUrl).origin;
-  const session = await openBrowserSession(origin);
+  const session = await openBrowserSession(origin, { maxPages: rt.limits.maxPages });
   try {
     return await fn(session);
   } finally {
@@ -348,10 +351,14 @@ async function phaseExtract(rt: Runtime): Promise<void> {
   if ((rt.job.assets as unknown[]).length && (await store.listPages(rt.job.id)).every((page) => page.extractStatus === "imported" || page.captureStatus !== "captured")) return;
   const items = await loadExtractions(rt);
   const origin = rt.job.canonicalOrigin ?? new URL(rt.job.sourceUrl).origin;
+  // What earlier runs imported goes in and comes back out in the union: a
+  // re-read page must never cost the other pages their images.
   const { assets, extractions, warnings } = await importPageAssets({
     websiteId: rt.job.websiteId,
     origin,
     extractions: items.map((item) => item.extraction),
+    existingAssets: (rt.job.assets as MigrationAssetRecord[]) ?? [],
+    screenshotPaths: items.map((item) => (item.page.screenshots as { desktop?: { storagePath?: string } } | null)?.desktop?.storagePath),
     maxAssets: rt.limits.maxAssets,
     onProgress: (done, total) => { if (done % 10 === 0) rt.log(`assets ${done}/${total}`); },
   });
@@ -706,6 +713,9 @@ export async function requestResumeAtPhase(jobId: string, phase: MigrationPhase)
     ...(phase === "plan" || phase === "capture" || phase === "discover" || phase === "extract" || phase === "brand"
       ? { plan: null, planReviewedAt: null, planReviewedBy: null }
       : {}),
+    // Re-discovering starts from nothing: the page list, the assets and the
+    // discovery record all belong to the list being thrown away.
+    ...(phase === "discover" ? { assets: [], discovery: null } : {}),
   });
   runMigrationJob(jobId);
 }

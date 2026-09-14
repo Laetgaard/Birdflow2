@@ -116,6 +116,24 @@ describe("what the migration agent may not do", () => {
     expect(src).toContain("migrationToolCatalogue()");
     expect(src).not.toMatch(/unsplash/i);
   });
+
+  it("spends no calls on whole-site reads or metered analyses", () => {
+    for (const tool of ["analyze_design", "run_self_check", "read_pages", "list_pages", "find_text"]) {
+      expect(EXCLUDED_MIGRATION_TOOLS.has(tool), tool).toBe(true);
+    }
+  });
+
+  it("shows the agent the screenshot as an image, and names only tools that exist", () => {
+    const src = read("server/clientMigration/build/pageBuilder.ts");
+    const tools = read("server/aiAgentTools.ts");
+    expect(src).toContain('type: "image_url"');
+    expect(src).not.toMatch(/<image>/);
+    // Every tool the brief or the system prompt names must be registered.
+    for (const name of Array.from(src.matchAll(/`([a-z_]+)`/g)).map((m) => m[1]).filter((n) => /_/.test(n))) {
+      expect(tools, name).toContain(`"${name}"`);
+    }
+    expect(src).not.toContain("add_custom_component");
+  });
 });
 
 describe("the browser that visits the client's site", () => {

@@ -57,22 +57,30 @@ export async function fetchApprovedAsset(
   sourceUrl: string,
   expectedOrigin: string,
   kind: ImportAssetKind,
-  options: { allowOrigin?: (origin: string) => boolean; userAgent?: string } = {}
+  options: { allowOrigin?: (origin: string) => boolean; userAgent?: string; referer?: string } = {}
 ): Promise<{ bytes: Buffer; mime: string }> {
   const originOk = (origin: string) => origin === expectedOrigin || !!options.allowOrigin?.(origin);
   const maxBytes = kind === "svg" ? MAX_SVG_BYTES : MAX_IMAGE_BYTES;
   let current = await assertPublicUrl(sourceUrl);
-  for (let redirects = 0; redirects <= 3; redirects++) {
+  // Hotlink protection judges by the referer: send the page the asset sits
+  // on, as a browser would, and fall back to a bare request if that is what
+  // the server wanted after all.
+  let referer = options.referer;
+  for (let redirects = 0; redirects <= 4; redirects++) {
     if (!originOk(current.origin)) throw new Error("Asset left the approved website");
     const response = await fetchPublicUrlPinned(current.toString(), {
       timeoutMs: 8_000,
       maxBytes,
-      headers: { "user-agent": options.userAgent ?? "BirdflowWebsiteImporter/1.0" },
+      headers: { "user-agent": options.userAgent ?? "BirdflowWebsiteImporter/1.0", ...(referer ? { referer } : {}) },
     });
     if ([301, 302, 303, 307, 308].includes(response.status)) {
       const location = response.headers.get("location");
       if (!location) throw new Error("Unsafe asset redirect");
       current = await assertPublicUrl(new URL(location, current).toString());
+      continue;
+    }
+    if ((response.status === 403 || response.status === 404) && referer) {
+      referer = undefined;
       continue;
     }
     if (!response.ok) throw new Error(`Asset returned HTTP ${response.status}`);
@@ -119,6 +127,8 @@ export async function importAssetToMedia(args: {
   seenHashes?: Map<string, string>;
   allowOrigin?: (origin: string) => boolean;
   userAgent?: string;
+  /** The page the asset was found on; what a browser would send as the referer. */
+  referer?: string;
   /** Pre-fetched bytes (e.g. a data: URI or an inline SVG) skip the network. */
   bytes?: { bytes: Buffer; mime: string };
 }): Promise<ImportedAsset | SkippedAsset> {
@@ -126,6 +136,7 @@ export async function importAssetToMedia(args: {
     const fetched = args.bytes ?? await fetchApprovedAsset(args.sourceUrl, args.expectedOrigin, args.kind, {
       allowOrigin: args.allowOrigin,
       userAgent: args.userAgent,
+      referer: args.referer,
     });
 
     if (args.kind === "svg") {

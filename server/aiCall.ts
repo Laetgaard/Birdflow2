@@ -103,23 +103,35 @@ export async function meteredChat(
   role: AiRole,
   params: Omit<OpenAI.Chat.ChatCompletionCreateParamsNonStreaming, "model"> &
     Partial<Pick<OpenAI.Chat.ChatCompletionCreateParamsNonStreaming, "model">>,
-  meter: SpendMeter = createSpendMeter(role)
+  meter: SpendMeter = createSpendMeter(role),
+  options: {
+    /**
+     * Go straight to the role's fallback provider. For a caller that got a
+     * well-formed but useless answer from the primary — which is not an
+     * error at this layer, so the automatic fallback never sees it.
+     */
+    forceFallback?: boolean;
+  } = {}
 ): Promise<OpenAI.Chat.ChatCompletion> {
   const config = aiConfig(role);
-  const request = { ...chatParamsFor(role), ...params };
+  const useFallback = options.forceFallback === true && !!config.fallbackProvider && !!config.fallbackModel;
+  const provider = useFallback ? config.fallbackProvider! : config.provider;
+  const request = { ...chatParamsFor(role), ...params, ...(useFallback ? { model: config.fallbackModel! } : {}) };
   const reserved = worstCaseCallCostUsd(request.model, request.max_completion_tokens ?? 0);
   reserveOrRefuse(role, meter, reserved);
 
   let completion: OpenAI.Chat.ChatCompletion;
   try {
-    completion = await clientFor(config.provider).chat.completions.create({
+    completion = await clientFor(provider).chat.completions.create({
       ...request,
       stream: false,
     } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
   } catch (err) {
-    // Spend limits are intentional stops — never retry them.
+    // Spend limits are intentional stops — never retry them. A forced
+    // fallback that failed has nowhere further to go.
     if (
       err instanceof SpendLimitError ||
+      useFallback ||
       !config.fallbackProvider ||
       !config.fallbackModel
     ) {

@@ -79,6 +79,11 @@ export function deterministicPlan(args: { sources: PlanSource[]; assets: Migrati
   if (!sources.length) throw new Error("No page produced any extractable section.");
   const home = sources[0];
   const mediaByPath = new Map(args.assets.map((asset) => [asset.storagePath, asset.mediaId]));
+  const knownMedia = new Set(args.assets.map((asset) => asset.mediaId));
+  // The live asset list decides; an id persisted on the extraction is only
+  // trusted while it still names an asset the job has.
+  const mediaFor = (src: string | undefined, persisted: string | undefined): string | undefined =>
+    (src ? mediaByPath.get(src) : undefined) ?? (persisted && knownMedia.has(persisted) ? persisted : undefined);
   const navLinks = home.extraction.chrome.header?.nav ?? [];
   const slugByUrl = new Map<string, string>();
 
@@ -94,7 +99,7 @@ export function deterministicPlan(args: { sources: PlanSource[]; assets: Migrati
       role: section.role,
       confidence: section.confidence,
       target: defaultTargetFor(section, args.pixelClose),
-      imageMediaIds: Array.from(new Set([...section.images.map((img) => img.mediaId ?? mediaByPath.get(img.src)), ...section.items.map((item) => item.imageMediaId)].filter((v): v is string => !!v))),
+      imageMediaIds: Array.from(new Set([...section.images.map((img) => mediaFor(img.src, img.mediaId)), ...section.items.map((item) => mediaFor(item.imageSrc, item.imageMediaId))].filter((v): v is string => !!v))),
       order,
     }));
     return {
@@ -190,16 +195,22 @@ export async function refinePlanWithModel(base: MigrationPlan, sources: PlanSour
 
   for (const batch of batches) {
     try {
-      const completion = await meteredChat("migrationPlan", {
-        messages: [
-          { role: "system", content: SYSTEM_PROMPT },
-          { role: "user", content: `Language: ${plan.language}. Site: ${plan.siteName}.\nManifest (one page per line):\n${manifestFor(batch)}` },
-        ],
-        response_format: { type: "json_object" },
-      }, meter);
-      const raw = completion.choices[0]?.message?.content;
-      const parsed = MappingResponseSchema.safeParse(raw ? JSON.parse(raw) : null);
-      if (!parsed.success) { warning = "The mapping model returned an unusable answer; the deterministic plan was kept."; continue; }
+      const messages = [
+        { role: "system" as const, content: SYSTEM_PROMPT },
+        { role: "user" as const, content: `Language: ${plan.language}. Site: ${plan.siteName}.\nManifest (one page per line):\n${manifestFor(batch)}` },
+      ];
+      // A well-formed but useless answer is not an error the metered call can
+      // see, so the fallback provider is asked explicitly before giving up.
+      let parsed: ReturnType<typeof MappingResponseSchema.safeParse> | undefined;
+      for (const forceFallback of [false, true]) {
+        const completion = await meteredChat("migrationPlan", { messages, response_format: { type: "json_object" } }, meter, { forceFallback });
+        const raw = completion.choices[0]?.message?.content;
+        let json: unknown = null;
+        try { json = raw ? JSON.parse(raw) : null; } catch { json = null; }
+        parsed = MappingResponseSchema.safeParse(json);
+        if (parsed.success) break;
+      }
+      if (!parsed?.success) { warning = "The mapping model returned an unusable answer; the deterministic plan was kept."; continue; }
       usedModel = true;
       for (const decided of parsed.data.pages) {
         const page = plan.pages.find((p) => p.sourcePageId === decided.sourcePageId);

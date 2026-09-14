@@ -192,7 +192,7 @@ describe("top-level navigation", () => {
 describe("the migration budget", () => {
   it("scales with the number of pages", () => {
     expect(recommendedCeilingUsd(5)).toBeLessThan(recommendedCeilingUsd(30));
-    expect(recommendedCeilingUsd(30)).toBe(30);
+    expect(recommendedCeilingUsd(30)).toBe(76);
   });
 
   it("never exceeds the ceiling the schema will accept", () => {

@@ -85,18 +85,44 @@ function bodyText(section: ExtractedSection, max = 1200): string {
 }
 function primaryCta(section: ExtractedSection) { return section.ctas.find((c) => c.primary) ?? section.ctas[0]; }
 function secondaryCta(section: ExtractedSection) { const p = primaryCta(section); return section.ctas.find((c) => c !== p); }
+/** The pictures the visitor sees in the section — never its background. */
 function imagePaths(section: ExtractedSection, allowed: Set<string>): string[] {
-  return section.images.map((img) => img.src).filter((src) => allowed.has(src));
+  return section.images.filter((img) => !img.isBackground).map((img) => img.src).filter((src) => allowed.has(src));
 }
 function itemImage(item: ExtractedSection["items"][number], allowed: Set<string>): string {
   return item.imageSrc && allowed.has(item.imageSrc) ? item.imageSrc : "";
 }
-function richHtml(section: ExtractedSection): string {
+/** The section's background, once imported: `bgImage` first, else the image flagged as one. */
+export function backgroundPath(section: ExtractedSection, allowed: Set<string>): string | undefined {
+  if (section.bgImage && allowed.has(section.bgImage)) return section.bgImage;
+  return section.images.find((img) => img.isBackground && allowed.has(img.src))?.src;
+}
+function backgroundStyles(section: ExtractedSection, allowed: Set<string>): Record<string, string> {
+  const bg = backgroundPath(section, allowed);
+  return bg ? { backgroundImage: `url(${bg})`, backgroundSize: "cover", backgroundPosition: "center" } : {};
+}
+function altFor(section: ExtractedSection, src: string): string {
+  return section.images.find((img) => img.src === src)?.alt ?? "";
+}
+/**
+ * Plain text is the last resort, and even then the section keeps its
+ * pictures: a fallback that drops the images is how a page ends up as a
+ * bare run of paragraphs.
+ */
+export function richHtml(section: ExtractedSection, allowed: Set<string> = new Set()): string {
   const parts: string[] = [];
+  const imgs = imagePaths(section, allowed);
+  const figure = (src: string, alt: string, caption?: string) => `<figure><img src="${esc(src)}" alt="${esc(alt)}" />${caption ? `<figcaption>${esc(caption)}</figcaption>` : ""}</figure>`;
   for (const h of section.headings) parts.push(`<h${Math.min(Math.max(h.level, 2), 4)}>${esc(h.text)}</h${Math.min(Math.max(h.level, 2), 4)}>`);
+  if (imgs[0]) parts.push(figure(imgs[0], altFor(section, imgs[0])));
   for (const p of section.paragraphs) parts.push(`<p>${esc(p)}</p>`);
   for (const list of section.lists) parts.push(`<ul>${list.map((li) => `<li>${esc(li)}</li>`).join("")}</ul>`);
   for (const q of section.quotes) parts.push(`<blockquote>${esc(q.text)}${q.cite ? ` — ${esc(q.cite)}` : ""}</blockquote>`);
+  for (const item of section.items) {
+    const src = itemImage(item, allowed);
+    if (src) parts.push(figure(src, item.title ?? "", item.title));
+  }
+  for (const src of imgs.slice(1, 8)) parts.push(figure(src, altFor(section, src)));
   return parts.join("").slice(0, 20_000) || `<p>${esc(bodyText(section) || firstHeading(section) || "")}</p>`;
 }
 
@@ -140,7 +166,7 @@ export function buildPlacementMutation(section: ExtractedSection, plan: Migratio
           imageUrl: imgs[0] ?? "",
           layout: target.variant === "split" ? "split" : "centered",
           alignment: section.textAlign === "left" ? "left" : "center",
-        }, { ...styles, ...(section.bgImage && ctx.allowedImagePaths.has(section.bgImage) ? { backgroundImage: `url(${section.bgImage})`, backgroundSize: "cover", backgroundPosition: "center" } : {}) });
+        }, { ...styles, ...backgroundStyles(section, ctx.allowedImagePaths) });
       case "features-section":
       case "services-section": {
         const type: ComponentType = target.sectionType === "services-section" ? "services" : "features";
@@ -221,7 +247,7 @@ export function buildPlacementMutation(section: ExtractedSection, plan: Migratio
           styledDescription: { text: description }, description,
           buttonText: cta?.text ?? "", buttonLink: cta ? ctx.rewriteHref(cta.href) : "",
           secondaryButtonText: cta2?.text ?? "", secondaryButtonLink: cta2 ? ctx.rewriteHref(cta2.href) : "",
-        }, styles);
+        }, { ...styles, ...backgroundStyles(section, ctx.allowedImagePaths) });
       case "timeline-section":
         return component(ctx, id, "timeline", {
           styledTitle: { text: title ?? "" }, title: title ?? "",
@@ -273,7 +299,7 @@ export function buildPlacementMutation(section: ExtractedSection, plan: Migratio
       return component(ctx, id, "spacer", { height: "40px" }, {});
     case "rich-text":
     default:
-      return component(ctx, id, "rich-text", { content: richHtml(section), maxWidth: "820px", alignment: section.textAlign === "center" ? "center" : "left" }, styles);
+      return component(ctx, id, "rich-text", { content: richHtml(section, ctx.allowedImagePaths), maxWidth: "820px", alignment: section.textAlign === "center" ? "center" : "left" }, { ...styles, ...backgroundStyles(section, ctx.allowedImagePaths) });
   }
 }
 
@@ -358,6 +384,8 @@ export function sectionEvidence(page: PageExtraction): string[] {
   const out: string[] = [];
   for (const section of page.sections) {
     out.push(...section.headings.map((h) => h.text), ...section.paragraphs, ...section.lists.flat(), ...section.quotes.map((q) => q.text), ...section.ctas.map((c) => c.text));
+    // An image's alt text is the source's own words for it; the rebuild may repeat them.
+    out.push(...section.images.map((img) => img.alt ?? "").filter(Boolean));
     for (const item of section.items) out.push(...[item.title, item.text, item.price, item.personName, item.role, item.quote].filter((v): v is string => !!v));
     for (const table of section.tables) out.push(...table.flat());
     for (const form of section.forms) out.push(...form.fields.map((f) => f.label ?? "").filter(Boolean), form.submitText ?? "");

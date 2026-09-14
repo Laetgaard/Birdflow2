@@ -95,13 +95,26 @@ export function estimateCostUsd(model: string, usage: TokenUsage | null | undefi
 const ASSUMED_PROMPT_TOKENS = 20_000;
 
 /**
+ * Roles that put pictures in the prompt pay for them in prompt tokens. The
+ * budget arithmetic that decides whether a call is affordable has to know,
+ * or it will hand out steps a section cannot pay for.
+ */
+const ASSUMED_IMAGE_PROMPT_TOKENS: Partial<Record<AiRole, number>> = {
+  migrationBuild: 3_000,
+  migrationFidelity: 6_000,
+};
+
+/**
  * What one call of this role costs if it uses everything it is allowed to.
  * A run with less than this left cannot pay for another call, so starting one
  * would only burn the customer's time before the ceiling stopped it anyway.
  */
 export function assumedCallCostUsd(role: AiRole): number {
   const config = aiConfig(role);
-  return worstCaseCallCostUsd(config.model, config.maxCompletionTokens);
+  return estimateCostUsd(config.model, {
+    prompt_tokens: ASSUMED_PROMPT_TOKENS + (ASSUMED_IMAGE_PROMPT_TOKENS[role] ?? 0),
+    completion_tokens: Math.max(0, config.maxCompletionTokens),
+  });
 }
 
 /** The same figure for a call whose model or budget differs from its role's. */
