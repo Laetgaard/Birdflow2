@@ -2,6 +2,7 @@ import type { Express, RequestHandler } from "express";
 import multer from "multer";
 import sharp from "sharp";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient } from "./objectStorage";
+import { getOrCreateImageVariant, parseVariantRequest, warmVariants } from "../../imageVariants";
 import { randomUUID } from "crypto";
 
 /**
@@ -171,7 +172,12 @@ export function registerObjectStorageRoutes(app: Express, requireAuth?: RequestH
       });
       
       const objectPath = `/objects/uploads/${objectId}`;
-      
+
+      // The page that uses this image will ask for smaller copies; make them
+      // now, while someone is already waiting, rather than on a visitor's
+      // first paint.
+      void warmVariants(objectPath);
+
       res.json({
         objectPath,
         originalSize,
@@ -198,8 +204,19 @@ export function registerObjectStorageRoutes(app: Express, requireAuth?: RequestH
    */
   app.get("/objects/:objectPath(*)", async (req, res) => {
     try {
-      const objectFile = await objectStorageService.getObjectEntityFile(req.path);
-      await objectStorageService.downloadObject(objectFile, res);
+      // ?w= asks for one of the fixed variant widths of an upload. Anything
+      // else — another width, another path shape — is served as the original
+      // rather than resized on demand, so the parameter cannot be used to
+      // fill the bucket with arbitrary renditions.
+      const width = parseVariantRequest(req.path, req.query.w);
+      const variantPath = width === null ? null : await getOrCreateImageVariant(req.path, width);
+      const servedPath = variantPath ?? req.path;
+
+      const objectFile = await objectStorageService.getObjectEntityFile(servedPath);
+      // An upload is addressed by a uuid and never rewritten, so its bytes
+      // can be cached for as long as the browser likes.
+      const immutable = /^\/objects\/uploads\//.test(req.path);
+      await objectStorageService.downloadObject(objectFile, res, immutable ? 31536000 : 3600, immutable);
     } catch (error) {
       console.error("Error serving object:", error);
       if (error instanceof ObjectNotFoundError) {

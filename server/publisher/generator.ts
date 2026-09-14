@@ -16,6 +16,7 @@ import { missingRendererCases, unrenderableComponents, describeUnrenderable } fr
 import { normalizePages } from './normalize';
 import { validateBuilderStateForPublish } from './validate';
 import { migrateSiteStateToCurrent } from './migrations';
+import { getOrCreateImageVariant, VARIANT_WIDTHS } from '../imageVariants';
 import { ObjectStorageService, ObjectNotFoundError } from '../replit_integrations/object_storage/objectStorage';
 import {
   generatePackageJson,
@@ -140,7 +141,7 @@ function replaceObjectStorageUrls(obj: any, mappings: Map<string, string>): any 
   return obj;
 }
 
-async function downloadAndSaveImages(
+export async function downloadAndSaveImages(
   urls: Set<string>,
   outputDir: string
 ): Promise<Map<string, string>> {
@@ -189,7 +190,30 @@ async function downloadAndSaveImages(
       
       const newUrl = `/images/${uniqueFilename}`;
       mappings.set(url, newUrl);
-      
+
+      // The pages reference `<id>-w480.webp` and friends in their srcset, by
+      // the same convention both renderers use. Write one file per width so
+      // no candidate 404s; when a variant cannot be made, the original is
+      // copied under its name — bigger than intended, never missing.
+      if (extension === '.webp') {
+        const baseName = uniqueFilename.slice(0, -extension.length);
+        for (const width of VARIANT_WIDTHS) {
+          const variantPath = path.join(imagesDir, `${baseName}-w${width}${extension}`);
+          try {
+            const stored = await getOrCreateImageVariant(url, width);
+            if (stored) {
+              const variantFile = await objectStorageService.getObjectEntityFile(stored);
+              const [variantBuffer] = await variantFile.download();
+              await fs.promises.writeFile(variantPath, variantBuffer);
+              continue;
+            }
+          } catch (variantError) {
+            console.warn(`[Publisher] Variant w${width} unavailable for ${url}:`, variantError);
+          }
+          await fs.promises.writeFile(variantPath, buffer);
+        }
+      }
+
       console.log(`[Publisher] Downloaded image: ${url} -> ${newUrl}`);
     } catch (error) {
       if (error instanceof ObjectNotFoundError) {
