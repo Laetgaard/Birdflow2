@@ -8,6 +8,7 @@
  */
 
 import type { PrimitiveNode } from './nodes';
+import { isCanvasRoot } from './canvas';
 
 // ============ Absolute positioning ============
 
@@ -62,6 +63,9 @@ export function validateAbsoluteLayout(
   const repairs: string[] = [];
 
   function walk(node: PrimitiveNode, ancestorPositioned: boolean): void {
+    // A canvas root is positioned by construction and its children are
+    // placed in percent of it, which scales instead of breaking on phones.
+    if (isCanvasRoot(node)) return;
     const styles = (node.styles ?? {}) as Record<string, string | undefined>;
     const nodeName = node.name || node.type;
 

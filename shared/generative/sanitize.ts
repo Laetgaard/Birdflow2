@@ -470,6 +470,8 @@ export function sanitizePrimitiveTree(root: PrimitiveNode): PrimitiveNode {
     if (!NODE_TYPE_SET.has(node.type as string)) return false;
     budget--;
 
+    if (node.layout !== undefined && !(node.type === 'box' && node.layout === 'canvas')) delete node.layout;
+
     node.styles = sanitizeStyleRecord(node.styles);
     node.tabletStyles = sanitizeStyleRecord(node.tabletStyles);
     node.mobileStyles = sanitizeStyleRecord(node.mobileStyles);

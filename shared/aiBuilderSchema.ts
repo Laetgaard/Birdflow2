@@ -421,6 +421,8 @@ export type AIPrimitiveNode = {
   /** Controlled motion presets (entrance/hover/stagger) — never raw CSS. */
   motion?: MotionSpec;
   children?: AIPrimitiveNode[];
+  /** Free-canvas root marker (box only) — see shared/generative/canvas.ts. */
+  layout?: 'canvas';
 
   /**
    * Capability type — required when type === 'capability'. Embeds trusted
@@ -498,6 +500,7 @@ export const AIPrimitiveNodeSchema: z.ZodType<AIPrimitiveNode> = z.lazy(() =>
     svgColors: z.record(z.string().max(64)).optional(),
     motion: MotionSpecSchema.optional(),
     children: z.array(AIPrimitiveNodeSchema).optional(),
+    layout: z.enum(['canvas']).optional(),
     // Capability
     capability: z.enum([
       'booking', 'contact_form', 'newsletter', 'product_grid',

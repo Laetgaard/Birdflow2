@@ -15,4 +15,5 @@ export * from './editable';
 export * from './sanitize';
 export * from './validation';
 export * from './responsive';
+export * from './canvas';
 export * from './migrations';
