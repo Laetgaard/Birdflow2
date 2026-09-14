@@ -925,6 +925,7 @@ export function buildToolCatalogue(): AgentTool[] {
         "Include it when you want to name the editable fields explicitly (Danish labels, node-id bindings, repeaters for lists). " +
         "Give referenced nodes explicit ids. " +
         "Custom components are visual-only: never imitate booking/forms/checkout; insert the trusted section types instead. " +
+        "To draw a rule or ornament, use an image node with the supplied ornament path at its own width, or a box with an explicit height and background/border — a box with no children and no height or background renders as nothing. " +
         "Use the node-level tools (add_custom_node, update_custom_node_styles, …) for incremental edits after creation.",
       AddCustomComponentMutation,
       (m) => `Byggede komponenten "${m.name}"`

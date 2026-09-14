@@ -31,7 +31,9 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     const r = el.getBoundingClientRect();
     return { x: r.left + win.scrollX, y: r.top + win.scrollY, w: r.width, h: r.height };
   };
-  const cs = (el: Element) => win.getComputedStyle(el);
+  // The pseudo-element argument matters: a theme's gold rule is usually
+  // drawn in ::before, not in an element of its own.
+  const cs = (el: Element, pseudo?: string) => win.getComputedStyle(el, pseudo);
   const isHidden = (el: Element) => {
     const style = cs(el);
     if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return true;
@@ -131,14 +133,44 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
         if (best?.url) src = abs(best.url) || src;
       }
       const r = rectOf(el);
-      return { src: src || "", alt: (el.getAttribute("alt") || "").slice(0, 500), naturalWidth: el.naturalWidth || undefined, naturalHeight: el.naturalHeight || undefined, displayWidth: r.w, displayHeight: r.h, isBackground: false as boolean, svgMarkup: undefined as string | undefined };
+      const style = cs(el);
+      return { src: src || "", alt: (el.getAttribute("alt") || "").slice(0, 500), naturalWidth: el.naturalWidth || undefined, naturalHeight: el.naturalHeight || undefined, displayWidth: r.w, displayHeight: r.h, x: r.x, y: r.y, position: style.position, objectFit: style.objectFit, isBackground: false as boolean, svgMarkup: undefined as string | undefined, decorative: undefined as boolean | undefined, role: undefined as ("ornament" | "icon" | "content") | undefined, anchor: undefined as { afterHeading?: string; beforeParagraph?: string; domIndex: number; position?: "start" | "inline" | "end" } | undefined };
     }
     if (img.tagName.toLowerCase() === "svg") {
       const r = rectOf(img);
       const markup = (img as Element).outerHTML;
-      return { src: "", alt: (img.getAttribute("aria-label") || "").slice(0, 500), naturalWidth: undefined, naturalHeight: undefined, displayWidth: r.w, displayHeight: r.h, isBackground: false as boolean, svgMarkup: markup.length <= 50_000 ? markup : undefined };
+      return { src: "", alt: (img.getAttribute("aria-label") || "").slice(0, 500), naturalWidth: undefined, naturalHeight: undefined, displayWidth: r.w, displayHeight: r.h, x: r.x, y: r.y, position: cs(img).position, objectFit: undefined as string | undefined, isBackground: false as boolean, svgMarkup: markup.length <= 50_000 ? markup : undefined, decorative: undefined as boolean | undefined, role: undefined as ("ornament" | "icon" | "content") | undefined, anchor: undefined as { afterHeading?: string; beforeParagraph?: string; domIndex: number; position?: "start" | "inline" | "end" } | undefined };
     }
     return null;
+  };
+  // A translucent layer laid over a backdrop: an absolutely positioned,
+  // textless box the size of its section with a see-through colour.
+  const alphaOf = (value: string) => { const m = value.match(/rgba?\(\s*\d+[,\s]+\d+[,\s]+\d+(?:[,\s/]+([\d.]+))?/i); return m ? (m[1] === undefined ? 1 : Number(m[1])) : value === "transparent" ? 0 : 1; };
+  const scrimOf = (section: Element) => {
+    const sr = rectOf(section);
+    for (const child of Array.from(section.querySelectorAll("*")).slice(0, 60)) {
+      if (isEx(child) || child.tagName === "IMG" || child.querySelector("img, h1, h2, h3, p")) continue;
+      const style = cs(child);
+      if (style.position !== "absolute" && style.position !== "fixed") continue;
+      const cr = rectOf(child);
+      if (cr.w < sr.w * 0.9 || cr.h < sr.h * 0.9) continue;
+      const bg = style.backgroundColor;
+      const alpha = alphaOf(bg);
+      const gradient = style.backgroundImage && style.backgroundImage.includes("gradient");
+      if ((alpha > 0 && alpha < 1) || gradient) return { color: bg && bg !== "transparent" ? bg : "rgba(0, 0, 0, 0.35)", alpha: gradient && alpha >= 1 ? 0.35 : alpha };
+    }
+    return undefined;
+  };
+  // Decoration between the words: a rule, a flourish, a small icon. Read
+  // from the element kinds themes actually use for them, and remembered with
+  // the heading and paragraph it sat between, so it can go back there.
+  const ORNAMENT_SELECTOR = "hr, [class*='divid'], [class*='separat'], [class*='ornament'], [class*='decor'], .wp-block-separator";
+  const pseudoImage = (el: Element, which: "::before" | "::after") => {
+    const style = cs(el, which);
+    const content = style.content && style.content !== "none" ? style.content.match(/url\((['\"]?)(.*?)\1\)/) : null;
+    if (content) return abs(content[2]);
+    const bg = style.backgroundImage && style.backgroundImage !== "none" ? style.backgroundImage.match(/url\((['\"]?)(.*?)\1\)/) : null;
+    return bg ? abs(bg[2]) : undefined;
   };
   const logoIn = (root: Element | null) => {
     if (!root) return undefined;
@@ -205,10 +237,16 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     return /^(SECTION|ARTICLE|ASIDE)$/.test(el.tagName) || el.getAttribute("role") === "region" || hasHeading(el) || (ownBackground(el) && (!el.parentElement || cs(el.parentElement).backgroundColor !== cs(el).backgroundColor));
   };
   const sections: Element[] = [];
+  const strayOrnaments: Element[] = [];
   const segment = (el: Element, depth: number) => {
     if (isEx(el) || inChrome(el)) return;
     const r = rectOf(el);
-    if (r.h < minWalkH) return;
+    if (r.h < minWalkH) {
+      // Too short to be a section — but a divider band is exactly that
+      // short. Keep it and hand it to the section it precedes.
+      if (r.h > 0 && text(el).length === 0 && (el.matches(ORNAMENT_SELECTOR) || el.querySelector("img, svg, hr"))) strayOrnaments.push(el);
+      return;
+    }
     const kids = significantChildren(el);
     const area = r.w * r.h;
     const bigKids = kids.filter((child) => { const cr = rectOf(child); return cr.w * cr.h >= area * 0.9; });
@@ -338,10 +376,59 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     if (ctaEls.length) { let bestIdx = 0; let bestSat = -1; ctaEls.slice(0, 10).forEach((c, i) => { const s = saturation(cs(c).backgroundColor); if (s > bestSat) { bestSat = s; bestIdx = i; } }); if (ctas[bestIdx]) ctas[bestIdx].primary = true; }
     const images: any[] = [];
     for (const img of q<Element>("img, svg")) { const info = imageInfo(img); if (info && (info.src || info.svgMarkup)) images.push(info); if (images.length >= 40) break; }
+    // The rects of the words: what decides, on the node side, whether an
+    // image sits behind the text (a backdrop) or beside it (a picture).
+    const textRects = q<HTMLElement>("h1,h2,h3,h4,p").map(rectOf).filter((t) => t.w > 0 && t.h > 0).slice(0, 12);
+    // A picture that is only decoration — a rule, a flourish, an icon between
+    // the words — is marked as such and remembered with its neighbours.
+    const flow = q<Element>("h1,h2,h3,h4,h5,h6,p,li,img,svg,hr");
+    const anchorFor = (el: Element) => {
+      const at = flow.indexOf(el);
+      let afterHeading: string | undefined;
+      let beforeParagraph: string | undefined;
+      for (let i = at - 1; i >= 0; i--) { if (/^H[1-6]$/.test(flow[i].tagName)) { afterHeading = text(flow[i]).slice(0, 500); break; } if (/^(P|LI)$/.test(flow[i].tagName) && text(flow[i])) break; }
+      for (let i = at + 1; i < flow.length; i++) { if (/^(P|LI)$/.test(flow[i].tagName) && text(flow[i])) { beforeParagraph = text(flow[i]).slice(0, 1500); break; } if (/^H[1-6]$/.test(flow[i].tagName)) break; }
+      const position: "start" | "inline" | "end" = at <= 0 ? "start" : at >= flow.length - 1 ? "end" : "inline";
+      return { afterHeading, beforeParagraph, domIndex: Math.max(0, at), position };
+    };
+    const isOrnamentSize = (w: number, h: number) => (w < 220 && h < 140) || (h <= 48 && w <= vw * 0.6);
+    for (const img of images) {
+      const el = q<Element>("img, svg").find((n) => (n.tagName === "IMG" ? abs((n as HTMLImageElement).currentSrc || n.getAttribute("src")) === img.src || img.src === "" : n.outerHTML === img.svgMarkup));
+      const w = img.displayWidth ?? 0, h = img.displayHeight ?? 0;
+      const linked = !!el?.closest("a[href]");
+      if (isOrnamentSize(w, h) && !(el && el.closest("li, [class*='card'], [class*='item'], [class*='feature'], [class*='team']") && linked)) {
+        img.decorative = true;
+        img.role = h <= 48 || w >= h * 3 ? "ornament" : "icon";
+        if (el) img.anchor = anchorFor(el);
+      }
+    }
+    // Ornaments themes draw without an <img>: a styled <hr>, a small box with
+    // a background image, a ::before/::after flourish.
+    for (const orn of q<Element>(ORNAMENT_SELECTOR).slice(0, 12)) {
+      if (text(orn).length > 0) continue;
+      const or = rectOf(orn);
+      if (or.h <= 0 || or.h > 160) continue;
+      const src = bgImageUrl(orn) ?? pseudoImage(orn, "::before") ?? pseudoImage(orn, "::after");
+      if (!src || images.some((img) => img.src === src)) continue;
+      images.push({ src, alt: "", displayWidth: or.w, displayHeight: or.h, x: or.x, y: or.y, isBackground: false, decorative: true, role: "ornament", anchor: anchorFor(orn) });
+      if (images.length >= 40) break;
+    }
+    for (const stray of strayOrnaments) {
+      const sr = rectOf(stray);
+      if (!(sr.y + sr.h <= r.y + 8 && sr.y >= r.y - 240)) continue; // just above this section
+      const el = stray.matches("img, svg") ? stray : stray.querySelector("img, svg");
+      const info = el ? imageInfo(el) : null;
+      const src = info?.src || bgImageUrl(stray) || pseudoImage(stray, "::before") || pseudoImage(stray, "::after");
+      if ((!src && !info?.svgMarkup) || images.some((img) => src && img.src === src)) continue;
+      images.push({ ...(info ?? { src: src ?? "", alt: "", displayWidth: sr.w, displayHeight: sr.h, x: sr.x, y: sr.y }), src: src ?? "", isBackground: false, decorative: true, role: "ornament", anchor: { domIndex: 0, position: "start" } });
+    }
     // The background is imported like any image but it is not the section's
     // picture: it goes last, flagged, so the first image stays the photo the
-    // visitor sees in front of it.
-    for (const s of scope) { const bg = bgImageUrl(s); if (bg && !images.some((img) => img.src === bg)) images.push({ src: bg, alt: "", isBackground: true, displayWidth: r.w, displayHeight: r.h }); }
+    // visitor sees in front of it. Themes often paint it on an inner wrapper
+    // rather than the section itself, so those are read too.
+    const backdropHosts = [...scope, ...scope.flatMap((s) => Array.from(s.children)).filter((c) => !isEx(c) && rectOf(c).w >= r.w * 0.85), ...scope.flatMap((s) => Array.from(s.children)).flatMap((c) => Array.from(c.children)).filter((c) => !isEx(c) && rectOf(c).w >= r.w * 0.85)];
+    for (const s of backdropHosts) { const bg = bgImageUrl(s); if (bg && !images.some((img) => img.src === bg)) images.push({ src: bg, alt: "", isBackground: true, displayWidth: r.w, displayHeight: r.h, x: r.x, y: r.y }); }
+    const overlay = scrimOf(el);
     const forms = q<HTMLFormElement>("form").map((f) => ({
       action: abs(f.getAttribute("action")),
       fields: Array.from(f.querySelectorAll("input, textarea, select")).filter((i) => !/hidden|submit|button/i.test((i as HTMLInputElement).type || "")).map((i) => { const input = i as HTMLInputElement; const label = input.id ? f.querySelector(`label[for='${input.id}']`) : input.closest("label"); return { type: (input.tagName === "TEXTAREA" ? "textarea" : input.tagName === "SELECT" ? "select" : input.type || "text").slice(0, 40), name: (input.name || "").slice(0, 120) || undefined, label: (label ? text(label) : input.placeholder || "").slice(0, 200) || undefined, required: input.required || undefined }; }).slice(0, 20),
@@ -370,6 +457,8 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
       headingSize: heading ? parseFloat(cs(heading).fontSize) : undefined,
       paddingY: (parseFloat(style.paddingTop || "0") + parseFloat(style.paddingBottom || "0")) / 2,
       headings, paragraphs, lists, quotes, ctas, images, forms, embeds, tables, items,
+      textRects,
+      overlay,
       columns,
       hasCarousel,
       hiddenContent: hiddenPanels.length > 0,

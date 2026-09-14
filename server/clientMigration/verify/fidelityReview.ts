@@ -13,7 +13,7 @@ import { z } from "zod";
 import sharp from "sharp";
 import { meteredChat, isSpendLimitError } from "../../aiCall";
 import type { SpendMeter } from "../../aiSpend";
-import { capturePageScreenshots, buildComponentContext, type VisualScreenshot, type VisualIssue } from "../../visualReview";
+import { capturePageScreenshots, buildComponentContext, type VisualScreenshot, type VisualIssue, type ReviewBrowser } from "../../visualReview";
 import type { BuilderStateData } from "@shared/schema";
 import type { MigrationPagePlan } from "@shared/clientMigration";
 import { readMigrationFile, storeMigrationFile } from "../capture/pageCapture";
@@ -34,6 +34,10 @@ const ResponseSchema = z.object({ issues: z.array(FidelityIssueSchema).max(10).d
 
 export type FidelityIssue = VisualIssue;
 
+/** Why a page's vision review did not run — the real reason, each distinct. */
+export type VerifySkipReason = "renderer_unavailable" | "screenshot_failed" | "no_source_screenshot" | "model_unavailable" | "skipped_budget";
+export type FidelityReviewResult = { issues: VisualIssue[]; ran: boolean; reason?: VerifySkipReason; skippedReason?: string; rebuiltPaths?: { desktop?: string; mobile?: string } };
+
 async function resize(jpeg: Buffer, maxDim: number): Promise<string> {
   const out = await sharp(jpeg).resize({ width: maxDim, height: maxDim * 3, fit: "inside", withoutEnlargement: true }).jpeg({ quality: 72 }).toBuffer();
   return `data:image/jpeg;base64,${out.toString("base64")}`;
@@ -52,10 +56,18 @@ export async function reviewPageFidelity(args: {
   meter: SpendMeter;
   /** Where to keep the rebuild's own screenshots, so the admin can compare them. */
   store?: { jobId: string; pageRowId: string };
-}): Promise<{ issues: VisualIssue[]; ran: boolean; skippedReason?: string; rebuiltPaths?: { desktop?: string; mobile?: string } }> {
+  /** A browser to reuse across the pages of one job; opened and closed by the caller. */
+  browser?: ReviewBrowser;
+}): Promise<FidelityReviewResult> {
   const cache = new Map<string, VisualScreenshot>();
-  const { refs, warnings } = await capturePageScreenshots(args.state, args.pageId, ["desktop", "mobile"], cache, { fullPage: true, lang: args.language });
-  if (!refs.length) return { issues: [], ran: false, skippedReason: warnings[0] ?? "No rebuilt screenshot could be captured." };
+  const { refs, warnings } = await capturePageScreenshots(args.state, args.pageId, ["desktop", "mobile"], cache, { fullPage: true, lang: args.language, browser: args.browser });
+  if (!refs.length) {
+    // Every warning, not the first: the first is usually the generic one and
+    // the one after it says what actually went wrong.
+    const detail = warnings.join("; ") || "No rebuilt screenshot could be captured.";
+    const reason: VerifySkipReason = /renderer unavailable/i.test(detail) ? "renderer_unavailable" : "screenshot_failed";
+    return { issues: [], ran: false, reason, skippedReason: detail };
+  }
 
   const content: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail: "high" | "low" } }> = [];
   const rebuiltPaths: { desktop?: string; mobile?: string } = {};
@@ -86,7 +98,7 @@ export async function reviewPageFidelity(args: {
     content.push({ type: "text", text: `REBUILD (${viewport}):` });
     content.push({ type: "image_url", image_url: { url: await resize(rebuiltJpeg, viewport === "desktop" ? 1024 : 512), detail } });
   }
-  if (!content.length) return { issues: [], ran: false, skippedReason: "No source screenshot available for comparison.", rebuiltPaths };
+  if (!content.length) return { issues: [], ran: false, reason: "no_source_screenshot", skippedReason: "No source screenshot available for comparison.", rebuiltPaths };
   content.push({ type: "text", text: `Planned sections in order: ${args.pagePlan.sections.map((s) => `${s.sourceSectionId}:${s.role}`).join(", ")}\n\nRebuild structure:\n${buildComponentContext(args.state, args.pageId)}\n\nList the fidelity differences.` });
 
   try {
@@ -96,7 +108,7 @@ export async function reviewPageFidelity(args: {
     }, args.meter);
     const raw = response.choices[0]?.message?.content;
     const parsed = ResponseSchema.safeParse(raw ? JSON.parse(raw) : null);
-    if (!parsed.success) return { issues: [], ran: false, skippedReason: "The comparison model returned an unusable answer.", rebuiltPaths };
+    if (!parsed.success) return { issues: [], ran: false, reason: "model_unavailable", skippedReason: "The comparison model returned an unusable answer.", rebuiltPaths };
     const issues: VisualIssue[] = parsed.data.issues.map((issue, index) => ({
       ...issue,
       id: `fid-${args.pageId}-${index + 1}`,
@@ -109,6 +121,6 @@ export async function reviewPageFidelity(args: {
     }));
     return { issues, ran: true, rebuiltPaths };
   } catch (error) {
-    return { issues: [], ran: false, skippedReason: isSpendLimitError(error) ? "spend_limit" : `comparison failed: ${(error as Error)?.message?.slice(0, 120)}`, rebuiltPaths };
+    return { issues: [], ran: false, reason: isSpendLimitError(error) ? "skipped_budget" : "model_unavailable", skippedReason: isSpendLimitError(error) ? "spend_limit" : `comparison failed: ${(error as Error)?.message?.slice(0, 120)}`, rebuiltPaths };
   }
 }

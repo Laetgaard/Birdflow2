@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { guessRole, finalizeExtraction, allSectionIds } from "../server/clientMigration/capture/domExtract";
+import { guessRole, finalizeExtraction, allSectionIds, classifyBackdrops, hasBackdrop } from "../server/clientMigration/capture/domExtract";
 import { normalizePageUrl, isDisallowed } from "../server/clientMigration/capture/discovery";
 import { sameSite } from "../server/clientMigration/capture/browserSession";
 import { section, homeExtraction, servicesExtraction } from "./fixtures/clientMigration";
@@ -66,6 +66,69 @@ describe("guessRole", () => {
     expect(guess({ id: "p0-s1", images: [{ src: "a", displayWidth: 600, displayHeight: 400 }], textLength: 200 })).toEqual({ role: "text-image", confidence: 0.8 });
     expect(guess({ id: "p0-s1", images: [{ src: "a", displayWidth: 1400, displayHeight: 400 }], textLength: 200 })).toEqual({ role: "text-image", confidence: 0.6 });
     expect(guess({ id: "p0-s1", paragraphs: ["Lang tekst"], textLength: 400 })).toEqual({ role: "rich-text", confidence: 0.5 });
+  });
+});
+
+/**
+ * A photo the words sit on top of is not a photo beside the words. The only
+ * signal that tells the two apart survives in the browser — the image's own
+ * rect against the rects of the text — so this is where it is pinned.
+ */
+describe("classifyBackdrops", () => {
+  const HERO = { x: 0, y: 0, w: 1440, h: 800 };
+  const textRects = [{ x: 200, y: 300, w: 600, h: 120 }];
+
+  it("calls an image that covers the section and carries the text a backdrop", () => {
+    const result = classifyBackdrops(section({ id: "p0-s0", bbox: HERO, textRects, images: [{ src: "hero.jpg", x: 0, y: 0, displayWidth: 1440, displayHeight: 800 }] }) as any);
+    expect(result.images[0].isBackground).toBe(true);
+    expect(result.images[0].coversSection).toBe(true);
+    expect(result.images[0].behindText).toBe(true);
+    expect(hasBackdrop(result)).toBe(true);
+  });
+
+  it("leaves a photo beside the text a photo, however large", () => {
+    const result = classifyBackdrops(section({ id: "p0-s0", bbox: HERO, textRects, images: [{ src: "side.jpg", x: 820, y: 60, displayWidth: 560, displayHeight: 680 }] }) as any);
+    expect(result.images[0].isBackground).toBeFalsy();
+    expect(result.images[0].behindText).toBe(false);
+    expect(hasBackdrop(result)).toBe(false);
+  });
+
+  it("covers the section but carries no text: still a picture", () => {
+    const result = classifyBackdrops(section({ id: "p0-s0", bbox: HERO, textRects: [], images: [{ src: "wide.jpg", x: 0, y: 0, displayWidth: 1440, displayHeight: 800 }] }) as any);
+    expect(result.images[0].isBackground).toBeFalsy();
+  });
+
+  it("puts the backdrop last so the first image is still the one in front", () => {
+    const result = classifyBackdrops(section({ id: "p0-s0", bbox: HERO, textRects, images: [
+      { src: "back.jpg", x: 0, y: 0, displayWidth: 1440, displayHeight: 800 },
+      { src: "front.jpg", x: 900, y: 200, displayWidth: 300, displayHeight: 200 },
+    ] }) as any);
+    expect(result.images.map((img: any) => img.src)).toEqual(["front.jpg", "back.jpg"]);
+  });
+
+  it("never reclassifies an ornament, whatever its rect says", () => {
+    const result = classifyBackdrops(section({ id: "p0-s0", bbox: HERO, textRects, images: [{ src: "rule.svg", x: 0, y: 0, displayWidth: 1440, displayHeight: 800, decorative: true }] }) as any);
+    expect(result.images[0].isBackground).toBeFalsy();
+  });
+});
+
+describe("roles that depend on a backdrop or an ornament", () => {
+  it("calls a headline over a full-bleed photo a hero wherever it sits on the page", () => {
+    const backdrop = { src: "hero.jpg", isBackground: true, displayWidth: 1440, displayHeight: 800 };
+    expect(guess({ id: "p0-s4", headings: [{ level: 2, text: "Find ro" }], headingSize: 56, images: [backdrop], textLength: 120, bbox: { x: 0, y: 3000, w: 1440, h: 700 } }, 4)).toEqual({ role: "hero", confidence: 0.8 });
+  });
+
+  it("does not call a backdrop hero text-image, which put the photo beside the words", () => {
+    const backdrop = { src: "hero.jpg", isBackground: true, displayWidth: 1440, displayHeight: 800 };
+    expect(guess({ id: "p0-s4", headings: [{ level: 2, text: "Find ro" }], images: [backdrop], textLength: 200, bbox: { x: 0, y: 3000, w: 1440, h: 200 } }, 4).role).not.toBe("text-image");
+  });
+
+  it("calls a band that holds only an ornament a divider", () => {
+    expect(guess({ id: "p0-s2", images: [{ src: "rule.svg", decorative: true, role: "ornament", displayWidth: 120, displayHeight: 24 }], textLength: 0, bbox: { x: 0, y: 900, w: 1440, h: 60 } }, 2)).toEqual({ role: "divider", confidence: 0.8 });
+  });
+
+  it("is not a divider when the ornament shares its band with words", () => {
+    expect(guess({ id: "p0-s2", images: [{ src: "rule.svg", decorative: true, displayWidth: 120, displayHeight: 24 }], paragraphs: ["En rigtig sætning med indhold i."], textLength: 200, bbox: { x: 0, y: 900, w: 1440, h: 300 } }, 2).role).not.toBe("divider");
   });
 });
 

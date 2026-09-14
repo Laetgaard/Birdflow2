@@ -280,7 +280,10 @@ describe("deterministic placement", () => {
 describe("defaultTargetFor", () => {
   it("keeps a hero and a contact form as standard sections even when pixel-close", () => {
     expect(defaultTargetFor({ ...hero, confidence: 0.5 }, true)).toMatchObject({ kind: "section", sectionType: "hero-section", variant: "centered" });
-    expect(defaultTargetFor({ ...hero, bgImage: "x" }, true)).toMatchObject({ variant: "bold" });
+    // A backdrop hero is centered over its photo; only a big all-caps
+    // headline asks for the bold variant.
+    expect(defaultTargetFor({ ...hero, bgImage: "x" }, true)).toMatchObject({ variant: "centered" });
+    expect(defaultTargetFor({ ...hero, bgImage: "x", headings: [{ level: 1, text: "RO I HVERDAGEN" }] }, true)).toMatchObject({ variant: "bold" });
     expect(defaultTargetFor({ ...contact, confidence: 0.4 }, true)).toMatchObject({ kind: "section", sectionType: "contact-section" });
   });
 
@@ -311,6 +314,90 @@ describe("defaultTargetFor", () => {
         expect(isTargetAllowed(s.role, target), `${s.id} ${s.role} → ${JSON.stringify(target)}`).toBe(true);
       }
     }
+  });
+});
+
+/**
+ * Text on a photo, ornaments between the words. Both were lost in the
+ * mapping, not in the capture: the hero wrote a background image neither
+ * renderer reads, and every ornament was dumped at the end of the section or
+ * dropped.
+ */
+describe("a photo the text sits on", () => {
+  const backdrop = () => ({
+    ...hero,
+    textAlign: "left" as const,
+    images: [{ src: "/objects/uploads/hero.webp", mediaId: "m-hero", alt: "Klinikkens samtalerum", displayWidth: 1440, displayHeight: 700, x: 0, y: 80, isBackground: true, coversSection: true, behindText: true }],
+  });
+
+  it("puts the photo behind the words through imageUrl, not through a style both renderers ignore", () => {
+    const c = place(0, backdrop(), { kind: "section", sectionType: "hero-section", variant: "centered" });
+    expect(c.props.imageUrl).toBe("/objects/uploads/hero.webp");
+    expect(c.props.layout).toBe("centered");
+    expect(c.styles.backgroundImage).toBeUndefined();
+  });
+
+  it("paints no scrim when the source had none, so the photo is visible at all", () => {
+    const c = place(0, backdrop(), { kind: "section", sectionType: "hero-section", variant: "centered" });
+    expect(c.styles.backgroundOpacity).toBe(0);
+  });
+
+  it("reproduces the source's own scrim, colour and strength", () => {
+    const c = place(0, { ...backdrop(), overlay: { color: "rgba(30, 27, 75, 0.45)", alpha: 0.45 } } as any, { kind: "section", sectionType: "hero-section", variant: "centered" });
+    expect(c.styles.backgroundOpacity).toBe(45);
+    expect(c.styles.backgroundColor).toBe("#1e1b4b");
+  });
+
+  it("gives a call to action over a photo the same scrim", () => {
+    const s = section({
+      id: "p0-s9", role: "cta", confidence: 0.8, bbox: { x: 0, y: 0, w: 1440, h: 320 }, textLength: 60,
+      headings: [{ level: 2, text: "Klar til at starte?" }], paragraphs: ["Book en tid, der passer dig."],
+      ctas: [{ text: "Book en samtale", href: `${ORIGIN}/booking`, primary: true }],
+      bgImage: "/objects/uploads/rum.webp", overlay: { color: "rgba(0, 0, 0, 0.5)", alpha: 0.5 },
+    } as any);
+    const c = place(9, s, { kind: "section", sectionType: "cta-section" });
+    expect(c.styles.backgroundImage).toBe("url(/objects/uploads/rum.webp)");
+    expect(c.styles.backgroundOpacity).toBe(50);
+  });
+
+  it("keeps a photo beside the text on the side it sat", () => {
+    const beside = (x: number) => section({
+      id: "p0-s9", role: "text-image", confidence: 0.8, bbox: { x: 0, y: 0, w: 1440, h: 500 }, textLength: 200,
+      paragraphs: [STRESS_TEXT], headings: [{ level: 2, text: "Om klinikken" }],
+      images: [{ src: "/objects/uploads/rum.webp", mediaId: "m-rum", displayWidth: 620, displayHeight: 400, x, y: 50 }],
+    } as any);
+    expect(place(9, beside(40), { kind: "component", componentType: "text-image" }).props.imageSide).toBe("left");
+    expect(place(9, beside(780), { kind: "component", componentType: "text-image" }).props.imageSide).toBe("right");
+  });
+});
+
+describe("ornaments go back where they sat", () => {
+  const rule = { src: "/objects/uploads/logo.webp", mediaId: "m-logo", decorative: true, role: "ornament" as const, displayWidth: 120, displayHeight: 24, anchor: { domIndex: 1, afterHeading: "Om klinikken" } };
+
+  it("places a band that is only an ornament as an image divider", () => {
+    const s = section({ id: "p0-s9", role: "divider", confidence: 0.8, bbox: { x: 0, y: 0, w: 1440, h: 60 }, images: [rule] } as any);
+    const target = defaultTargetFor(s, true);
+    expect(target).toMatchObject({ kind: "component", componentType: "divider" });
+    const c = place(9, s, target);
+    expect(c.type).toBe("divider");
+    expect(c.props.style).toBe("image");
+    expect(c.props.imageUrl).toBe("/objects/uploads/logo.webp");
+    expect(c.props.ornamentHeight).toBe("24px");
+  });
+
+  it("skips a decorative band whose ornament was never imported", () => {
+    const s = section({ id: "p0-s9", role: "divider", confidence: 0.8, images: [] } as any);
+    expect(defaultTargetFor(s, true)).toMatchObject({ kind: "skip" });
+  });
+
+  it("puts an ornament inside rich text after the heading it followed", () => {
+    const s = section({ id: "p0-s9", role: "rich-text", confidence: 0.6, textLength: 300, headings: [{ level: 2, text: "Om klinikken" }], paragraphs: [STRESS_TEXT], images: [rule] } as any);
+    const c = place(9, s, { kind: "component", componentType: "rich-text" });
+    const html: string = c.props.content;
+    expect(html).toContain('class="ornament"');
+    expect(html.indexOf("Om klinikken")).toBeLessThan(html.indexOf('class="ornament"'));
+    expect(html.indexOf('class="ornament"')).toBeLessThan(html.indexOf(STRESS_TEXT.slice(0, 20)));
+    expect(html).toContain("width:120px");
   });
 });
 

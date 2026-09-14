@@ -25,8 +25,9 @@ export const MIGRATION_ID_PREFIX = "mig";
 /** The default target for a role, before the model or the admin weighs in. */
 export function defaultTargetFor(section: ExtractedSection, pixelClose: boolean): MigrationTarget {
   const items = section.items.length;
-  const images = section.images.length;
-  const strongVisual = !!section.bgImage || (images >= 2 && section.textLength > 40 && (section.columns ?? 0) >= 2 && section.role !== "features" && section.role !== "services");
+  const images = section.images.filter((img) => !img.isBackground && !img.decorative).length;
+  const backdrop = !!section.bgImage || section.images.some((img) => img.isBackground);
+  const strongVisual = backdrop || (images >= 2 && section.textLength > 40 && (section.columns ?? 0) >= 2 && section.role !== "features" && section.role !== "services");
   const custom = (brief: string): MigrationTarget => ({ kind: "custom", brief });
   // Roles the deterministic placements below reproduce well. Sending these to
   // the rebuild agent costs money for a worse result than the free path, and
@@ -37,7 +38,7 @@ export function defaultTargetFor(section: ExtractedSection, pixelClose: boolean)
     return custom(`Rebuild faithfully: ${section.role} with ${items} items, ${images} images, ${section.headings.map((h) => h.text).join(" / ").slice(0, 120)}`);
   }
   switch (section.role) {
-    case "hero": return { kind: "section", sectionType: "hero-section", variant: section.bgImage ? "bold" : section.textAlign === "center" ? "centered" : "split" };
+    case "hero": return { kind: "section", sectionType: "hero-section", variant: backdrop ? ((section.headingSize ?? 0) >= 48 && section.headings[0] && section.headings[0].text === section.headings[0].text.toUpperCase() ? "bold" : "centered") : images >= 1 && section.textAlign !== "center" ? "split" : "centered" };
     case "features": return items >= 3 ? { kind: "section", sectionType: "features-section" } : { kind: "component", componentType: "text-image" };
     case "services": return items >= 3 ? { kind: "section", sectionType: "services-section" } : { kind: "section", sectionType: "features-section" };
     case "testimonials": return { kind: "section", sectionType: "reviews-section" };
@@ -56,7 +57,8 @@ export function defaultTargetFor(section: ExtractedSection, pixelClose: boolean)
       return embed ? { kind: "component", componentType: "video-embed" } : { kind: "note", message: "Video embed is not from YouTube/Vimeo and cannot be re-embedded." };
     }
     case "comparison-table": return { kind: "component", componentType: "comparison-table" };
-    default: return section.textLength < 20 && images === 0 ? { kind: "skip", reason: "Decorative or empty section" } : { kind: "component", componentType: "rich-text" };
+    case "divider": return section.images.some((img) => img.decorative) ? { kind: "component", componentType: "divider" } : { kind: "skip", reason: "Decorative band without an image" };
+    default: return section.textLength < 20 && images === 0 && !section.images.some((img) => img.decorative) ? { kind: "skip", reason: "Decorative or empty section" } : { kind: "component", componentType: "rich-text" };
   }
 }
 
@@ -85,9 +87,32 @@ function bodyText(section: ExtractedSection, max = 1200): string {
 }
 function primaryCta(section: ExtractedSection) { return section.ctas.find((c) => c.primary) ?? section.ctas[0]; }
 function secondaryCta(section: ExtractedSection) { const p = primaryCta(section); return section.ctas.find((c) => c !== p); }
-/** The pictures the visitor sees in the section — never its background. */
+/** The pictures the visitor sees in the section — never its background, never its ornaments. */
 function imagePaths(section: ExtractedSection, allowed: Set<string>): string[] {
-  return section.images.filter((img) => !img.isBackground).map((img) => img.src).filter((src) => allowed.has(src));
+  return section.images.filter((img) => !img.isBackground && !img.decorative).map((img) => img.src).filter((src) => allowed.has(src));
+}
+/** The section's decorative images, imported, in the order they sat in the text. */
+export function ornaments(section: ExtractedSection, allowed: Set<string>): ExtractedSection["images"] {
+  return section.images.filter((img) => img.decorative && allowed.has(img.src)).sort((a, b) => (a.anchor?.domIndex ?? 0) - (b.anchor?.domIndex ?? 0));
+}
+/** The picture that sits beside the text, with where it sat. */
+function firstPicture(section: ExtractedSection, allowed: Set<string>): ExtractedSection["images"][number] | undefined {
+  return section.images.find((img) => !img.isBackground && !img.decorative && allowed.has(img.src));
+}
+/** Which side of the section a picture sat on, from its own centre. */
+function sideOf(section: ExtractedSection, img: ExtractedSection["images"][number] | undefined): "left" | "right" {
+  if (!img || img.x === undefined) return "right";
+  return img.x + (img.displayWidth ?? 0) / 2 < section.bbox.x + section.bbox.w / 2 ? "left" : "right";
+}
+/**
+ * The scrim the source laid over its backdrop, as the renderers' own
+ * `backgroundOpacity` (0–100). No scrim in the source means none here: the
+ * photo shows as the client had it.
+ */
+function scrimStyles(section: ExtractedSection): Record<string, string | number> {
+  if (!section.overlay) return { backgroundOpacity: 0 };
+  const hex = hexOf(section.overlay.color);
+  return { backgroundOpacity: Math.round(Math.max(0, Math.min(1, section.overlay.alpha)) * 100), ...(hex ? { backgroundColor: hex } : {}) };
 }
 function itemImage(item: ExtractedSection["items"][number], allowed: Set<string>): string {
   return item.imageSrc && allowed.has(item.imageSrc) ? item.imageSrc : "";
@@ -113,9 +138,25 @@ export function richHtml(section: ExtractedSection, allowed: Set<string> = new S
   const parts: string[] = [];
   const imgs = imagePaths(section, allowed);
   const figure = (src: string, alt: string, caption?: string) => `<figure><img src="${esc(src)}" alt="${esc(alt)}" />${caption ? `<figcaption>${esc(caption)}</figcaption>` : ""}</figure>`;
-  for (const h of section.headings) parts.push(`<h${Math.min(Math.max(h.level, 2), 4)}>${esc(h.text)}</h${Math.min(Math.max(h.level, 2), 4)}>`);
+  // An ornament goes back exactly where it sat: after its heading, before
+  // its paragraph, at its own width — not dumped at the end.
+  const orns = ornaments(section, allowed);
+  const placed = new Set<string>();
+  const ornament = (img: ExtractedSection["images"][number]) => {
+    placed.add(img.src);
+    const width = Math.min(Math.round(img.displayWidth ?? 120), 480);
+    return `<figure class="ornament" style="text-align:center;margin:16px auto"><img src="${esc(img.src)}" alt="" style="width:${width}px;max-width:100%;height:auto;display:inline-block" /></figure>`;
+  };
+  for (const img of orns) if (img.anchor?.position === "start") parts.push(ornament(img));
+  for (const h of section.headings) {
+    parts.push(`<h${Math.min(Math.max(h.level, 2), 4)}>${esc(h.text)}</h${Math.min(Math.max(h.level, 2), 4)}>`);
+    for (const img of orns) if (!placed.has(img.src) && img.anchor?.afterHeading === h.text) parts.push(ornament(img));
+  }
   if (imgs[0]) parts.push(figure(imgs[0], altFor(section, imgs[0])));
-  for (const p of section.paragraphs) parts.push(`<p>${esc(p)}</p>`);
+  for (const p of section.paragraphs) {
+    for (const img of orns) if (!placed.has(img.src) && img.anchor?.beforeParagraph === p) parts.push(ornament(img));
+    parts.push(`<p>${esc(p)}</p>`);
+  }
   for (const list of section.lists) parts.push(`<ul>${list.map((li) => `<li>${esc(li)}</li>`).join("")}</ul>`);
   for (const q of section.quotes) parts.push(`<blockquote>${esc(q.text)}${q.cite ? ` — ${esc(q.cite)}` : ""}</blockquote>`);
   for (const item of section.items) {
@@ -123,6 +164,7 @@ export function richHtml(section: ExtractedSection, allowed: Set<string> = new S
     if (src) parts.push(figure(src, item.title ?? "", item.title));
   }
   for (const src of imgs.slice(1, 8)) parts.push(figure(src, altFor(section, src)));
+  for (const img of orns) if (!placed.has(img.src)) parts.push(ornament(img));
   return parts.join("").slice(0, 20_000) || `<p>${esc(bodyText(section) || firstHeading(section) || "")}</p>`;
 }
 
@@ -156,17 +198,34 @@ export function buildPlacementMutation(section: ExtractedSection, plan: Migratio
     // customContent cannot carry (images, CTAs, prices), it is placed as a
     // full component below instead.
     switch (target.sectionType) {
-      case "hero-section":
+      case "hero-section": {
+        // Both renderers draw a non-split hero's imageUrl full-bleed behind
+        // the words with a colour scrim at backgroundOpacity. That — not a
+        // CSS backgroundImage, which they ignore — is how text goes over a
+        // photo. A photo beside the text is a split layout on the side it
+        // sat; the plan's "split" is not a layout name the renderers know.
+        const backdrop = backgroundPath(section, ctx.allowedImagePaths);
+        const picture = firstPicture(section, ctx.allowedImagePaths);
+        // A variant the plan states outright is honoured; "split" — which is
+        // not a layout name the renderers know — and an absent one are
+        // resolved from where the picture actually sat.
+        const layout = backdrop
+          ? (target.variant === "bold" ? "bold" : "centered")
+          : target.variant === "minimal" || target.variant === "bold" || target.variant === "centered" ? target.variant
+          : picture ? (sideOf(section, picture) === "left" ? "split-left" : "split-right")
+          : "centered";
         return component(ctx, id, "hero", {
           styledTitle: { text: title ?? "" }, title: title ?? "",
           styledSubtitle: { text: subtitle ?? "" }, subtitle: subtitle ?? "",
           styledDescription: { text: description }, description,
           buttonText: cta?.text ?? "", buttonLink: cta ? ctx.rewriteHref(cta.href) : "",
           secondaryButtonText: cta2?.text ?? "", secondaryButtonLink: cta2 ? ctx.rewriteHref(cta2.href) : "",
-          imageUrl: imgs[0] ?? "",
-          layout: target.variant === "split" ? "split" : "centered",
-          alignment: section.textAlign === "left" ? "left" : "center",
-        }, { ...styles, ...backgroundStyles(section, ctx.allowedImagePaths) });
+          imageUrl: backdrop ?? picture?.src ?? "",
+          imageAlt: backdrop ? "" : picture?.alt ?? "",
+          layout,
+          alignment: section.textAlign === "left" ? "left" : section.textAlign === "right" ? "right" : "center",
+        }, backdrop ? { ...styles, ...scrimStyles(section) } : styles);
+      }
       case "features-section":
       case "services-section": {
         const type: ComponentType = target.sectionType === "services-section" ? "services" : "features";
@@ -247,7 +306,7 @@ export function buildPlacementMutation(section: ExtractedSection, plan: Migratio
           styledDescription: { text: description }, description,
           buttonText: cta?.text ?? "", buttonLink: cta ? ctx.rewriteHref(cta.href) : "",
           secondaryButtonText: cta2?.text ?? "", secondaryButtonLink: cta2 ? ctx.rewriteHref(cta2.href) : "",
-        }, { ...styles, ...backgroundStyles(section, ctx.allowedImagePaths) });
+        }, backgroundPath(section, ctx.allowedImagePaths) ? { ...styles, ...backgroundStyles(section, ctx.allowedImagePaths), ...scrimStyles(section) } : styles);
       case "timeline-section":
         return component(ctx, id, "timeline", {
           styledTitle: { text: title ?? "" }, title: title ?? "",
@@ -265,7 +324,7 @@ export function buildPlacementMutation(section: ExtractedSection, plan: Migratio
       return component(ctx, id, "text-image", {
         styledTitle: { text: title ?? "" }, title: title ?? "",
         styledDescription: { text: description }, description,
-        imageUrl: imgs[0] ?? "", imageSide: (section.images[0]?.displayWidth ?? 0) > 0 && section.bbox.w > 0 && (section.images[0] as any)?.left !== undefined ? "left" : "right",
+        imageUrl: imgs[0] ?? "", imageSide: sideOf(section, firstPicture(section, ctx.allowedImagePaths)),
         buttonText: cta?.text ?? "", buttonLink: cta ? ctx.rewriteHref(cta.href) : "",
       }, styles);
     case "image-slider":
@@ -293,8 +352,13 @@ export function buildPlacementMutation(section: ExtractedSection, plan: Migratio
         features: rows.slice(1, 20).map((row, n) => ({ id: itemId(100 + n), name: row[0] ?? "", values: row.slice(1) })),
       }, styles);
     }
-    case "divider":
-      return component(ctx, id, "divider", { style: "solid" }, {});
+    case "divider": {
+      const ornament = ornaments(section, ctx.allowedImagePaths)[0];
+      const height = Math.min(Math.max(Math.round(ornament?.displayHeight ?? 40), 12), 160);
+      return ornament
+        ? component(ctx, id, "divider", { style: "image", imageUrl: ornament.src, ornamentHeight: `${height}px` }, { padding: "8px 24px" })
+        : component(ctx, id, "divider", { style: "solid" }, {});
+    }
     case "spacer":
       return component(ctx, id, "spacer", { height: "40px" }, {});
     case "rich-text":
@@ -328,7 +392,9 @@ function hexOf(rgb: string | undefined): string | undefined {
   return `#${[m[1], m[2], m[3]].map((v) => Number(v).toString(16).padStart(2, "0")).join("")}`;
 }
 
-function component(ctx: BuildContext, id: string, type: ComponentType, props: Record<string, unknown>, styles: Record<string, string>): BuilderMutation {
+// Styles are not all strings: the scrim opacity a hero paints over its
+// background photo is a number, exactly as the registry declares it.
+function component(ctx: BuildContext, id: string, type: ComponentType, props: Record<string, unknown>, styles: Record<string, string | number>): BuilderMutation {
   const definition = componentRegistry[type];
   const cleanProps = Object.fromEntries(Object.entries(props).filter(([, v]) => v !== undefined));
   return {

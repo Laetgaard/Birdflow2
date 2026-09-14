@@ -466,7 +466,7 @@ function NodeRenderer({
               }
             />
           ))}
-          {!isPreview && (node.children ?? []).length === 0 && (
+          {!isPreview && (node.children ?? []).length === 0 && !isDecorativeBox(node) && (
             <div
               style={{
                 padding: "16px",
@@ -750,7 +750,19 @@ function NodeRenderer({
  * generated ComponentRenderer template (see server/publisher/templates.ts) —
  * keep the two in visual parity.
  */
-export default function CustomComponentRenderer({
+export default /**
+ * A box with no children but a background, a border or a thin fixed height
+ * is a decorative rule the agent drew on purpose, not an empty slot — the
+ * "add elements" placeholder would paint over it and hide it.
+ */
+function isDecorativeBox(node: { styles?: Record<string, unknown> }): boolean {
+  const styles = (node.styles ?? {}) as Record<string, unknown>;
+  if (styles.backgroundColor || styles.background || styles.backgroundImage || styles.borderTop || styles.borderBottom || styles.border) return true;
+  const height = parseFloat(String(styles.height ?? ""));
+  return Number.isFinite(height) && height > 0 && height < 24;
+}
+
+function CustomComponentRenderer({
   websiteId,
   language,
   component,

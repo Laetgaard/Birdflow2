@@ -125,6 +125,8 @@ export type AiRoleConfig = {
 
 const KIMI_MODEL = "kimi-k3";
 const OPENAI_REASONING_MODEL = "gpt-5.1";
+/** Cheaper, vision-capable, same account: what a migration role falls back to. */
+const OPENAI_FALLBACK_MODEL = "gpt-4o";
 
 export const AI_CONFIG: Record<AiRole, AiRoleConfig> = {
   // ── Complex builder-agent roles → Kimi K3 ──────────────────────────────
@@ -188,6 +190,8 @@ export const AI_CONFIG: Record<AiRole, AiRoleConfig> = {
     model: KIMI_MODEL,
     maxCompletionTokens: 900,
     maxRunCostUsd: 0.2,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_FALLBACK_MODEL,
   },
   architectPlan: {
     provider: "kimi",
@@ -210,6 +214,8 @@ export const AI_CONFIG: Record<AiRole, AiRoleConfig> = {
     model: KIMI_MODEL,
     maxCompletionTokens: 4096,
     maxRunCostUsd: 0.25,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_FALLBACK_MODEL,
     // The review is advisory-only and rides on a build that already paid for
     // its mutations, so it gets a deliberately small ceiling: when the money
     // is gone the review is skipped and says so, never the other way around.
@@ -260,6 +266,8 @@ export const AI_CONFIG: Record<AiRole, AiRoleConfig> = {
     // Per-call ceiling. The run's shared meter still caps the whole loop;
     // this just prevents one runaway review call from dominating.
     maxRunCostUsd: 0.5,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_FALLBACK_MODEL,
   },
 
   // ── Client migration (admin tool) ────────────────────────────────────
@@ -275,32 +283,42 @@ export const AI_CONFIG: Record<AiRole, AiRoleConfig> = {
   // must follow tool schemas to the letter: they run on the reasoning model,
   // which sees images, with Kimi as the fallback rather than the other way
   // round. The job's own ceiling (recommendedCeilingUsd) is costed for it.
+  // Every migration role runs on OpenAI, and falls back to OpenAI: one
+  // account, one bill, no second provider that can be out of balance while
+  // the first one works. The fallback is a cheaper vision-capable model, so
+  // an outage degrades quality rather than stopping the job.
   migrationPlan: {
     provider: "openai",
     model: OPENAI_REASONING_MODEL,
     maxCompletionTokens: 16384,
+    // The plan is a mapping, not a proof: reasoning tokens count against
+    // the completion budget on this model, and a long think can leave no
+    // room for the answer.
+    reasoningEffort: "low",
     maxRunCostUsd: 2,
-    fallbackProvider: "kimi",
-    fallbackModel: KIMI_MODEL,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_FALLBACK_MODEL,
   },
   migrationBuild: {
     provider: "openai",
     model: OPENAI_REASONING_MODEL,
     maxCompletionTokens: 12288,
     maxRunCostUsd: 8,
-    fallbackProvider: "kimi",
-    fallbackModel: KIMI_MODEL,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_FALLBACK_MODEL,
   },
   migrationFidelity: {
-    provider: "kimi",
-    model: KIMI_MODEL,
+    provider: "openai",
+    model: OPENAI_REASONING_MODEL,
     // Four images (two viewports, original and rebuild) plus a short list.
     maxCompletionTokens: 2048,
     maxRunCostUsd: 1.5,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_FALLBACK_MODEL,
   },
   migrationExtract: {
-    provider: "kimi",
-    model: KIMI_MODEL,
+    provider: "openai",
+    model: OPENAI_FALLBACK_MODEL,
     maxCompletionTokens: 4096,
     maxRunCostUsd: 0.3,
   },
@@ -328,7 +346,7 @@ export function aiConfig(role: AiRole): AiRoleConfig {
  *   does not accept this field on the OpenAI-compatible endpoint.
  * - max_completion_tokens is sent to both providers.
  */
-export function chatParamsFor(role: AiRole): {
+export function chatParamsFor(role: AiRole, provider: AiProvider = aiConfig(role).provider): {
   model: string;
   max_completion_tokens: number;
   reasoning_effort?: ReasoningEffort;
@@ -337,8 +355,10 @@ export function chatParamsFor(role: AiRole): {
   return {
     model: config.model,
     max_completion_tokens: config.maxCompletionTokens,
-    // Only emit reasoning_effort for OpenAI providers — Kimi does not accept it.
-    ...(config.reasoningEffort && config.provider === "openai"
+    // Only emit reasoning_effort to OpenAI — Kimi does not accept it. Judged
+    // by the provider the call actually goes to, so a fallback to Kimi never
+    // ships it a parameter that would turn the fallback into a 400.
+    ...(config.reasoningEffort && provider === "openai"
       ? { reasoning_effort: config.reasoningEffort }
       : {}),
   };

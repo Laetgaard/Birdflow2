@@ -35,110 +35,22 @@ import type { ParityResult } from "@shared/selfReview";
 import type { PrimitiveNode } from "@shared/customComponents";
 import { componentRegistry } from "@shared/componentRegistry";
 import { resolveDesignTokens, resolveTokensDeep } from "@shared/designTokens";
-import { generateComponentRenderer, generateBookingForm, generateTrustedRuntime } from "./publisher/templates";
+import { loadPublishedRenderer, MissingStubError, NEUTRAL_RENDERER_THEME, type PublishedRenderer } from "./publisher/inProcessRenderer";
 
 const MAX_PROBLEMS = 12;
 const MAX_SAMPLES_PER_COMPONENT = 8;
 
 /**
- * The colours here do not matter to what this check asserts (copy presence
- * and compilability), so a fixed neutral theme stands in for the per-site
- * theme.json the real publisher writes.
+ * The renderer, its stub map and its theme live in one place
+ * (`publisher/inProcessRenderer`). This check used to keep its own copy of
+ * that map, and so did the visual review; one of them forgot a module and
+ * rendered blank pages for weeks. There is now nothing here to drift.
  */
-const NEUTRAL_THEME = {
-  primaryColor: "#4f46e5",
-  secondaryColor: "#22c55e",
-  fontFamily: "Inter, system-ui, sans-serif",
-  backgroundColor: "#ffffff",
-  textColor: "#1f2937",
-  borderRadius: "8px",
-};
-
-type PublishedRenderer = (props: {
-  component: unknown;
-  products?: unknown[];
-  pages?: unknown[];
-  allComponents?: unknown[];
-  navItems?: Array<{ id: string; title: string; href: string }>;
-}) => React.ReactElement | null;
-
-/** Thrown by the require shim so infrastructure gaps are told apart from site problems. */
-class MissingStubError extends Error {
-  constructor(module: string) {
-    super(`Ustubbet modul i udgivelsestjekket: ${module}`);
-    this.name = "MissingStubError";
-  }
-}
-
-// Compiled per language once per process — the generated source only changes
-// when the server code changes.
-const factoryCache: Record<string, ((requireShim: unknown, module: unknown, exports: unknown, react: unknown) => void) | undefined> = {};
-
 async function loadRenderer(language: string): Promise<PublishedRenderer> {
-  let factory = factoryCache[language];
-  if (!factory) {
-    const source = generateComponentRenderer(language as never);
-    // esbuild is a devDependency: present wherever the app was built (the
-    // deploy build itself runs it), but dynamic so a stripped runtime
-    // degrades to 'unavailable' instead of crashing the whole review.
-    const esbuild = await import("esbuild");
-    const { code } = esbuild.transformSync(source, {
-      loader: "tsx",
-      jsx: "automatic",
-      format: "cjs",
-      target: "node18",
-    });
-    // eslint-disable-next-line no-new-func
-    factory = new Function("require", "module", "exports", "React", code) as (
-      requireShim: unknown,
-      module: unknown,
-      exports: unknown,
-      react: unknown
-    ) => void;
-    factoryCache[language] = factory;
-  }
-
-  const jsxRuntime = await import("react/jsx-runtime");
-  const stubs: Record<string, unknown> = {
-    react: React,
-    "react/jsx-runtime": jsxRuntime,
-    "@/theme.json": NEUTRAL_THEME,
-    "@/components/CartProvider": { useCart: () => ({ addItem: () => {}, items: [] }) },
-    "@/components/WebsiteProvider": { useWebsite: () => ({ websiteId: 'parity-check' }) },
-    "next/link": {
-      __esModule: true,
-      default: ({ href, children, ...rest }: { href: string; children?: React.ReactNode }) =>
-        React.createElement("a", { href, ...rest }, children),
-    },
-    "next/image": {
-      __esModule: true,
-      default: ({ src, alt, ...rest }: { src: string; alt?: string }) =>
-        React.createElement("img", { src, alt, ...rest }),
-    },
-  };
-  const requireShim = (name: string) => {
-    if (name in stubs) return stubs[name];
-    throw new MissingStubError(name);
-  };
-  // Compile the exact emitted dependencies too. Static rendering never runs
-  // their data-loading effects, so no booking or network request is made.
-  const esbuild = await import('esbuild');
-  for (const [name, source] of [
-    ['@/components/trustedRuntime', generateTrustedRuntime()],
-    ['@/components/BookingForm', generateBookingForm(language as 'da' | 'en')],
-  ]) {
-    const { code } = esbuild.transformSync(source, { loader: 'tsx', jsx: 'automatic', format: 'cjs', target: 'node18' });
-    const dependency = { exports: {} };
-    new Function('require', 'module', 'exports', code)(requireShim, dependency, dependency.exports);
-    stubs[name] = dependency.exports;
-  }
-  const moduleShim: { exports: Record<string, unknown> } = { exports: {} };
-  factory(requireShim, moduleShim, moduleShim.exports, React);
-  const renderer = (moduleShim.exports as { default?: PublishedRenderer }).default;
-  if (typeof renderer !== "function") {
-    throw new Error("Den genererede renderer har ingen default-eksport.");
-  }
-  return renderer;
+  // The colours do not matter to what this check asserts (copy presence and
+  // compilability), so the neutral theme stands in for the per-site
+  // theme.json the real publisher writes.
+  return loadPublishedRenderer(language === "en" ? "en" : "da", { theme: NEUTRAL_RENDERER_THEME, websiteId: "parity-check" });
 }
 
 /* ───────────────────── copy sampling ───────────────────── */

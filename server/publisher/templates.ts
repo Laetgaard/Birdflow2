@@ -3581,10 +3581,14 @@ function CTASection({ props, styles }: { props: ComponentProps; styles: Componen
   const buttonTextColor = getContrastColor(buttonColor);
   const stTitle = getStyledText(props.styledTitle, props.title);
   const stDesc = getStyledText(props.styledDescription, props.description);
+  // Text over a background photo gets the same see-through scrim the hero
+  // has, in parity with the editor.
+  const scrimOpacity = styles.backgroundImage && typeof styles.backgroundOpacity === 'number' ? styles.backgroundOpacity / 100 : null;
 
   return (
-    <section style={{ ...baseStyle, fontFamily }}>
-      <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: (props.alignment || 'center') as React.CSSProperties['textAlign'] }}>
+    <section style={{ ...baseStyle, fontFamily, position: 'relative', overflow: 'hidden' }}>
+      {scrimOpacity !== null && <div style={{ position: 'absolute', inset: 0, backgroundColor: hexToRgba(styles.backgroundColor || '#000000', scrimOpacity), zIndex: 0 }} />}
+      <div style={{ maxWidth: '600px', margin: '0 auto', textAlign: (props.alignment || 'center') as React.CSSProperties['textAlign'], position: 'relative', zIndex: 1 }}>
         {stTitle.text && <h2 style={{ fontSize: styles.titleFontSize || '36px', fontWeight: 700, marginBottom: '16px', lineHeight: 1.2, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h2>}
         {stDesc.text && <p style={{ fontSize: styles.bodyFontSize || '18px', opacity: 0.9, marginBottom: '32px', lineHeight: 1.6, ...stDesc.style }}>{stDesc.text}</p>}
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
@@ -4591,6 +4595,18 @@ function DividerSection({ props, styles }: { props: ComponentProps; styles: Comp
           <div style={{ flex: 1, height: '1px', background: \`linear-gradient(90deg, transparent, \${accentColor})\`, opacity: 0.4 }} />
           <div style={{ fontSize: '14px', color: accentColor, opacity: 0.5, flexShrink: 0 }}>◆</div>
           <div style={{ flex: 1, height: '1px', background: \`linear-gradient(90deg, \${accentColor}, transparent)\`, opacity: 0.4 }} />
+        </div>
+      );
+    }
+    if (dividerStyle === 'image' && (props as any).imageUrl) {
+      // The site's own ornament, at its own height; mirrors the editor.
+      const src = typeof (props as any).imageUrl === 'string' ? (props as any).imageUrl : (props as any).imageUrl?.url;
+      const ornamentHeight = (props as any).ornamentHeight || '48px';
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', maxWidth, margin: '0 auto' }}>
+          <div style={{ flex: 1, height: thickness, background: 'linear-gradient(90deg, transparent, ' + accentColor + ')', opacity: 0.4 }} />
+          <img src={src} alt="" style={{ height: ornamentHeight, width: 'auto', maxWidth: '60%', flexShrink: 0, display: 'block' }} />
+          <div style={{ flex: 1, height: thickness, background: 'linear-gradient(90deg, ' + accentColor + ', transparent)', opacity: 0.4 }} />
         </div>
       );
     }

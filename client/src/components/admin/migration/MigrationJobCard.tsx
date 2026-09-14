@@ -11,7 +11,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Pause, Play, RefreshCw, Send, XCircle } from "lucide-react";
 import { MAX_MIGRATION_CEILING_USD, recommendedCeilingUsd, ROLE_TARGET_COMPATIBILITY, type MigrationPlan, type MigrationTarget } from "@shared/clientMigration";
-import { api, ERROR_LABELS, PHASES, PHASE_LABELS, STATUS_LABELS, type Headers, type MigrationJobDetail, type MigrationPageView } from "./api";
+import { api, ERROR_LABELS, PHASES, PHASE_LABELS, STATUS_LABELS, VERIFY_STATUS_LABELS, type Headers, type MigrationJobDetail, type MigrationPageView } from "./api";
 
 type Props = { jobId: string; getAuthHeaders: Headers; onClose: () => void };
 
@@ -210,7 +210,7 @@ export function MigrationJobCard({ jobId, getAuthHeaders, onClose }: Props) {
                       <span className="truncate font-medium">{page.title || page.sourceUrl}</span>
                       {page.needsAttention && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">Kræver opmærksomhed</Badge>}
                     </div>
-                    <div className="text-xs text-muted-foreground">{page.captureStatus === "failed" ? `Kunne ikke gemmes: ${page.captureError}` : `${page.sections.length} sektioner · byg: ${page.buildStatus}${failed ? ` (${failed} fejlede)` : ""} · kontrol: ${page.verifyStatus}${spend ? ` · $${spend.toFixed(2)}` : ""}`}</div>
+                    <div className="text-xs text-muted-foreground">{page.captureStatus === "failed" ? `Kunne ikke gemmes: ${page.captureError}` : `${page.sections.length} sektioner · byg: ${page.buildStatus}${failed ? ` (${failed} fejlede)` : ""} · kontrol: ${VERIFY_STATUS_LABELS[page.verifyStatus] ?? page.verifyStatus}${spend ? ` · $${spend.toFixed(2)}` : ""}`}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     {score !== undefined && <Badge variant={score >= 0.8 ? "secondary" : "outline"}>{Math.round(score * 100)} %</Badge>}

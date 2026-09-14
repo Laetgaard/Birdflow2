@@ -29,7 +29,8 @@ import puppeteer from "puppeteer";
 import sharp from "sharp";
 import type { BuilderStateData } from "@shared/schema";
 import { resolveDesignTokens, resolveTokensDeep } from "@shared/designTokens";
-import { generateComponentRenderer, generateGlobalsCss } from "./publisher/templates";
+import { generateGlobalsCss } from "./publisher/templates";
+import { loadPublishedRenderer } from "./publisher/inProcessRenderer";
 import { googleFontsHref } from "@shared/fonts";
 import { meteredChat, isSpendLimitError } from "./aiCall";
 import type { SpendMeter } from "./aiSpend";
@@ -148,68 +149,8 @@ const rendererCache = new Map<string, PublishedRenderer>();
 async function getRenderer(lang: SiteLanguage): Promise<PublishedRenderer | null> {
   const cached = rendererCache.get(lang);
   if (cached) return cached;
-
   try {
-    const source = generateComponentRenderer(lang);
-    const esbuild = await import("esbuild");
-    const { code } = esbuild.transformSync(source, {
-      loader: "tsx",
-      jsx: "automatic",
-      format: "cjs",
-      target: "node18",
-    });
-
-    const jsxRuntime = await import("react/jsx-runtime");
-    const stubs: Record<string, unknown> = {
-      react: React,
-      "react/jsx-runtime": jsxRuntime,
-      "@/theme.json": { primaryColor: "#4f46e5", backgroundColor: "#ffffff" },
-      "@/components/CartProvider": { useCart: () => ({ addItem: () => {}, items: [] }) },
-      "@/components/BookingForm": {
-        __esModule: true,
-        default: () => React.createElement("div", { "data-booking": "true" }),
-      },
-      "next/link": {
-        __esModule: true,
-        default: ({
-          href,
-          children,
-          ...rest
-        }: {
-          href: string;
-          children?: React.ReactNode;
-          [k: string]: unknown;
-        }) => React.createElement("a", { href, ...rest }, children),
-      },
-      "next/image": {
-        __esModule: true,
-        default: ({
-          src,
-          alt,
-          ...rest
-        }: {
-          src: string;
-          alt?: string;
-          [k: string]: unknown;
-        }) => React.createElement("img", { src, alt, ...rest }),
-      },
-    };
-
-    // eslint-disable-next-line no-new-func
-    const factory = new Function("require", "module", "exports", "React", code);
-    const mod: { exports: Record<string, unknown> } = { exports: {} };
-    factory(
-      (name: string) => {
-        if (name in stubs) return stubs[name];
-        throw new Error(`Unstubbed module: ${name}`);
-      },
-      mod,
-      mod.exports,
-      React
-    );
-
-    const renderer = (mod.exports as { default?: PublishedRenderer }).default;
-    if (typeof renderer !== "function") return null;
+    const renderer = (await loadPublishedRenderer(lang as "da" | "en")) as unknown as PublishedRenderer;
     rendererCache.set(lang, renderer);
     return renderer;
   } catch (err) {
@@ -233,13 +174,14 @@ export async function generatePreviewHtml(
   state: BuilderStateData,
   pageId: string,
   lang: SiteLanguage = DEFAULT_SITE_LANGUAGE
-): Promise<{ html: string; warnings: string[] }> {
+): Promise<{ html: string; warnings: string[]; rendered: boolean }> {
   const warnings: string[] = [];
   const page = state.pages.find((p) => p.id === pageId);
   if (!page) {
     return {
       html: "<html><body><p style='padding:2rem'>Page not found</p></body></html>",
       warnings: [`Page "${pageId}" not found`],
+      rendered: false,
     };
   }
 
@@ -318,7 +260,7 @@ ${sectionFragments.join("\n")}
 </body>
 </html>`;
 
-  return { html, warnings };
+  return { html, warnings, rendered: !!renderer && sectionFragments.length > 0 };
 }
 
 /* ─────────────────────────────────────────────────────────────
@@ -336,45 +278,56 @@ const IMAGE_WAIT_TIMEOUT_MS = 8000;
  *
  * Degrades safely: if Puppeteer fails, returns an empty array with warnings.
  */
+export type ReviewBrowser = Awaited<ReturnType<typeof puppeteer.launch>>;
+
+/** One Chromium for a whole run of screenshots; the caller closes it. */
+export async function openReviewBrowser(): Promise<ReviewBrowser> {
+  return puppeteer.launch({
+    headless: true,
+    executablePath: findChromiumPath(),
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      "--no-first-run",
+      "--no-zygote",
+      "--disable-web-security",
+      "--disable-features=VizDisplayCompositor",
+      // Disable network to avoid font fetch delays (fonts are loaded via URL
+      // but we accept the fallback stack — faster and offline-safe)
+    ],
+  });
+}
+
 export async function capturePageScreenshots(
   state: BuilderStateData,
   pageId: string,
   viewports: VisualViewport[],
   screenshotCache: Map<string, VisualScreenshot>,
-  opts?: { fullPage?: boolean; lang?: SiteLanguage }
+  opts?: { fullPage?: boolean; lang?: SiteLanguage; browser?: ReviewBrowser }
 ): Promise<{ refs: ScreenshotRef[]; warnings: string[] }> {
   const allWarnings: string[] = [];
   const page = state.pages.find((p) => p.id === pageId);
   const pageName = page?.name ?? pageId;
-
-  const { html, warnings: htmlWarnings } = await generatePreviewHtml(
-    state,
-    pageId,
-    opts?.lang ?? DEFAULT_SITE_LANGUAGE
-  );
-  allWarnings.push(...htmlWarnings);
-
   const refs: ScreenshotRef[] = [];
-  const chromiumPath = findChromiumPath();
-  let browser: Awaited<ReturnType<typeof puppeteer.launch>> | null = null;
+  let browser: ReviewBrowser | null = null;
+  const ownBrowser = !opts?.browser;
 
   try {
-    browser = await puppeteer.launch({
-      headless: true,
-      executablePath: chromiumPath,
-      args: [
-        "--no-sandbox",
-        "--disable-setuid-sandbox",
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--no-first-run",
-        "--no-zygote",
-        "--disable-web-security",
-        "--disable-features=VizDisplayCompositor",
-        // Disable network to avoid font fetch delays (fonts are loaded via URL
-        // but we accept the fallback stack — faster and offline-safe)
-      ],
-    });
+    // Inside the try: this function's contract is "degrade, never throw",
+    // and the HTML step can throw too.
+    const { html, warnings: htmlWarnings, rendered } = await generatePreviewHtml(
+      state,
+      pageId,
+      opts?.lang ?? DEFAULT_SITE_LANGUAGE
+    );
+    allWarnings.push(...htmlWarnings);
+    // Nothing rendered means nothing to photograph: launching a browser to
+    // capture a blank document twenty times per attempt is how a job dies.
+    if (!rendered) return { refs, warnings: allWarnings };
+
+    browser = opts?.browser ?? (await openReviewBrowser());
 
     for (const viewport of viewports) {
       const vp = VISUAL_VIEWPORTS[viewport];
@@ -441,7 +394,7 @@ export async function capturePageScreenshots(
     const msg = err instanceof Error ? err.message : String(err);
     allWarnings.push(`Puppeteer launch failed: ${msg}`);
   } finally {
-    await browser?.close().catch(() => {});
+    if (ownBrowser) await browser?.close().catch(() => {});
   }
 
   return { refs, warnings: allWarnings };

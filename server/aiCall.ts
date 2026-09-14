@@ -116,7 +116,7 @@ export async function meteredChat(
   const config = aiConfig(role);
   const useFallback = options.forceFallback === true && !!config.fallbackProvider && !!config.fallbackModel;
   const provider = useFallback ? config.fallbackProvider! : config.provider;
-  const request = { ...chatParamsFor(role), ...params, ...(useFallback ? { model: config.fallbackModel! } : {}) };
+  const request = { ...chatParamsFor(role, provider), ...params, ...(useFallback ? { model: config.fallbackModel! } : {}) };
   const reserved = worstCaseCallCostUsd(request.model, request.max_completion_tokens ?? 0);
   reserveOrRefuse(role, meter, reserved);
 
@@ -165,7 +165,7 @@ export async function meteredChat(
 
     let fallbackCompletion: OpenAI.Chat.ChatCompletion;
     try {
-      const fallbackRequest = { ...request, model: config.fallbackModel };
+      const fallbackRequest = { ...chatParamsFor(role, config.fallbackProvider), ...params, model: config.fallbackModel };
       fallbackCompletion = await clientFor(config.fallbackProvider).chat.completions.create({
         ...fallbackRequest,
         stream: false,

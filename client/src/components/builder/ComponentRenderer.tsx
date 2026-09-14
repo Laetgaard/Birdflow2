@@ -929,8 +929,13 @@ function CTAComponent({ props, styles, isSelected, onClick, isPreview, onTextCha
     ? { background: `linear-gradient(135deg, ${accentColor} 0%, ${hexToRgba(accentColor, 0.7)} 100%)`, color: getContrastColor(accentColor) }
     : {};
 
+  // Text over a background photo needs the same see-through scrim the hero
+  // has; without it the words sit on the raw picture.
+  const scrimOpacity = styles.backgroundImage && typeof styles.backgroundOpacity === 'number' ? styles.backgroundOpacity / 100 : null;
+
   return (
     <section style={{ ...baseStyle, fontFamily, position: 'relative', overflow: 'hidden' }} onClick={onClick}>
+      {scrimOpacity !== null && <div style={{ position: 'absolute', inset: 0, backgroundColor: hexToRgba(styles.backgroundColor || '#000000', scrimOpacity), zIndex: 0 }} />}
       {useGradient && <div style={{ position: 'absolute', inset: 0, ...bgStyle, zIndex: 0 }} />}
       {/* Subtle dot pattern overlay */}
       {useGradient && (
@@ -2931,6 +2936,18 @@ function DividerComponent({ props, styles, isSelected, onClick, isPreview }: Com
           <div style={{ flex: 1, height: '1px', background: `linear-gradient(90deg, transparent, ${accentColor})`, opacity: 0.4 }} />
           <div style={{ fontSize: '14px', color: accentColor, opacity: 0.5, flexShrink: 0 }}>◆</div>
           <div style={{ flex: 1, height: '1px', background: `linear-gradient(90deg, ${accentColor}, transparent)`, opacity: 0.4 }} />
+        </div>
+      );
+    }
+    if (dividerStyle === 'image' && props.imageUrl) {
+      // The site's own ornament, at its own height — a migrated divider
+      // keeps the flourish the client had rather than a stand-in glyph.
+      const ornamentHeight = (props as any).ornamentHeight || '48px';
+      return (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', maxWidth, margin: '0 auto' }}>
+          <div style={{ flex: 1, height: thickness, background: `linear-gradient(90deg, transparent, ${accentColor})`, opacity: 0.4 }} />
+          <img src={typeof props.imageUrl === 'string' ? props.imageUrl : (props.imageUrl as any)?.url} alt="" style={{ height: ornamentHeight, width: 'auto', maxWidth: '60%', flexShrink: 0, display: 'block' }} />
+          <div style={{ flex: 1, height: thickness, background: `linear-gradient(90deg, ${accentColor}, transparent)`, opacity: 0.4 }} />
         </div>
       );
     }

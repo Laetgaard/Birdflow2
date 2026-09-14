@@ -31,36 +31,51 @@ function kendall(order: number[]): number {
   return total ? concordant / total : 1;
 }
 
-export function scorePageFidelity(args: { extraction: PageExtraction; plan: MigrationPagePlan; page: BuilderPage; importedPaths: Set<string> }): MigrationFidelity {
+/**
+ * The extraction is read straight out of a JSON column; a row written by an
+ * earlier version of the extractor may lack a list. A missing list is an
+ * empty one, never a crash — the score must run for every page.
+ */
+const list = <T,>(value: T[] | undefined | null): T[] => (Array.isArray(value) ? value : []);
+
+export function scorePageFidelity(args: { extraction: PageExtraction; plan: MigrationPagePlan; page: BuilderPage; importedPaths: Set<string>; /** Media ids on the page, by imported path, so images are counted one by one. */ mediaIdsByPath?: Map<string, string> }): MigrationFidelity {
   const copy = pageCopy(args.page);
-  const planned = new Set(args.plan.sections.filter((s) => s.target.kind !== "skip" && s.target.kind !== "note").flatMap((s) => [s.sourceSectionId, ...(s.mergeSourceIds ?? [])]));
-  const sections = args.extraction.sections.filter((s) => planned.has(s.id));
+  const planned = new Set(list(args.plan.sections).filter((s) => s.target.kind !== "skip" && s.target.kind !== "note").flatMap((s) => [s.sourceSectionId, ...list(s.mergeSourceIds)]));
+  const sections = list(args.extraction.sections).filter((s) => planned.has(s.id));
 
-  const sentences = uniq(sections.flatMap((s) => [...s.paragraphs, ...s.lists.flat(), ...s.quotes.map((q) => q.text), ...s.items.flatMap((i) => [i.text ?? "", i.quote ?? ""])]).flatMap((t) => t.split(/(?<=[.!?])\s+/)).filter((t) => t.length >= 20));
-  const headings = uniq(sections.flatMap((s) => [...s.headings.map((h) => h.text), ...s.items.map((i) => i.title ?? "")]).filter((t) => t.length >= 3));
-  const ctas = uniq(sections.flatMap((s) => s.ctas.map((c) => c.text)).filter((t) => t.length >= 2));
-  const plannedImages = uniq(args.plan.sections.flatMap((s) => s.imageMediaIds));
+  const sentences = uniq(sections.flatMap((s) => [...list(s.paragraphs), ...list(s.lists).flat(), ...list(s.quotes).map((q) => q.text), ...list(s.items).flatMap((i) => [i.text ?? "", i.quote ?? ""])]).flatMap((t) => t.split(/(?<=[.!?])\s+/)).filter((t) => t.length >= 20));
+  const headings = uniq(sections.flatMap((s) => [...list(s.headings).map((h) => h.text), ...list(s.items).map((i) => i.title ?? "")]).filter((t) => t.length >= 3));
+  const ctas = uniq(sections.flatMap((s) => list(s.ctas).map((c) => c.text)).filter((t) => t.length >= 2));
+  const plannedImages = uniq(list(args.plan.sections).flatMap((s) => list(s.imageMediaIds)));
 
+  // Every imported path the page carries — bounded, because a custom tree
+  // can be deep and the score must never hang on one.
   const pageImagePaths = new Set<string>();
-  const walk = (value: unknown) => {
+  const walk = (value: unknown, depth: number) => {
+    if (depth > 24) return;
     if (typeof value === "string") { if (value.startsWith("/objects/")) pageImagePaths.add(value); return; }
-    if (Array.isArray(value)) value.forEach(walk);
-    else if (value && typeof value === "object") Object.values(value as Record<string, unknown>).forEach(walk);
+    if (Array.isArray(value)) { for (const item of value) walk(item, depth + 1); }
+    else if (value && typeof value === "object") { for (const item of Object.values(value as Record<string, unknown>)) walk(item, depth + 1); }
   };
-  for (const component of args.page.components) walk(component.props);
+  for (const component of list(args.page.components)) walk(component.props, 0);
+  // The media ids the page actually shows: by the caller's map when it has
+  // one, else by the section images that carry both a path and an id.
+  const idsByPath = args.mediaIdsByPath ?? new Map(list(args.extraction.sections).flatMap((s) => [...list(s.images).map((img) => [img.src, img.mediaId] as const), ...list(s.items).map((i) => [i.imageSrc ?? "", i.imageMediaId] as const)]).filter((pair): pair is readonly [string, string] => !!pair[0] && !!pair[1]));
+  const pageMediaIds = new Set(Array.from(pageImagePaths).map((path) => idsByPath.get(path)).filter((id): id is string => !!id));
 
-  const ratio = (list: string[], test: (v: string) => boolean) => list.length ? list.filter(test).length / list.length : 1;
+  const ratio = (items: string[], test: (v: string) => boolean) => items.length ? items.filter(test).length / items.length : 1;
   const textCoverage = ratio(sentences, (s) => present(copy, s));
   const headingCoverage = ratio(headings, (h) => present(copy, h));
   const ctaCoverage = ratio(ctas, (c) => present(copy, c));
-  const imageCoverage = plannedImages.length ? plannedImages.filter((id) => Array.from(pageImagePaths).some((path) => args.importedPaths.has(path))).length / plannedImages.length : 1;
+  // Per image: each planned image counts only if the page shows that image.
+  const imageCoverage = plannedImages.length ? plannedImages.filter((id) => pageMediaIds.has(id)).length / plannedImages.length : 1;
 
   // Section order: the first component whose copy carries each planned
   // section's first heading, in plan order, should be monotonically later.
-  const componentCopy = args.page.components.map((component) => pageCopy({ ...args.page, components: [component] }));
-  const positions = [...args.plan.sections]
+  const componentCopy = list(args.page.components).map((component) => pageCopy({ ...args.page, components: [component] }));
+  const positions = [...list(args.plan.sections)]
     .sort((a, b) => a.order - b.order)
-    .map((s) => sections.find((x) => x.id === s.sourceSectionId)?.headings[0]?.text)
+    .map((s) => list(sections.find((x) => x.id === s.sourceSectionId)?.headings)[0]?.text)
     .filter((h): h is string => !!h)
     .map((h) => componentCopy.findIndex((copy) => present(copy, h)))
     .filter((i) => i >= 0);

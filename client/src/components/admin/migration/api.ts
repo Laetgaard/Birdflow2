@@ -78,6 +78,19 @@ export const ERROR_LABELS: Record<string, string> = {
   unknown: "Ukendt fejl",
 };
 
+/** What became of a page's Kontrol — the true reason, never "budget" for something else. */
+export const VERIFY_STATUS_LABELS: Record<string, string> = {
+  pending: "venter",
+  done: "udført",
+  skipped_budget: "sprunget over (budget)",
+  renderer_unavailable: "kunne ikke gengive siden",
+  screenshot_failed: "screenshot fejlede",
+  no_source_screenshot: "intet original-screenshot",
+  model_unavailable: "modellen svarede ikke",
+  scoring_failed: "kunne ikke måles",
+  failed: "fejlede",
+};
+
 export const STATUS_LABELS: Record<string, string> = {
   queued: "I kø",
   running: "Kører",

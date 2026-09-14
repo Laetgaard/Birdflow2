@@ -26,7 +26,7 @@ import { assumedCallCostUsd, type SpendMeter } from "../../aiSpend";
 import { makeFidelityGuard } from "./fidelityGuard";
 import { applyBusinessContext } from "./businessFacts";
 import { migrationToolCatalogue } from "./migrationToolCatalogue";
-import { backgroundPath, buildPlacementMutation, defaultTargetFor, sectionEvidence, MIGRATION_ID_PREFIX } from "../plan/sectionMapper";
+import { backgroundPath, buildPlacementMutation, defaultTargetFor, ornaments, sectionEvidence, MIGRATION_ID_PREFIX } from "../plan/sectionMapper";
 import { cropSection, readMigrationFile } from "../capture/pageCapture";
 import type { ExtractedSection, MigrationPageBuildProgress, MigrationPagePlan, MigrationPlan, MigrationTarget, PageExtraction } from "@shared/clientMigration";
 
@@ -153,21 +153,29 @@ const SYSTEM_PROMPT = [
   "Fidelity is the only goal: the same words, the same images, the same layout, readable on a phone. Text and image paths are supplied to you; anything not supplied must not appear.",
   "Tools: `create_custom_component` builds the section from primitive boxes/text/images/buttons (use it for a faithful layout); `add_section` or `add_component` place a standard block when one reproduces the original exactly; `update_custom_component` refines what you built; `remove_component` removes the standard section you are replacing; `get_page` and `get_component` let you look; `finish` ends the run.",
   "Layout rules the builder enforces: use flex or grid with flexible widths; never `position: absolute`; never fixed pixel widths on the outer box; images by their supplied paths only, with alt text.",
+  "Decoration: a divider, flourish or icon is an `image` node with its supplied path at its own pixel width (small decorative images SHOULD use their exact width and height), or a `box` with an explicit height and a background colour or border. A `box` with no children and no background, border or height renders as NOTHING on the published site — never leave one. Text over a photo: put the photo as a full-width `image` node (or the box's backgroundImage) with the text in a box on top.",
   "Work like this: build the section with one tool call, remove the standard section it replaces, then call finish. Do not read the whole site first.",
 ].join("\n");
 
-export function customSectionBrief(section: ExtractedSection, brief: string, imagePaths: string[], background: string | undefined, language: "da" | "en", floor: { componentId: string; position: number; pageId: string }): string {
+export function customSectionBrief(section: ExtractedSection, brief: string, imagePaths: string[], background: string | undefined, language: "da" | "en", floor: { componentId: string; position: number; pageId: string }, ornamentPaths: string[] = []): string {
+  const geometry = (src: string) => {
+    const img = section.images.find((i) => i.src === src);
+    return { path: src, alt: img?.alt ?? "", widthPx: Math.round(img?.displayWidth ?? 0), heightPx: Math.round(img?.displayHeight ?? 0), side: img?.x !== undefined && img.x + (img.displayWidth ?? 0) / 2 < section.bbox.x + section.bbox.w / 2 ? "left" : "right" };
+  };
   const content = {
     headings: section.headings, paragraphs: section.paragraphs.slice(0, 12), lists: section.lists.slice(0, 3), quotes: section.quotes.slice(0, 6),
     ctas: section.ctas, items: section.items.slice(0, 12).map((item) => ({ title: item.title, text: item.text?.slice(0, 400), price: item.price, personName: item.personName, role: item.role, image: item.imageSrc && imagePaths.includes(item.imageSrc) ? item.imageSrc : undefined })),
-    images: imagePaths.map((src) => ({ path: src, alt: section.images.find((img) => img.src === src)?.alt ?? "" })),
+    images: imagePaths.map(geometry),
+    // Decoration with the words it sat between, so it can go back there.
+    ornaments: ornamentPaths.map((src) => { const img = section.images.find((i) => i.src === src); return { ...geometry(src), decorative: true, role: img?.role ?? "ornament", afterHeading: img?.anchor?.afterHeading, beforeParagraph: img?.anchor?.beforeParagraph?.slice(0, 120), position: img?.anchor?.position }; }),
     backgroundImage: background,
+    overlay: section.overlay,
     layout: { columns: section.columns, widthPx: Math.round(section.bbox.w), heightPx: Math.round(section.bbox.h), background: section.bgColor, textColor: section.textColor, textAlign: section.textAlign, headingFont: section.headingFont, bodyFont: section.bodyFont, headingSizePx: section.headingSize },
   };
   return [
     `Rebuild this section of the customer's website as faithfully as you can. ${brief}`,
     `A standard version of it already sits on page "${floor.pageId}" as component "${floor.componentId}" at position ${floor.position}. Build the faithful version with create_custom_component at position ${floor.position}, then remove_component "${floor.componentId}". If the standard version already matches the original, change nothing and call finish.`,
-    `Use ONLY the text below, verbatim, in ${language === "en" ? "English" : "Danish"} as given. Use ONLY the image paths listed${background ? ", and the background image path as the section background" : ""}. Never invent copy, testimonials, prices or images. Give every box flexible widths so it works on a phone.`,
+    `Use ONLY the text below, verbatim, in ${language === "en" ? "English" : "Danish"} as given. Use ONLY the image paths listed${background ? ", and the background image path as the section background behind the text" : ""}${ornamentPaths.length ? ", and place each ornament as an image node at its own width exactly where it sat (after its heading, before its paragraph)" : ""}. Never invent copy, testimonials, prices or images. Give every box flexible widths so it works on a phone.`,
     `Section content and layout (JSON):\n${JSON.stringify(content).slice(0, 12_000)}`,
   ].join("\n\n");
 }
@@ -236,7 +244,8 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
     attempts++;
     const maxSteps = Math.min(MAX_AGENT_STEPS, Math.floor(room / callCost));
     const crop = await sectionCropDataUrl(input, section);
-    const imagePaths = section.images.filter((img) => !img.isBackground).map((img) => img.src).filter((src) => input.allowedImagePaths.has(src));
+    const imagePaths = section.images.filter((img) => !img.isBackground && !img.decorative).map((img) => img.src).filter((src) => input.allowedImagePaths.has(src));
+    const ornamentPaths = ornaments(section, input.allowedImagePaths).map((img) => img.src);
     const background = backgroundPath(section, input.allowedImagePaths);
     const idsBefore = new Set(pageState().components.map((c) => c.id));
     const agentCtx: AgentContext = {
@@ -251,7 +260,7 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
       guard,
     };
     const floorPosition = position - 1;
-    const userMessage = customSectionBrief(section, target.brief, imagePaths, background, input.language, { componentId: floorId, position: floorPosition, pageId: page.id });
+    const userMessage = customSectionBrief(section, target.brief, imagePaths, background, input.language, { componentId: floorId, position: floorPosition, pageId: page.id }, ornamentPaths);
     // The crop goes in as an image the model can see, never as text.
     const userContent: OpenAI.Chat.ChatCompletionContentPart[] = [
       { type: "text", text: userMessage + (crop ? "\n\nThe screenshot of the original section is attached." : "") },
