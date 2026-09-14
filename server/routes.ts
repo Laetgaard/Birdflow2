@@ -90,6 +90,7 @@ import { checkMutationClaims, scrubStateClaims } from "./claimRules";
 import { buildReport } from "./aiReport";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
 import { sanitizeBuilderStateCustomContent, brandGuideToDesignTokens, buildBrandContext } from "@shared/customComponents";
+import { prepareAccountComponent, prepareAccountComponentVersion } from "./accountComponentValidation";
 import { emailService } from "./email/service";
 import { getUncachableResendClient } from "./replit_integrations/resendClient";
 import { parseBookingPriceCents } from "./parseBookingPrice";
@@ -8882,20 +8883,13 @@ ${invoice.description ? `<p><em>${escapeHtml(invoice.description)}</em></p>` : "
     try {
       const userId = (req as any).user?.id as string;
       const body = req.body ?? {};
-      if (!body.name?.trim() || !body.tree) {
-        return res.status(400).json({ message: "name og tree er påkrævet" });
-      }
+      const prepared = prepareAccountComponent(body);
+      if (!prepared.ok) return res.status(prepared.status).json({ message: prepared.message });
       const comp = await storage.createAccountComponent({
         ownerId: userId,
-        name: body.name.trim(),
-        description: body.description ?? null,
-        category: body.category ?? null,
-        tags: Array.isArray(body.tags) ? body.tags : null,
-        tree: body.tree,
-        schema: body.schema ?? null,
-        designMetadata: body.designMetadata ?? null,
-        origin: body.origin ?? "customer",
-        createdFromWebsiteId: body.createdFromWebsiteId ?? null,
+        ...prepared.value,
+        origin: body.origin === "ai" ? "ai" : "customer",
+        createdFromWebsiteId: typeof body.createdFromWebsiteId === "string" ? body.createdFromWebsiteId : null,
         version: 1,
       });
       res.status(201).json(comp);
@@ -8955,16 +8949,18 @@ ${invoice.description ? `<p><em>${escapeHtml(invoice.description)}</em></p>` : "
   app.post("/api/account/components/:componentId/new-version", requireAuth, async (req, res) => {
     try {
       const userId = (req as any).user?.id as string;
-      const body = req.body ?? {};
-      if (!body.tree) return res.status(400).json({ message: "tree er påkrævet" });
+      const prepared = prepareAccountComponentVersion(req.body ?? {});
+      if (!prepared.ok) return res.status(prepared.status).json({ message: prepared.message });
       const updated = await storage.createNewAccountComponentVersion(
         req.params.componentId,
         userId,
-        body.tree,
-        body.schema ?? null
+        prepared.value.tree,
+        prepared.value.schema
       );
       if (!updated) return res.status(404).json({ message: "Komponenten findes ikke" });
-      res.json(updated);
+      const existingMeta = (updated.designMetadata ?? {}) as { thumbnail?: string; origin?: string };
+      const withThumbnail = await storage.updateAccountComponent(updated.id, userId, { designMetadata: { ...existingMeta, thumbnail: prepared.value.thumbnail } });
+      res.json(withThumbnail ?? updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }

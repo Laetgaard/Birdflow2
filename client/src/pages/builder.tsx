@@ -73,6 +73,10 @@ import {
   createCanvasRoot,
   findCanvasRoot,
   isCanvasRoot,
+  artboardFrame,
+  canvasToGroup,
+  extractCanvasSelectionAsComponent,
+  insertPrimitiveChild,
   type CanvasDevice,
 } from "@shared/customComponents";
 import { sanitizeSvg } from "@shared/svgSanitizer";
@@ -285,6 +289,8 @@ export default function BuilderPage() {
   // Duplicate warning: set when saving would duplicate an existing entry;
   // the customer confirms once to save anyway (warn, never block).
   const [saveDuplicateOf, setSaveDuplicateOf] = useState<CustomComponentEntry | null>(null);
+  /** A composition lifted out of a canvas, waiting in the save dialog; null = the selected section. */
+  const [saveSubject, setSaveSubject] = useState<BuilderComponentData | null>(null);
   const [renameEntry, setRenameEntry] = useState<CustomComponentEntry | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteEntryId, setDeleteEntryId] = useState<string | null>(null);
@@ -1324,6 +1330,23 @@ export default function BuilderPage() {
     else debouncedHistoryPush(newState, description, 400);
   }, [builderState, updateStateWithHistory, debouncedHistoryPush]);
 
+  /** Lift the selected canvas elements into a composition and open the save dialog for it. */
+  const saveNodesAsComponent = useCallback((nodeIds: string[], measuredHeights?: Record<string, number>) => {
+    const tree = selectedComponent?.type === 'custom' ? ((selectedComponent.props as { customTree?: PrimitiveNode }).customTree ?? null) : null;
+    const root = tree && nodeIds[0] ? findCanvasRoot(tree, nodeIds[0]) : null;
+    if (!root) return;
+    const composition = extractCanvasSelectionAsComponent(root, nodeIds, artboardFrame(root), measuredHeights, 'Komposition');
+    if (!composition) {
+      toast({ title: 'Markeringen kan ikke gemmes', description: 'Vælg mindst ét element med en størrelse.', variant: 'destructive' });
+      return;
+    }
+    setSaveSubject({ id: 'composition', type: 'custom', props: { customTree: composition }, styles: {} } as unknown as BuilderComponentData);
+    setSaveComponentName(nodeIds.length === 1 ? (findCanvasRoot(root, nodeIds[0]) ? 'Komposition' : 'Komposition') : 'Komposition');
+    setSaveComponentCategory('kanvas');
+    setSaveDuplicateOf(null);
+    setSaveComponentOpen(true);
+  }, [selectedComponent, toast]);
+
   const canvasMode = useMemo<CanvasMode>(() => {
     const tree = selectedComponent?.type === 'custom' ? ((selectedComponent.props as { customTree?: PrimitiveNode }).customTree ?? null) : null;
     const root = tree ? ((selectedNodeId && findCanvasRoot(tree, selectedNodeId)) || (isCanvasRoot(tree) ? tree : null)) : null;
@@ -1355,8 +1378,34 @@ export default function BuilderPage() {
         setSaveDuplicateOf(null);
         setSaveComponentOpen(true);
       } : undefined,
+      onSaveSelection: root ? saveNodesAsComponent : undefined,
     };
-  }, [selectedComponent, selectedNodeId, selectedNodeIds, device, editingField, canvasGrid, canvasSnap, id, session?.access_token, builderState?.brandGuide?.logoUrl, updateComponentTree]);
+  }, [selectedComponent, selectedNodeId, selectedNodeIds, device, editingField, canvasGrid, canvasSnap, id, session?.access_token, builderState?.brandGuide?.logoUrl, updateComponentTree, saveNodesAsComponent]);
+
+  /** Drop a saved component into the open canvas as a group at its centre. */
+  const insertLibraryEntryIntoCanvas = useCallback((entry: CustomComponentEntry) => {
+    if (!builderState || !canvasMode.active || !canvasMode.root || !canvasMode.tree || !canvasMode.componentId) return;
+    const root = canvasMode.root;
+    const frame = artboardFrame(root, canvasMode.device);
+    const source = cloneLibrarySource(entry.source);
+    const sourceTree = (source.props as { customTree?: PrimitiveNode }).customTree;
+    if (!sourceTree) {
+      toast({ title: 'Kun egne komponenter kan lægges på et kanvas', description: 'Standardsektioner indsættes på siden i stedet.' });
+      return;
+    }
+    const placement = { x: frame.width * 0.25, y: frame.height * 0.25, w: frame.width * 0.5 };
+    const group: PrimitiveNode = isCanvasRoot(sourceTree)
+      ? canvasToGroup(sourceTree, frame, placement)
+      : {
+          id: sourceTree.id + '-g',
+          type: 'box',
+          name: entry.name,
+          styles: { position: 'absolute', left: '25%', top: '25%', width: '50%', display: 'block' },
+          children: [sourceTree],
+        };
+    updateComponentTree(canvasMode.componentId, updatePrimitiveNode(canvasMode.tree, root.id, (r) => insertPrimitiveChild(r, r.id, group)), `Indsæt i kanvas: ${entry.name}`);
+    setSelectedNodeIds([group.id]);
+  }, [builderState, canvasMode, updateComponentTree, toast]);
 
   /** A new free canvas on the active page: a custom component whose tree is an empty artboard. */
   const addCanvasComponent = () => {
@@ -1516,6 +1565,7 @@ export default function BuilderPage() {
 
   const resetSaveComponentDialog = () => {
     setSaveComponentOpen(false);
+    setSaveSubject(null);
     setSaveComponentName("");
     setSaveComponentDescription("");
     setSaveComponentCategory("");
@@ -1524,7 +1574,10 @@ export default function BuilderPage() {
   };
 
   const saveSelectionAsComponent = async () => {
-    if (!builderState || !selectedComponent) return;
+    // A composition lifted out of a canvas is saved on its own; otherwise the
+    // selected section is the subject and gets stamped with the entry id.
+    const subject = saveSubject ?? (selectedComponent as BuilderComponentData | null);
+    if (!builderState || !subject) return;
     const name = saveComponentName.trim();
     if (!name) return;
 
@@ -1532,7 +1585,7 @@ export default function BuilderPage() {
     if (!saveDuplicateOf) {
       const duplicate = findDuplicateLibraryEntry(
         builderState.customComponents,
-        selectedComponent as BuilderComponentData
+        subject
       );
       if (duplicate) {
         setSaveDuplicateOf(duplicate);
@@ -1551,11 +1604,11 @@ export default function BuilderPage() {
     // deduplicates by id) produces exactly one entry, not two.
     let canonicalId = generateLibraryEntryId(); // fallback if API is unavailable
     let accountComp: any = null;
-    const customTree = selectedComponent.type === "custom"
-      ? (selectedComponent.props as any)?.customTree
+    const customTree = subject.type === "custom"
+      ? (subject.props as any)?.customTree
       : null;
-    const customSchema = selectedComponent.type === "custom"
-      ? ((selectedComponent.props as any)?.customSchema ?? null)
+    const customSchema = subject.type === "custom"
+      ? ((subject.props as any)?.customSchema ?? null)
       : null;
 
     if (session && customTree) {
@@ -1592,7 +1645,7 @@ export default function BuilderPage() {
     const entry: CustomComponentEntry = {
       id: canonicalId,
       name,
-      source: JSON.parse(JSON.stringify(selectedComponent)),
+      source: JSON.parse(JSON.stringify(subject)),
       createdAt: new Date().toISOString(),
       ...(saveComponentDescription.trim() ? { description: saveComponentDescription.trim() } : {}),
       ...(saveComponentCategory ? { category: saveComponentCategory } : {}),
@@ -1614,7 +1667,7 @@ export default function BuilderPage() {
       version: 1,
       ...(accountComp?.id ? { accountComponentId: canonicalId } : {}),
     };
-    const pagesWithStamp = builderState.pages.map((page) => ({
+    const pagesWithStamp = saveSubject ? builderState.pages : builderState.pages.map((page) => ({
       ...page,
       components: page.components.map((c) => {
         if (c.id !== selectedComponentId) return c;
@@ -2547,8 +2600,8 @@ export default function BuilderPage() {
                     {filteredLibraryEntries.map((entry) => (
                       <div key={entry.id} className="flex items-center gap-1">
                         <button
-                          onClick={() => insertLibraryEntry(entry)}
-                          title={entry.description}
+                          onClick={() => (canvasMode.active ? insertLibraryEntryIntoCanvas(entry) : insertLibraryEntry(entry))}
+                          title={canvasMode.active ? `Læg "${entry.name}" ind i det åbne kanvas` : entry.description}
                           className="flex-1 min-w-0 flex items-center gap-2 p-2 rounded-lg border bg-background hover:bg-primary/5 hover:border-primary/30 transition-all text-left"
                           data-testid={`insert-custom-component-${entry.id}`}
                         >
@@ -2813,9 +2866,11 @@ export default function BuilderPage() {
       <Dialog open={saveComponentOpen} onOpenChange={(open) => { if (!open) resetSaveComponentDialog(); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Gem som komponent</DialogTitle>
+            <DialogTitle>{saveSubject ? 'Gem markering som komponent' : 'Gem som komponent'}</DialogTitle>
             <DialogDescription>
-              Komponenten gemmes i "Mine komponenter", så du kan genbruge den på alle sider.
+              {saveSubject
+                ? 'De markerede elementer gemmes som en komposition i "Mine komponenter" — brug den på en side eller læg den ind i et andet kanvas.'
+                : 'Komponenten gemmes i "Mine komponenter", så du kan genbruge den på alle sider.'}
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-3">

@@ -835,7 +835,7 @@ export default function CanvasEditorOverlay() {
           readabilityCount={readability.length}
           onFixReadability={fixReadability}
           onSaveCanvas={mode?.onSaveCanvas}
-          onSaveSelection={mode?.onSaveSelection && selectedIds.length ? () => mode.onSaveSelection!(selectedIds) : undefined}
+          onSaveSelection={mode?.onSaveSelection && selectedIds.length ? () => mode.onSaveSelection!(selectedIds, measuredHeights(measured)) : undefined}
         />
         <input ref={fileInputRef} type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ''; if (f) void addImageFile(f); }} data-testid="canvas-image-input" />
       </div>

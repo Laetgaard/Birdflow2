@@ -40,8 +40,8 @@ export type CanvasMode = {
   brandLogoUrl?: string;
   /** Save the whole canvas as a reusable component (existing dialog). */
   onSaveCanvas?: () => void;
-  /** Save the selected elements as a reusable component. */
-  onSaveSelection?: (nodeIds: string[]) => void;
+  /** Save the selected elements as a reusable component; measured heights (design px) fill in auto-height text. */
+  onSaveSelection?: (nodeIds: string[], measuredHeights?: Record<string, number>) => void;
 };
 
 const CanvasModeContext = createContext<CanvasMode | null>(null);
