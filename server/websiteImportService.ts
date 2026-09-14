@@ -1,9 +1,8 @@
-import { createHash, randomUUID } from "node:crypto";
-import sharp from "sharp";
-import { objectStorageClient, ObjectStorageService } from "./replit_integrations/object_storage/objectStorage";
+import { randomUUID } from "node:crypto";
 import { meteredChat, isSpendLimitError } from "./aiCall";
 import { db, storage } from "./storage";
-import { crawlWebsite, assertPublicUrl, fetchPublicUrlPinned } from "./websiteImportCrawler";
+import { crawlWebsite, assertPublicUrl } from "./websiteImportCrawler";
+import { importAssetToMedia } from "./websiteImportAssets";
 import {
   websiteImportAnalysisSchema,
   websiteImportSelectionSchema,
@@ -20,7 +19,6 @@ import { eq, sql } from "drizzle-orm";
 
 const running = new Set<string>();
 const MAX_IMPORTED_ASSETS = 20;
-const MAX_IMAGE_BYTES = 8_000_000;
 
 const nowIso = () => new Date().toISOString();
 
@@ -198,42 +196,6 @@ export async function startWebsiteImport(
   return initial;
 }
 
-async function fetchApprovedAsset(
-  sourceUrl: string,
-  expectedOrigin: string,
-  kind: "image" | "document"
-): Promise<{ bytes: Buffer; mime: string }> {
-  let current = await assertPublicUrl(sourceUrl);
-  for (let redirects = 0; redirects <= 3; redirects++) {
-    if (current.origin !== expectedOrigin) throw new Error("Asset left the approved website");
-    const response = await fetchPublicUrlPinned(current.toString(), {
-      timeoutMs: 8_000,
-      maxBytes: MAX_IMAGE_BYTES,
-      headers: { "user-agent": "BirdflowWebsiteImporter/1.0" },
-    });
-    if ([301, 302, 303, 307, 308].includes(response.status)) {
-      const location = response.headers.get("location");
-      if (!location) throw new Error("Unsafe asset redirect");
-      current = await assertPublicUrl(new URL(location, current).toString());
-      continue;
-    }
-    if (!response.ok) throw new Error(`Asset returned HTTP ${response.status}`);
-    const mime = (response.headers.get("content-type") || "").split(";")[0].toLowerCase();
-    const allowed = kind === "image"
-      ? ["image/jpeg", "image/png", "image/webp", "image/gif"]
-      : ["application/pdf"];
-    if (!allowed.includes(mime)) {
-      throw new Error("Unsupported asset type");
-    }
-    const length = Number(response.headers.get("content-length") || 0);
-    if (length > MAX_IMAGE_BYTES) throw new Error("Asset is too large");
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (!bytes.length || bytes.length > MAX_IMAGE_BYTES) throw new Error("Asset is too large");
-    return { bytes, mime };
-  }
-  throw new Error("Too many asset redirects");
-}
-
 async function importSelectedAssets(
   websiteId: string,
   report: WebsiteImportReport,
@@ -248,62 +210,24 @@ async function importSelectedAssets(
   // HTTPS/www. Assets were discovered and approved on that validated effective
   // origin, not necessarily on the originally typed origin.
   const origin = report.canonicalOrigin || new URL(report.pages[0].url).origin;
-  const storageService = new ObjectStorageService();
-  const privateDir = storageService.getPrivateObjectDir();
   const imported: string[] = [];
   const importedImages: string[] = [];
-  const seenContent = new Set<string>();
+  const seenHashes = new Map<string, string>();
 
   for (const sourceUrl of uniqueUrls) {
-    try {
-      const source = assetByUrl.get(sourceUrl)!;
-      if (new URL(source.sourceUrl || source.url).origin !== origin) {
-        throw new Error("Asset source is outside the validated canonical website");
-      }
-      const kind = source.type === "document" ? "document" : "image";
-      const fetched = await fetchApprovedAsset(sourceUrl, origin, kind);
-      let stored = fetched.bytes;
-      let width: number | undefined;
-      let height: number | undefined;
-      let mime = fetched.mime;
-      let extension = "pdf";
-      if (kind === "image") {
-        const image = sharp(fetched.bytes, { animated: false });
-        const metadata = await image.metadata();
-        if (!metadata.width || !metadata.height || metadata.width > 10_000 || metadata.height > 10_000) continue;
-        stored = await image.rotate().webp({ quality: 84 }).toBuffer();
-        width = metadata.width;
-        height = metadata.height;
-        mime = "image/webp";
-        extension = "webp";
-      }
-      const hash = createHash("sha256").update(stored).digest("hex");
-      if (seenContent.has(hash)) continue;
-      seenContent.add(hash);
-      const filename = `${randomUUID()}.${extension}`;
-      const fullPath = `${privateDir}/uploads/${filename}`;
-      const parts = fullPath.replace(/^\//, "").split("/");
-      await objectStorageClient.bucket(parts[0]).file(parts.slice(1).join("/")).save(stored, {
-        contentType: mime,
-        resumable: false,
-      });
-      const storagePath = `/objects/uploads/${filename}`;
-      await storage.createMediaAsset({
-        websiteId,
-        filename,
-        originalFilename: new URL(sourceUrl).pathname.split("/").pop()?.slice(0, 180) || "imported-image",
-        storagePath,
-        mimeType: mime,
-        size: stored.length,
-        width,
-        height,
-        altText: (source.alt || `Imported from ${sourceUrl}`).slice(0, 250),
-      });
-      imported.push(storagePath);
-      if (kind === "image") importedImages.push(storagePath);
-    } catch (error: any) {
-      console.warn(`[WebsiteImport] skipped asset ${sourceUrl}:`, error?.message || error);
+    const source = assetByUrl.get(sourceUrl)!;
+    if (new URL(source.sourceUrl || source.url).origin !== origin) {
+      console.warn(`[WebsiteImport] skipped asset ${sourceUrl}: Asset source is outside the validated canonical website`);
+      continue;
     }
+    const kind = source.type === "document" ? "document" : "image";
+    const result = await importAssetToMedia({ websiteId, sourceUrl, expectedOrigin: origin, kind, alt: source.alt, seenHashes });
+    if (!result.ok) {
+      if (result.reason !== "duplicate") console.warn(`[WebsiteImport] skipped asset ${sourceUrl}:`, result.reason);
+      continue;
+    }
+    imported.push(result.storagePath);
+    if (kind === "image") importedImages.push(result.storagePath);
   }
   return { all: imported, images: importedImages };
 }

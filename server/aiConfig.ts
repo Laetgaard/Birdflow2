@@ -74,6 +74,14 @@ export const AI_ROLES = [
   "selfReview",
   /** Visual review: screenshot → Kimi K3 vision → structured VisualIssue[]. */
   "visualReview",
+  /** Client migration: map extracted source sections onto BirdFlow targets. */
+  "migrationPlan",
+  /** Client migration: rebuild one custom section from its source crop. */
+  "migrationBuild",
+  /** Client migration: original vs rebuilt screenshot, two-image compare. */
+  "migrationFidelity",
+  /** Client migration: disambiguate a section's role when heuristics are unsure. */
+  "migrationExtract",
   /** Image generation. */
   "image",
 ] as const;
@@ -252,6 +260,45 @@ export const AI_CONFIG: Record<AiRole, AiRoleConfig> = {
     // Per-call ceiling. The run's shared meter still caps the whole loop;
     // this just prevents one runaway review call from dominating.
     maxRunCostUsd: 0.5,
+  },
+
+  // ── Client migration (admin tool) ────────────────────────────────────
+  //
+  // These roles never author customer copy: the plan role decides only how
+  // extracted sections map onto BirdFlow targets, the build role works
+  // behind a guard that refuses text and images not taken from the source,
+  // and the fidelity role only reports differences. The per-role ceilings
+  // below are per-call sanity caps; the real ceiling for a migration is the
+  // job's own meter, which every one of these roles charges.
+
+  migrationPlan: {
+    provider: "kimi",
+    model: KIMI_MODEL,
+    maxCompletionTokens: 16384,
+    maxRunCostUsd: 1,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_REASONING_MODEL,
+  },
+  migrationBuild: {
+    provider: "kimi",
+    model: KIMI_MODEL,
+    maxCompletionTokens: 12288,
+    maxRunCostUsd: 5,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_REASONING_MODEL,
+  },
+  migrationFidelity: {
+    provider: "kimi",
+    model: KIMI_MODEL,
+    // Four images (two viewports, original and rebuild) plus a short list.
+    maxCompletionTokens: 2048,
+    maxRunCostUsd: 1.5,
+  },
+  migrationExtract: {
+    provider: "kimi",
+    model: KIMI_MODEL,
+    maxCompletionTokens: 4096,
+    maxRunCostUsd: 0.3,
   },
 
   // ── Image generation → OpenAI only ───────────────────────────────────

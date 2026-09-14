@@ -291,6 +291,11 @@ export type OnboardingAnswers = {
   /** Resumable discovery, report and approval state for an existing website. */
   websiteImport?: import("./websiteImport").WebsiteImportState;
   /**
+   * Set when an administrator migrated this customer's existing website for
+   * them. The session then never enters the self-service walkthrough.
+   */
+  clientMigration?: { jobId: string; sourceUrl: string };
+  /**
    * Three real, renderable onboarding candidates. The selected candidate is
    * also promoted into builder_state; the bundle remains the immutable
    * comparison/evidence set until the customer starts editing.
@@ -720,6 +725,84 @@ export const builderSnapshots = pgTable("builder_snapshots", {
 });
 
 export type BuilderSnapshotRow = typeof builderSnapshots.$inferSelect;
+
+/**
+ * Admin-driven client migration: one job per "rebuild this client's existing
+ * website into BirdFlow", with one row per source page so every unit of work
+ * is persisted and a crash resumes without redoing captures or builds.
+ * DDL is applied at boot by server/clientMigration/migrationDbSchema.ts.
+ */
+export const clientMigrationJobs = pgTable("client_migration_jobs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()::varchar`),
+  createdBy: varchar("created_by").notNull(),
+  clientUserId: varchar("client_user_id").notNull(),
+  websiteId: varchar("website_id").notNull(),
+  company: text("company").notNull().default(""),
+  sourceUrl: text("source_url").notNull(),
+  canonicalOrigin: text("canonical_origin"),
+  language: text("language").notNull().default("da"),
+  planSlug: text("plan_slug").notNull(),
+  notes: text("notes"),
+  consentAttested: boolean("consent_attested").notNull().default(false),
+  consentNote: text("consent_note"),
+  consentAt: timestamp("consent_at").defaultNow().notNull(),
+  respectRobots: boolean("respect_robots").notNull().default(true),
+  status: text("status").notNull().default("queued"),
+  phase: text("phase").notNull().default("discover"),
+  phaseAttempts: jsonb("phase_attempts").$type<Record<string, number>>().notNull().default(sql`'{}'::jsonb`),
+  pauseRequested: boolean("pause_requested").notNull().default(false),
+  cancelRequested: boolean("cancel_requested").notNull().default(false),
+  leaseOwner: text("lease_owner"),
+  leaseUntil: timestamp("lease_until"),
+  heartbeatAt: timestamp("heartbeat_at"),
+  limits: jsonb("limits").$type<Record<string, number>>().notNull().default(sql`'{}'::jsonb`),
+  spentUsd: text("spent_usd").notNull().default("0"),
+  spendByRole: jsonb("spend_by_role").$type<Record<string, number>>().notNull().default(sql`'{}'::jsonb`),
+  discovery: jsonb("discovery").$type<Record<string, unknown> | null>(),
+  brand: jsonb("brand").$type<Record<string, unknown> | null>(),
+  assets: jsonb("assets").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
+  plan: jsonb("plan").$type<Record<string, unknown> | null>(),
+  planReviewedAt: timestamp("plan_reviewed_at"),
+  planReviewedBy: varchar("plan_reviewed_by"),
+  fidelity: jsonb("fidelity").$type<Record<string, unknown> | null>(),
+  warnings: jsonb("warnings").$type<unknown[]>().notNull().default(sql`'[]'::jsonb`),
+  error: text("error"),
+  errorCode: text("error_code"),
+  builderRevision: integer("builder_revision"),
+  snapshotId: varchar("snapshot_id"),
+  inviteSentAt: timestamp("invite_sent_at"),
+  inviteLinkExpiresAt: timestamp("invite_link_expires_at"),
+  approvedAt: timestamp("approved_at"),
+  approvedBy: varchar("approved_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  finishedAt: timestamp("finished_at"),
+});
+
+export type ClientMigrationJobRow = typeof clientMigrationJobs.$inferSelect;
+
+export const clientMigrationPages = pgTable("client_migration_pages", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()::varchar`),
+  jobId: varchar("job_id").notNull(),
+  ordinal: integer("ordinal").notNull(),
+  sourceUrl: text("source_url").notNull(),
+  title: text("title"),
+  captureStatus: text("capture_status").notNull().default("pending"),
+  captureError: text("capture_error"),
+  screenshots: jsonb("screenshots").$type<Record<string, unknown> | null>(),
+  renderedHtmlPath: text("rendered_html_path"),
+  extraction: jsonb("extraction").$type<Record<string, unknown> | null>(),
+  extractStatus: text("extract_status").notNull().default("pending"),
+  targetPageId: text("target_page_id"),
+  buildStatus: text("build_status").notNull().default("pending"),
+  buildProgress: jsonb("build_progress").$type<Record<string, unknown> | null>(),
+  verifyStatus: text("verify_status").notNull().default("pending"),
+  verify: jsonb("verify").$type<Record<string, unknown> | null>(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type ClientMigrationPageRow = typeof clientMigrationPages.$inferSelect;
 
 // Orders table (for ecommerce)
 export const orders = pgTable("orders", {

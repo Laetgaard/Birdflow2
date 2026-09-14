@@ -1,4 +1,6 @@
 import puppeteer from 'puppeteer';
+import { findChromiumPath, HEADLESS_CHROMIUM_ARGS } from './browser/chromium';
+import { assertPublicUrl } from './websiteImportCrawler';
 
 export interface ScreenshotResult {
   success: boolean;
@@ -38,23 +40,22 @@ export async function captureWebsiteScreenshot(url: string): Promise<ScreenshotR
       return { success: false, error: 'Invalid URL protocol', viewport: { width: 0, height: 0 } };
     }
 
-    // SSRF protection - block internal/private networks
+    // SSRF protection - block internal/private networks. The pattern list is
+    // a fast first pass; the DNS-resolving guard is what actually decides,
+    // because a public-looking hostname can resolve to a private address.
     if (isBlockedHost(parsedUrl.hostname)) {
+      return { success: false, error: 'Cannot capture internal or private URLs', viewport: { width: 0, height: 0 } };
+    }
+    try {
+      await assertPublicUrl(url);
+    } catch {
       return { success: false, error: 'Cannot capture internal or private URLs', viewport: { width: 0, height: 0 } };
     }
 
     browser = await puppeteer.launch({
       headless: true,
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--disable-gpu',
-      ],
-      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/nix/store/zi4f80l169xlmivz8vja8wlphq74qqk0-chromium-130.0.6723.116/bin/chromium',
+      args: HEADLESS_CHROMIUM_ARGS,
+      executablePath: findChromiumPath(),
     });
 
     const page = await browser.newPage();

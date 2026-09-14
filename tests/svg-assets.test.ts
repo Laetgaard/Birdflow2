@@ -313,13 +313,34 @@ describe('extraction and resolution stay wired into the server (tripwires)', () 
     // blank state atomically with the website row (whose id does not exist
     // before the transaction). The test below proves those states carry no
     // inline svg, so skipping extraction there loses nothing.
+    // The client-migration provisioning transaction is the same exception:
+    // it inserts a blank state with the client's website row, and every later
+    // write on that site goes through storage.updateBuilderState.
     const offenders = walkServerFiles()
       .filter((file) => file !== 'server/storage.ts')
-      .filter((file) => /\.(insert|update)\(\s*builderState\b/.test(readFileSync(file, 'utf8')));
-    expect(offenders).toEqual(['server/onboardingDecision.ts', 'server/routes.ts']);
+      .filter((file) => /\.(insert|update)\(\s*builderState\b/.test(readFileSync(file, 'utf8')))
+      .sort();
+    expect(offenders).toEqual([
+      'server/clientMigration/siteProvisioning.ts',
+      'server/onboardingDecision.ts',
+      'server/routes.ts',
+    ]);
     expect(readFileSync('server/onboardingDecision.ts', 'utf8')).toContain(
       'persistGeneratedDirectionBundleAtomically'
     );
+    const provisioning = readFileSync('server/clientMigration/siteProvisioning.ts', 'utf8');
+    expect(provisioning).toContain('db.transaction(');
+    expect(provisioning).toContain('initialMigratedState(');
+  });
+
+  it('the state a migrated site starts from carries no inline svg — keeps the allowlist honest', async () => {
+    const { initialMigratedState } = await import('../server/clientMigration/siteProvisioning');
+    for (const language of ['da', 'en'] as const) {
+      const state = initialMigratedState(language);
+      expect(
+        collectInlineSvgNodes(state as Parameters<typeof collectInlineSvgNodes>[0])
+      ).toHaveLength(0);
+    }
   });
 
   it('first-party template states carry no inline svg — keeps the allowlist honest', async () => {
