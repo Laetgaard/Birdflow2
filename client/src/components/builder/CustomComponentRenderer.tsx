@@ -17,8 +17,12 @@ import {
   type PrimitiveNode,
   type CapabilityType,
   type BehaviorType,
+  isCanvasRoot,
+  canvasRootStyles,
 } from "@shared/customComponents";
 import { sanitizeSvg } from "@shared/svgSanitizer";
+import BuilderImage from "./BuilderImage";
+import { imageSlot } from "@shared/rendering/imageRender";
 import { TOKEN_FALLBACKS, readableTextOn, resolveDesignTokens } from "@shared/designTokens";
 import { applySvgAssetColors, type SvgAssetLike } from "@shared/svgAssets";
 import { MOTION_TABLES, computeMotion, staggerChildSpec, type MotionSpec } from "@shared/motion";
@@ -292,6 +296,25 @@ function SafeCapabilityPreview({
   );
 }
 
+/** Style keys that place an element rather than draw its contents. */
+const PLACEMENT_KEYS: ReadonlySet<string> = new Set([
+  "position", "left", "top", "right", "bottom", "inset", "width", "height",
+  "rotate", "scale", "translateX", "translateY", "transform", "zIndex", "pointerEvents", "visibility",
+]);
+
+/**
+ * For an absolutely placed node, the placement goes on the measurable wrapper
+ * and everything else stays on the element itself. In flow the wrapper gets
+ * nothing, exactly as before.
+ */
+function splitPlacement(resolved: React.CSSProperties): { wrapper: React.CSSProperties; inner: React.CSSProperties } {
+  if (resolved.position !== "absolute") return { wrapper: {}, inner: resolved };
+  const wrapper: Record<string, unknown> = {};
+  const inner: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(resolved)) (PLACEMENT_KEYS.has(key) ? wrapper : inner)[key] = value;
+  return { wrapper: wrapper as React.CSSProperties, inner: inner as React.CSSProperties };
+}
+
 function NodeRenderer({
   websiteId,
   language,
@@ -369,15 +392,27 @@ function NodeRenderer({
 
   switch (node.type) {
     case "box": {
-      const style: React.CSSProperties = {
-        display: "flex",
-        flexDirection: "column",
-        ...resolved,
-        ...selectionStyles,
-        ...motionStyle,
-      };
+      // A free canvas derives its own placement from the marker — the same
+      // fixed set the publisher emits — so the artboard scales with its width
+      // and its absolutely placed children stay where they were designed.
+      const canvasRoot = isCanvasRoot(node);
+      const style: React.CSSProperties = canvasRoot
+        ? {
+            ...resolved,
+            ...(canvasRootStyles(resolved.aspectRatio as string | undefined) as React.CSSProperties),
+            ...selectionStyles,
+            ...motionStyle,
+          }
+        : {
+            display: "flex",
+            flexDirection: "column",
+            ...resolved,
+            ...selectionStyles,
+            ...motionStyle,
+          };
+      const canvasAttrs = canvasRoot ? { "data-canvas-root": "" } : {};
       if (node.behavior) return (
-        <div {...dataAttrs} {...motionProps} style={style} onClick={handleNodeClick}>
+        <div {...dataAttrs} {...canvasAttrs} {...motionProps} style={style} onClick={handleNodeClick}>
           <NativeBehavior node={node} primaryColor={globalStyles?.primaryColor} language={language} editing={!isPreview}
             renderChild={(child, index) => <NodeRenderer key={child.id} node={child} language={language}
               isPreview={isPreview} deviceMode={deviceMode} websiteId={websiteId} selectedNodeId={selectedNodeId} onNodeSelect={onNodeSelect}
@@ -387,7 +422,7 @@ function NodeRenderer({
         </div>
       );
       return (
-        <div {...dataAttrs} {...motionProps} style={style} onClick={handleNodeClick}>
+        <div {...dataAttrs} {...canvasAttrs} {...motionProps} style={style} onClick={handleNodeClick}>
           {/* Behavior badge — editor-only indicator showing the interaction type */}
           {!isPreview && node.behavior && (
             <div
@@ -442,7 +477,7 @@ function NodeRenderer({
                 textAlign: "center",
               }}
             >
-              Tom boks — tilføj elementer i panelet
+              {canvasRoot ? "Tom kanvas — tilføj elementer i værktøjslinjen" : "Tom boks — tilføj elementer i panelet"}
             </div>
           )}
         </div>
@@ -463,15 +498,20 @@ function NodeRenderer({
         undefined;
       const field = `node:${node.id}:text`;
       const inlineEditable = !canInlineEdit || canInlineEdit(node.id);
+      // An absolutely placed text (a canvas element) is positioned by its
+      // wrapper — the element that carries data-node-id and gets measured —
+      // while the tag inside keeps the typography. In flow, the wrapper is
+      // transparent as before.
+      const { wrapper: placement, inner: typography } = splitPlacement(resolved);
       return (
-        <div {...dataAttrs} {...motionProps} style={{ ...selectionStyles, ...motionStyle }} onClick={handleNodeClick}>
+        <div {...dataAttrs} {...motionProps} style={{ ...placement, ...selectionStyles, ...motionStyle }} onClick={handleNodeClick}>
           <NodeEditableText
             value={node.text ?? ""}
             field={field}
             isEditing={editingField === field}
             onEdit={inlineEditable ? onEditField : undefined}
             onChange={onTextChange}
-            style={{ ...resolved, fontFamily }}
+            style={{ ...typography, fontFamily }}
             tag={node.tag || "p"}
             isPreview={isPreview}
           />
@@ -513,7 +553,17 @@ function NodeRenderer({
           </div>
         );
       }
-      return <img {...dataAttrs} {...motionProps} src={node.src} alt={node.alt ?? ""} style={style} onClick={handleNodeClick} />;
+      return (
+        <BuilderImage
+          attrs={{ ...dataAttrs, ...motionProps }}
+          value={{ url: node.src, alt: node.alt, ...(node.mediaId ? { mediaId: node.mediaId } : {}) }}
+          alt={node.alt ?? ""}
+          slot={imageSlot("content")}
+          isPreview={isPreview}
+          style={style}
+          onClick={handleNodeClick}
+        />
+      );
     }
 
     case "button": {

@@ -234,6 +234,35 @@ export function imageAltTexts(html: string): string[] {
   });
 }
 
+/**
+ * Every image in the markup, as the attributes that decide what the browser
+ * fetches and how it is drawn.
+ *
+ * Comparing `src` alone (as the parity suite did) could not see a missing
+ * srcset, a lazy hero, an unreserved box or a crop laid out differently on
+ * the two sides — all of which the customer sees.
+ */
+export function imageAttributes(html: string): Array<Record<string, string>> {
+  return Array.from(html.matchAll(/<img[^>]*>/g)).map((tag) => {
+    const out: Record<string, string> = {};
+    for (const name of ['src', 'srcset', 'sizes', 'loading', 'decoding', 'width', 'height', 'alt', 'fetchpriority']) {
+      const match = new RegExp(`\\s${name}="([^"]*)"`, 'i').exec(tag[0]);
+      if (match) out[name] = match[1];
+    }
+    const style = /\sstyle="([^"]*)"/.exec(tag[0]);
+    if (style) {
+      for (const declaration of style[1].split(';')) {
+        const [key, ...rest] = declaration.split(':');
+        const property = key.trim().toLowerCase();
+        if (['object-fit', 'object-position', 'width', 'height', 'left', 'top', 'position', 'max-width'].includes(property)) {
+          out[`style.${property}`] = rest.join(':').trim();
+        }
+      }
+    }
+    return out;
+  });
+}
+
 /** Every link target in the markup, in document order. */
 export function linkTargets(html: string): string[] {
   return Array.from(html.matchAll(/<a[^>]*\shref="([^"]*)"/g)).map((m) => m[1]);

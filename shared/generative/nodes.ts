@@ -71,6 +71,14 @@ export type PrimitiveNode = {
 
   // box
   children?: PrimitiveNode[];
+  /**
+   * `'canvas'` marks a box as a free-canvas root: its children are placed
+   * absolutely in percent of the artboard and sized in cqw, and both
+   * renderers derive the root's own styles (position, aspect-ratio,
+   * container-type) from this marker. See shared/generative/canvas.ts.
+   * Only valid on type === 'box'; the sanitizer strips it elsewhere.
+   */
+  layout?: 'canvas';
 
   /**
    * Capability nodes (type === 'capability') embed trusted Birdflow

@@ -70,6 +70,14 @@ import {
   type LibraryCategory,
   type CustomComponentEntry,
   type PrimitiveNode,
+  createCanvasRoot,
+  findCanvasRoot,
+  isCanvasRoot,
+  artboardFrame,
+  canvasToGroup,
+  extractCanvasSelectionAsComponent,
+  insertPrimitiveChild,
+  type CanvasDevice,
 } from "@shared/customComponents";
 import { sanitizeSvg } from "@shared/svgSanitizer";
 import BrandGuidePanel from "@/components/builder/BrandGuidePanel";
@@ -93,6 +101,10 @@ import BuilderInspector from "@/components/builder/BuilderInspector";
 import AIBuilderPanel from "@/components/AIBuilderPanel";
 import FloatingToolbar from "@/components/builder/FloatingToolbar";
 import SelectionOverlay from "@/components/builder/SelectionOverlay";
+import CanvasEditorOverlay from "@/components/builder/CanvasEditorOverlay";
+import { CanvasModeProvider, type CanvasMode } from "@/components/builder/canvasMode";
+import { ImagePickerProvider, type ImagePickerRequest } from "@/components/builder/ImagePickerContext";
+import ImagePicker from "@/components/builder/ImagePicker";
 import ContextMenu from "@/components/builder/ContextMenu";
 import CoachMarks from "@/components/builder/CoachMarks";
 import TemplateGalleryModal from "@/components/builder/TemplateGalleryModal";
@@ -249,7 +261,13 @@ export default function BuilderPage() {
   // True while a background AI build is running — badge shown on the AI tab.
   const [isBuildRunning, setIsBuildRunning] = useState(false);
   // Node selection inside custom components (primitive node trees)
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // Node selection inside a custom component. A free canvas selects many at
+  // once; every older consumer reads the last one as before.
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const selectedNodeId = selectedNodeIds.length ? selectedNodeIds[selectedNodeIds.length - 1] : null;
+  const setSelectedNodeId = useCallback((nodeId: string | null) => setSelectedNodeIds(nodeId ? [nodeId] : []), []);
+  const [canvasGrid, setCanvasGrid] = useState(false);
+  const [canvasSnap, setCanvasSnap] = useState(true);
   const selectComponentOnly = useCallback((componentId: string | null) => {
     setSelectedComponentId(componentId);
     setSelectedNodeId(null);
@@ -273,6 +291,8 @@ export default function BuilderPage() {
   // Duplicate warning: set when saving would duplicate an existing entry;
   // the customer confirms once to save anyway (warn, never block).
   const [saveDuplicateOf, setSaveDuplicateOf] = useState<CustomComponentEntry | null>(null);
+  /** A composition lifted out of a canvas, waiting in the save dialog; null = the selected section. */
+  const [saveSubject, setSaveSubject] = useState<BuilderComponentData | null>(null);
   const [renameEntry, setRenameEntry] = useState<CustomComponentEntry | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteEntryId, setDeleteEntryId] = useState<string | null>(null);
@@ -1296,6 +1316,120 @@ export default function BuilderPage() {
     return slot ? builderState.siteChrome?.[slot] ?? null : null;
   })();
 
+  // ============ Free canvas ============
+
+  /** Replace a custom component's tree: one undo step, or coalesced for nudges and typing. */
+  const updateComponentTree = useCallback((componentId: string, tree: PrimitiveNode, description: string, mode: 'commit' | 'debounce' = 'commit') => {
+    if (!builderState) return;
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: builderState.pages.map((page) => ({
+        ...page,
+        components: page.components.map((comp) => (comp.id === componentId ? { ...comp, props: { ...comp.props, customTree: tree } } : comp)),
+      })),
+    };
+    if (mode === 'commit') updateStateWithHistory(newState, description);
+    else debouncedHistoryPush(newState, description, 400);
+  }, [builderState, updateStateWithHistory, debouncedHistoryPush]);
+
+  /** Lift the selected canvas elements into a composition and open the save dialog for it. */
+  const saveNodesAsComponent = useCallback((nodeIds: string[], measuredHeights?: Record<string, number>) => {
+    const tree = selectedComponent?.type === 'custom' ? ((selectedComponent.props as { customTree?: PrimitiveNode }).customTree ?? null) : null;
+    const root = tree && nodeIds[0] ? findCanvasRoot(tree, nodeIds[0]) : null;
+    if (!root) return;
+    const composition = extractCanvasSelectionAsComponent(root, nodeIds, artboardFrame(root), measuredHeights, 'Komposition');
+    if (!composition) {
+      toast({ title: 'Markeringen kan ikke gemmes', description: 'Vælg mindst ét element med en størrelse.', variant: 'destructive' });
+      return;
+    }
+    setSaveSubject({ id: 'composition', type: 'custom', props: { customTree: composition }, styles: {} } as unknown as BuilderComponentData);
+    setSaveComponentName(nodeIds.length === 1 ? (findCanvasRoot(root, nodeIds[0]) ? 'Komposition' : 'Komposition') : 'Komposition');
+    setSaveComponentCategory('kanvas');
+    setSaveDuplicateOf(null);
+    setSaveComponentOpen(true);
+  }, [selectedComponent, toast]);
+
+  // Every image field opens the same dialog. It lives here, next to the
+  // page's other dialogs, and hands the chosen value back to whoever asked.
+  const [imageRequest, setImageRequest] = useState<ImagePickerRequest | null>(null);
+  const imagePickerApi = useMemo(() => ({ open: (request: ImagePickerRequest) => setImageRequest(request) }), []);
+
+  const canvasMode = useMemo<CanvasMode>(() => {
+    const tree = selectedComponent?.type === 'custom' ? ((selectedComponent.props as { customTree?: PrimitiveNode }).customTree ?? null) : null;
+    const root = tree ? ((selectedNodeId && findCanvasRoot(tree, selectedNodeId)) || (isCanvasRoot(tree) ? tree : null)) : null;
+    return {
+      active: !!root,
+      componentId: root && selectedComponent ? selectedComponent.id : null,
+      tree,
+      root,
+      // The artboard being edited is whichever the preview shows; the toolbar's
+      // Desktop/Mobil tabs drive the same toggle as the top bar.
+      device: device === 'mobile' ? 'mobile' : 'desktop',
+      setDevice: (next: CanvasDevice) => setDevice(next === 'mobile' ? 'mobile' : 'desktop'),
+      selectedNodeIds,
+      setSelectedNodeIds,
+      editingField,
+      onEditField: setEditingField,
+      updateTree: (next, description, mode) => { if (selectedComponent) updateComponentTree(selectedComponent.id, next, description, mode); },
+      showGrid: canvasGrid,
+      setShowGrid: setCanvasGrid,
+      snapEnabled: canvasSnap,
+      setSnapEnabled: setCanvasSnap,
+      websiteId: id || '',
+      accessToken: session?.access_token || '',
+      brandLogoUrl: builderState?.brandGuide?.logoUrl,
+      onSaveCanvas: root ? () => {
+        if (!selectedComponent) return;
+        setSaveComponentName(root.name || 'Kanvas');
+        setSaveComponentCategory(inferLibraryCategory(selectedComponent as BuilderComponentData));
+        setSaveDuplicateOf(null);
+        setSaveComponentOpen(true);
+      } : undefined,
+      onSaveSelection: root ? saveNodesAsComponent : undefined,
+    };
+  }, [selectedComponent, selectedNodeId, selectedNodeIds, device, editingField, canvasGrid, canvasSnap, id, session?.access_token, builderState?.brandGuide?.logoUrl, updateComponentTree, saveNodesAsComponent]);
+
+  /** Drop a saved component into the open canvas as a group at its centre. */
+  const insertLibraryEntryIntoCanvas = useCallback((entry: CustomComponentEntry) => {
+    if (!builderState || !canvasMode.active || !canvasMode.root || !canvasMode.tree || !canvasMode.componentId) return;
+    const root = canvasMode.root;
+    const frame = artboardFrame(root, canvasMode.device);
+    const source = cloneLibrarySource(entry.source);
+    const sourceTree = (source.props as { customTree?: PrimitiveNode }).customTree;
+    if (!sourceTree) {
+      toast({ title: 'Kun egne komponenter kan lægges på et kanvas', description: 'Standardsektioner indsættes på siden i stedet.' });
+      return;
+    }
+    const placement = { x: frame.width * 0.25, y: frame.height * 0.25, w: frame.width * 0.5 };
+    const group: PrimitiveNode = isCanvasRoot(sourceTree)
+      ? canvasToGroup(sourceTree, frame, placement)
+      : {
+          id: sourceTree.id + '-g',
+          type: 'box',
+          name: entry.name,
+          styles: { position: 'absolute', left: '25%', top: '25%', width: '50%', display: 'block' },
+          children: [sourceTree],
+        };
+    updateComponentTree(canvasMode.componentId, updatePrimitiveNode(canvasMode.tree, root.id, (r) => insertPrimitiveChild(r, r.id, group)), `Indsæt i kanvas: ${entry.name}`);
+    setSelectedNodeIds([group.id]);
+  }, [builderState, canvasMode, updateComponentTree, toast]);
+
+  /** A new free canvas on the active page: a custom component whose tree is an empty artboard. */
+  const addCanvasComponent = () => {
+    if (!builderState) return;
+    const newComponent = createComponent('custom');
+    const root = createCanvasRoot();
+    newComponent.props = { ...newComponent.props, customTree: root, customSchema: undefined } as typeof newComponent.props;
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: builderState.pages.map((page) => (page.id === builderState.activePage ? { ...page, components: [...page.components, newComponent] } : page)),
+    };
+    updateStateWithHistory(newState, 'Tilføj kanvas');
+    selectComponentOnly(newComponent.id);
+    setSelectedNodeIds([root.id]);
+    setSidebarTab('properties');
+  };
+
   // ============ Custom component library ("Mine komponenter") ============
 
   // Stored SVG illustrations: svg nodes carrying svgAssetId resolve against
@@ -1438,6 +1572,7 @@ export default function BuilderPage() {
 
   const resetSaveComponentDialog = () => {
     setSaveComponentOpen(false);
+    setSaveSubject(null);
     setSaveComponentName("");
     setSaveComponentDescription("");
     setSaveComponentCategory("");
@@ -1446,7 +1581,10 @@ export default function BuilderPage() {
   };
 
   const saveSelectionAsComponent = async () => {
-    if (!builderState || !selectedComponent) return;
+    // A composition lifted out of a canvas is saved on its own; otherwise the
+    // selected section is the subject and gets stamped with the entry id.
+    const subject = saveSubject ?? (selectedComponent as BuilderComponentData | null);
+    if (!builderState || !subject) return;
     const name = saveComponentName.trim();
     if (!name) return;
 
@@ -1454,7 +1592,7 @@ export default function BuilderPage() {
     if (!saveDuplicateOf) {
       const duplicate = findDuplicateLibraryEntry(
         builderState.customComponents,
-        selectedComponent as BuilderComponentData
+        subject
       );
       if (duplicate) {
         setSaveDuplicateOf(duplicate);
@@ -1473,11 +1611,11 @@ export default function BuilderPage() {
     // deduplicates by id) produces exactly one entry, not two.
     let canonicalId = generateLibraryEntryId(); // fallback if API is unavailable
     let accountComp: any = null;
-    const customTree = selectedComponent.type === "custom"
-      ? (selectedComponent.props as any)?.customTree
+    const customTree = subject.type === "custom"
+      ? (subject.props as any)?.customTree
       : null;
-    const customSchema = selectedComponent.type === "custom"
-      ? ((selectedComponent.props as any)?.customSchema ?? null)
+    const customSchema = subject.type === "custom"
+      ? ((subject.props as any)?.customSchema ?? null)
       : null;
 
     if (session && customTree) {
@@ -1514,7 +1652,7 @@ export default function BuilderPage() {
     const entry: CustomComponentEntry = {
       id: canonicalId,
       name,
-      source: JSON.parse(JSON.stringify(selectedComponent)),
+      source: JSON.parse(JSON.stringify(subject)),
       createdAt: new Date().toISOString(),
       ...(saveComponentDescription.trim() ? { description: saveComponentDescription.trim() } : {}),
       ...(saveComponentCategory ? { category: saveComponentCategory } : {}),
@@ -1536,7 +1674,7 @@ export default function BuilderPage() {
       version: 1,
       ...(accountComp?.id ? { accountComponentId: canonicalId } : {}),
     };
-    const pagesWithStamp = builderState.pages.map((page) => ({
+    const pagesWithStamp = saveSubject ? builderState.pages : builderState.pages.map((page) => ({
       ...page,
       components: page.components.map((c) => {
         if (c.id !== selectedComponentId) return c;
@@ -2127,6 +2265,8 @@ export default function BuilderPage() {
           activePage={builderState?.activePage}
         >
           <CanvasDocumentProvider>
+          <CanvasModeProvider value={canvasMode}>
+          <ImagePickerProvider value={imagePickerApi}>
           <ElementSelectionProvider
             onElementStyleChange={(componentId, path, styles) => {
               // Update element styles within the component's builder state
@@ -2149,6 +2289,7 @@ export default function BuilderPage() {
             onClick={(e) => {
               const target = e.target as HTMLElement;
               if (target.closest('[data-component-id]')) return;
+              if (target.closest('[data-canvas-overlay]')) return;
               selectComponentOnly(null);
             }}
             data-preview-area
@@ -2258,6 +2399,7 @@ export default function BuilderPage() {
             />
           </main>
           <SelectionOverlay />
+          <CanvasEditorOverlay />
           <FloatingToolbar />
           <ContextMenu />
           <DragDropLayer />
@@ -2404,6 +2546,16 @@ export default function BuilderPage() {
                   <Puzzle className="w-4 h-4 text-primary" />
                   <span className="font-medium">Ny tom komponent</span>
                 </Button>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-2 border-dashed border-2 hover:border-primary hover:bg-primary/5"
+                  onClick={addCanvasComponent}
+                  data-testid="add-canvas-component"
+                >
+                  <Layout className="w-4 h-4 text-primary" />
+                  <span className="font-medium">Nyt kanvas</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground">frit layout</span>
+                </Button>
                 {(builderState?.customComponents?.length ?? 0) === 0 ? (
                   <p className="text-xs text-muted-foreground leading-relaxed">
                     Vælg en sektion og klik "Gem som komponent" — så kan du genbruge den her på alle sider.
@@ -2456,8 +2608,8 @@ export default function BuilderPage() {
                     {filteredLibraryEntries.map((entry) => (
                       <div key={entry.id} className="flex items-center gap-1">
                         <button
-                          onClick={() => insertLibraryEntry(entry)}
-                          title={entry.description}
+                          onClick={() => (canvasMode.active ? insertLibraryEntryIntoCanvas(entry) : insertLibraryEntry(entry))}
+                          title={canvasMode.active ? `Læg "${entry.name}" ind i det åbne kanvas` : entry.description}
                           className="flex-1 min-w-0 flex items-center gap-2 p-2 rounded-lg border bg-background hover:bg-primary/5 hover:border-primary/30 transition-all text-left"
                           data-testid={`insert-custom-component-${entry.id}`}
                         >
@@ -2622,9 +2774,22 @@ export default function BuilderPage() {
         </aside>
         )}
         </ElementSelectionProvider>
+          </ImagePickerProvider>
+          </CanvasModeProvider>
         </CanvasDocumentProvider>
         </BuilderSelectionProvider>
       </div>
+
+      <ImagePicker
+        open={!!imageRequest}
+        onClose={() => setImageRequest(null)}
+        websiteId={id!}
+        accessToken={session?.access_token ?? ""}
+        brandGuide={builderState?.brandGuide}
+        value={imageRequest?.value ?? null}
+        subject={imageRequest?.title}
+        onSelect={(picked) => imageRequest?.onSelect(picked)}
+      />
 
       {/* Create Page Dialog */}
       <Dialog open={pageDialogOpen} onOpenChange={setPageDialogOpen}>
@@ -2721,9 +2886,11 @@ export default function BuilderPage() {
       <Dialog open={saveComponentOpen} onOpenChange={(open) => { if (!open) resetSaveComponentDialog(); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Gem som komponent</DialogTitle>
+            <DialogTitle>{saveSubject ? 'Gem markering som komponent' : 'Gem som komponent'}</DialogTitle>
             <DialogDescription>
-              Komponenten gemmes i "Mine komponenter", så du kan genbruge den på alle sider.
+              {saveSubject
+                ? 'De markerede elementer gemmes som en komposition i "Mine komponenter" — brug den på en side eller læg den ind i et andet kanvas.'
+                : 'Komponenten gemmes i "Mine komponenter", så du kan genbruge den på alle sider.'}
             </DialogDescription>
           </DialogHeader>
           <div className="py-4 space-y-3">

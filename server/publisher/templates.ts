@@ -3,6 +3,8 @@ import { createBookingView } from '../../shared/rendering/bookingView';
 import { groupBookingServices, groupServiceIds, mergeServiceSlots } from '../../shared/rendering/bookingServices';
 import { SVG_SHAPES, renderSvgShape } from '../../shared/svgShapes';
 import { createSectionDecoration } from '../../shared/rendering/sectionDecoration';
+import { canvasRootStyles } from '../../shared/generative/canvas';
+import { createImageRuntime } from '../../shared/rendering/imageRender';
 import { createBehaviorRuntime } from '../../shared/rendering/behaviorRuntime';
 import type { ThemeConfig, PageData, BuilderComponentData } from '../../shared/rendering/types';
 import { BREAKPOINTS, REDUCED_MOTION_QUERY } from '../../shared/rendering/contract';
@@ -2626,11 +2628,56 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import theme from '@/theme.json';
 import { useCart } from '@/components/CartProvider';
 import BookingForm from '@/components/BookingForm';
-import { createBehaviorRuntime, computeMotion as sharedComputeMotion, motionPhaseStyle as sharedMotionPhaseStyle, sectionMotionSpec as sharedSectionMotionSpec, staggerChildSpec as sharedStaggerChildSpec, createSectionDecoration, SVG_SHAPES, renderSvgShape } from '@/components/trustedRuntime';
+import { createBehaviorRuntime, computeMotion as sharedComputeMotion, motionPhaseStyle as sharedMotionPhaseStyle, sectionMotionSpec as sharedSectionMotionSpec, staggerChildSpec as sharedStaggerChildSpec, createSectionDecoration, SVG_SHAPES, renderSvgShape, canvasRootStyles, createImageRuntime } from '@/components/trustedRuntime';
 
 // Same decoration helpers the editor uses, bound to the same shape registry.
 const { sectionDecorationLayers: sharedSectionDecorationLayers, shapeDividerMarkup: sharedShapeDividerMarkup, hasSectionDecoration: sharedHasSectionDecoration } =
   createSectionDecoration(SVG_SHAPES, renderSvgShape);
+
+// And the same image decisions: which file, which candidates, what size to
+// reserve, how a crop is laid out. The editor calls these too, so a picture
+// that fits in the preview fits here. Type annotations do not survive
+// serialisation, so the runtime's signatures are restated on arrival.
+type NormalizedImage = {
+  url: string;
+  mediaId?: string;
+  alt?: string;
+  focal?: { x: number; y: number };
+  width?: number;
+  height?: number;
+  crop?: { x: number; y: number; width: number; height: number };
+  fit?: 'cover' | 'contain';
+};
+type ResolvedImage = {
+  src: string;
+  pending: boolean;
+  alt: string;
+  srcSet?: string;
+  sizes?: string;
+  width?: number;
+  height?: number;
+  objectFit: 'cover' | 'contain';
+  objectPosition: string;
+  loading: 'eager' | 'lazy';
+  decoding: 'async';
+  fetchPriority?: 'high';
+  crop?: { aspectRatio: string; img: { left: string; top: string; width: string; height: string } };
+};
+type HeroLayoutInfo = {
+  layout: string;
+  split: boolean;
+  imageOnLeft: boolean;
+  content: { maxWidth: string; margin: string; textAlign: 'left' | 'center' };
+  title: React.CSSProperties;
+  titleScale: number;
+};
+const { normalizeImageValue, resolveImageRender, imageSlot, heroLayoutStyles, scaleLength } = createImageRuntime() as {
+  normalizeImageValue: (value: ImageValue | undefined) => NormalizedImage;
+  resolveImageRender: (value: ImageValue | undefined, slot: Record<string, unknown>) => ResolvedImage;
+  imageSlot: (name: string, overrides?: Record<string, unknown>) => Record<string, unknown>;
+  heroLayoutStyles: (layout: string | undefined) => HeroLayoutInfo;
+  scaleLength: (value: string | number | undefined, factor: number) => string | undefined;
+};
 
 type BuilderPage = {
   id: string;
@@ -2646,7 +2693,16 @@ type NavItem = {
   href: string;
 };
 
-type ImageValue = string | { url: string; mediaId?: string; crop?: { x: number; y: number; width: number; height: number } };
+type ImageValue = string | {
+  url: string;
+  mediaId?: string;
+  alt?: string;
+  focal?: { x: number; y: number };
+  width?: number;
+  height?: number;
+  crop?: { x: number; y: number; width: number; height: number };
+  fit?: string;
+};
 
 type ComponentItem = {
   id: string;
@@ -2762,6 +2818,50 @@ function getStyledText(styledProp: StyledText | undefined, fallbackText: string 
     return { text: styledProp.text, style };
   }
   return { text: fallbackText || '', style: {} };
+}
+
+/**
+ * Every image the published page draws.
+ *
+ * Mirrors the editor's BuilderImage: same resolver, same attributes, same
+ * crop box. An empty field draws nothing here — the editor's "choose an
+ * image" tile is editor chrome.
+ */
+function PublishedImage({ value, alt, slot, style, wrapperStyle, className }: {
+  value: ImageValue | undefined;
+  alt?: string;
+  slot?: Record<string, unknown>;
+  style?: React.CSSProperties;
+  wrapperStyle?: React.CSSProperties;
+  className?: string;
+}) {
+  const render = resolveImageRender(value, slot || {});
+  if (!render.src) return null;
+  const img = (
+    <img
+      src={render.src}
+      alt={alt === undefined ? render.alt : alt}
+      {...(render.srcSet ? { srcSet: render.srcSet, sizes: render.sizes } : {})}
+      {...(render.crop ? {} : { width: render.width, height: render.height })}
+      loading={render.loading}
+      decoding={render.decoding}
+      {...(render.fetchPriority ? { fetchPriority: render.fetchPriority } : {})}
+      className={className}
+      style={
+        render.crop
+          // The crop's geometry is not a suggestion: it goes on last, so a
+          // caller that sizes the slot cannot flatten it.
+          ? { position: 'absolute', maxWidth: 'none', objectFit: render.objectFit, ...style, ...render.crop.img }
+          : { objectFit: render.objectFit, objectPosition: render.objectPosition, ...style }
+      }
+    />
+  );
+  if (!render.crop) return img;
+  return (
+    <span style={{ display: 'block', position: 'relative', overflow: 'hidden', width: '100%', aspectRatio: render.crop.aspectRatio, ...wrapperStyle }}>
+      {img}
+    </span>
+  );
 }
 
 function getImageUrl(image: ImageValue | undefined): string {
@@ -3256,55 +3356,43 @@ function HoverButtonComponent({
 }
 
 function HeroSection({ props, styles }: { props: ComponentProps; styles: ComponentStyles }) {
-  // Parse image value (could be string or object with url/crop)
-  const imageValue = (() => {
-    if (!props.imageUrl) return null;
-    if (typeof props.imageUrl === 'object' && props.imageUrl?.url) {
-      return { url: props.imageUrl.url, crop: props.imageUrl.crop };
-    }
-    return { url: props.imageUrl as string, crop: null };
-  })();
-  
-  const imageUrl = imageValue?.url || '';
-  const hasCrop = imageValue?.crop != null;
-  // Builder always sets backgroundImage when url exists, then overlays CroppedImage when crop present
-  const backgroundImage = imageUrl ? { backgroundImage: \`url(\${imageUrl})\`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
-  
+  const imageValue = normalizeImageValue(props.imageUrl);
+  const imageUrl: string = imageValue.url;
+  const imageAlt = props.imageAlt || imageValue.alt || '';
+
+  // The layout decides the shape; the same function the editor calls, so the
+  // hero the customer approved is the hero that ships. 'video-bg' — retired
+  // from the picker but still stored on older sites — draws as centered.
+  const hero = heroLayoutStyles(props.layout);
+  const isSplit: boolean = hero.split;
+  const imageOnLeft: boolean = hero.imageOnLeft;
+
   const fontFamily = resolveFontFamily(styles);
-  const titleFontSize = styles.titleFontSize || '48px';
+  const titleFontSize = scaleLength(styles.titleFontSize || '48px', hero.titleScale) || '48px';
   const bodyFontSize = styles.bodyFontSize || '18px';
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight as string) : 700;
   const buttonColor = resolveButtonColor(styles);
   const buttonHoverColor = (styles.buttonHoverColor as string) || '#4338ca';
   const backgroundOpacity = typeof styles.backgroundOpacity === 'number' ? styles.backgroundOpacity / 100 : 1;
-  
-  // Calculate contrasting text color for button (matches builder's getContrastColor exactly)
-  const buttonTextColor = (() => {
-    const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(buttonColor);
-    if (result) {
-      const r = parseInt(result[1], 16);
-      const g = parseInt(result[2], 16);
-      const b = parseInt(result[3], 16);
-      const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-      return luminance > 0.5 ? '#000000' : '#ffffff';
-    }
-    return '#ffffff';
-  })();
-  
-  // Calculate background color with opacity (matches builder's hexToRgba exactly)
+  const textAlign = (isSplit ? 'left' : (props.alignment || hero.content.textAlign)) as React.CSSProperties['textAlign'];
+
+  // Contrasting text colour for the button (matches the builder's getContrastColor exactly)
+  const buttonTextColor = getContrastColor(buttonColor);
+
+  // Background colour with opacity (matches the builder's hexToRgba exactly)
   const bgColorWithOpacity = (() => {
     const bgColor = styles.backgroundColor;
-    if (!bgColor) return \`rgba(26, 26, 46, \${backgroundOpacity})\`;
-    const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(bgColor);
+    if (!bgColor) return 'rgba(26, 26, 46, ' + backgroundOpacity + ')';
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(bgColor);
     if (result) {
       const r = parseInt(result[1], 16);
       const g = parseInt(result[2], 16);
       const b = parseInt(result[3], 16);
-      return \`rgba(\${r}, \${g}, \${b}, \${backgroundOpacity})\`;
+      return 'rgba(' + r + ', ' + g + ', ' + b + ', ' + backgroundOpacity + ')';
     }
-    return bgColor; // Return original if can't parse (matches builder's hexToRgba fallback)
+    return bgColor; // Return original if it cannot be parsed (matches the builder's fallback)
   })();
-  
+
   const heroStyle: React.CSSProperties = {
     color: styles.textColor,
     padding: styles.padding || '0',
@@ -3312,66 +3400,91 @@ function HeroSection({ props, styles }: { props: ComponentProps; styles: Compone
     position: 'relative',
     overflow: 'hidden',
     fontFamily,
-    ...backgroundImage,
   };
-  
-  // Calculate crop styles for objectPosition
-  const getCropStyle = () => {
-    if (!hasCrop || !imageValue?.crop) return {};
-    const crop = imageValue.crop;
-    const posX = crop.x + crop.width / 2;
-    const posY = crop.y + crop.height / 2;
-    return { objectPosition: \`\${posX}% \${posY}%\` };
-  };
-  
+
+  const stTitle = getStyledText(props.styledTitle, props.title);
+  const stSub = getStyledText(props.styledSubtitle, props.subtitle);
+  const stDesc = getStyledText(props.styledDescription, props.description);
+
+  // The one text block, used by both shapes.
+  const heroTextBlock = (
+    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign }}>
+      {stTitle.text ? <h1 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px', lineHeight: 1.1, letterSpacing: '-0.02em', ...hero.title, ...stTitle.style }}>{stTitle.text}</h1> : null}
+      {stSub.text ? <p style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px', lineHeight: 1.3, ...stSub.style }}>{stSub.text}</p> : null}
+      {stDesc.text ? <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px', lineHeight: 1.6, maxWidth: '600px', margin: isSplit ? '0 0 32px' : (props.alignment === 'center' ? '0 auto 32px' : '0 0 32px'), ...stDesc.style }}>{stDesc.text}</p> : null}
+      <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: isSplit ? 'flex-start' : (props.alignment === 'left' ? 'flex-start' : props.alignment === 'right' ? 'flex-end' : 'center') }}>
+        {props.buttonText && (
+          <HoverButtonComponent
+            backgroundColor={buttonColor}
+            hoverBackgroundColor={buttonHoverColor}
+            textColor={buttonTextColor}
+            href={props.buttonLink || '#'}
+            style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600 }}
+          >
+            {props.buttonText}
+          </HoverButtonComponent>
+        )}
+        {(props as any).secondaryButtonText && (
+          <a
+            href={(props as any).secondaryButtonLink || '#'}
+            style={{ padding: '15px 32px', fontSize: '16px', fontWeight: 600, borderRadius: '12px', border: isSplit ? '2px solid ' + hexToRgba(styles.textColor || '#1a1a1a', 0.3) : '2px solid rgba(255,255,255,0.35)', color: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px', letterSpacing: '0.01em' }}
+          >
+            {(props as any).secondaryButtonText}
+          </a>
+        )}
+      </div>
+    </div>
+  );
+
+  // Split: two columns, the image panel blending into the text panel.
+  if (isSplit) {
+    const splitBg = styles.backgroundColor || '#ffffff';
+    return (
+      <section style={{ ...heroStyle, backgroundColor: splitBg }}>
+        <div style={{ display: 'flex', flexDirection: imageOnLeft ? 'row' : 'row-reverse', minHeight: '560px' }}>
+          <div style={{ flex: '0 0 50%', position: 'relative', overflow: 'hidden', minHeight: '400px' }}>
+            {imageUrl ? (
+              <PublishedImage
+                value={imageValue}
+                alt={imageAlt}
+                slot={imageSlot('hero-split')}
+                wrapperStyle={{ position: 'absolute', inset: 0, height: '100%', aspectRatio: 'auto' }}
+                style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}
+              />
+            ) : (
+              <div style={{ width: '100%', height: '100%', position: 'absolute', inset: 0, backgroundColor: hexToRgba(buttonColor, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke={hexToRgba(buttonColor, 0.4)} strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+              </div>
+            )}
+            <div style={{ position: 'absolute', inset: 0, background: imageOnLeft ? 'linear-gradient(to right, transparent 55%, ' + splitBg + ' 100%)' : 'linear-gradient(to left, transparent 55%, ' + splitBg + ' 100%)', zIndex: 1 }} />
+          </div>
+          <div style={{ flex: '0 0 50%', display: 'flex', alignItems: 'center', padding: '64px 48px', backgroundColor: splitBg, color: styles.textColor || '#1a1a1a', position: 'relative', zIndex: 2 }}>
+            {heroTextBlock}
+          </div>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section style={heroStyle}>
-      {/* Cropped background image layer */}
-      {hasCrop && imageUrl && (
+      {/* The background image, as a real image: it has alt text, it is fetched
+          early, and a crop is laid out exactly rather than approximated. */}
+      {imageUrl && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
-          <img 
-            src={imageUrl} 
-            alt={props.imageAlt || ''} 
-            style={{ width: '100%', height: '100%', objectFit: 'cover', ...getCropStyle() }}
+          <PublishedImage
+            value={imageValue}
+            alt={imageAlt}
+            slot={imageSlot('hero')}
+            wrapperStyle={{ position: 'absolute', inset: 0, height: '100%', aspectRatio: 'auto' }}
+            style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}
           />
         </div>
       )}
       {/* Color overlay - sits on top of the background image */}
       <div style={{ position: 'absolute', inset: 0, backgroundColor: bgColorWithOpacity, zIndex: 1 }} />
-      <div style={{ maxWidth: '800px', margin: '0 auto', textAlign: (props.alignment || 'center') as React.CSSProperties['textAlign'], position: 'relative', zIndex: 2 }}>
-        {(() => {
-          const stTitle = getStyledText(props.styledTitle, props.title);
-          return stTitle.text ? <h1 style={{ fontSize: titleFontSize, fontWeight, marginBottom: '16px', lineHeight: 1.1, letterSpacing: '-0.02em', ...stTitle.style }}>{stTitle.text}</h1> : null;
-        })()}
-        {(() => {
-          const stSub = getStyledText(props.styledSubtitle, props.subtitle);
-          return stSub.text ? <p style={{ fontSize: '24px', opacity: 0.9, marginBottom: '16px', lineHeight: 1.3, ...stSub.style }}>{stSub.text}</p> : null;
-        })()}
-        {(() => {
-          const stDesc = getStyledText(props.styledDescription, props.description);
-          return stDesc.text ? <p style={{ fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px', lineHeight: 1.6, maxWidth: '600px', margin: props.alignment === 'center' ? '0 auto 32px' : '0 0 32px', ...stDesc.style }}>{stDesc.text}</p> : null;
-        })()}
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: props.alignment === 'left' ? 'flex-start' : props.alignment === 'right' ? 'flex-end' : 'center' }}>
-          {props.buttonText && (
-            <HoverButtonComponent
-              backgroundColor={buttonColor}
-              hoverBackgroundColor={buttonHoverColor}
-              textColor={buttonTextColor}
-              href={props.buttonLink || '#'}
-              style={{ padding: '16px 32px', fontSize: '16px', fontWeight: 600 }}
-            >
-              {props.buttonText}
-            </HoverButtonComponent>
-          )}
-          {(props as any).secondaryButtonText && (
-            <a
-              href={(props as any).secondaryButtonLink || '#'}
-              style={{ padding: '15px 32px', fontSize: '16px', fontWeight: 600, borderRadius: '12px', border: '2px solid rgba(255,255,255,0.35)', color: 'inherit', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '6px', letterSpacing: '0.01em' }}
-            >
-              {(props as any).secondaryButtonText}
-            </a>
-          )}
-        </div>
+      <div style={{ maxWidth: hero.content.maxWidth, margin: hero.content.margin, textAlign, position: 'relative', zIndex: 2 }}>
+        {heroTextBlock}
       </div>
     </section>
   );
@@ -3395,7 +3508,7 @@ function ImageSliderSection({ props, styles }: { props: ComponentProps; styles: 
       <div style={{ position: 'relative', width: '100%', maxWidth: '1200px', margin: '0 auto', borderRadius: styles.borderRadius || '16px', overflow: 'hidden', boxShadow: '0 8px 40px rgba(0,0,0,0.18)' }}>
         <div style={{ width: '100%', aspectRatio, position: 'relative', backgroundColor: '#0a0a0a' }}>
           <div key={currentIndex} style={{ position: 'absolute', inset: 0 }}>
-            <img src={getImageUrl(images[currentIndex])} alt={'Slide ' + (currentIndex + 1)} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+            <PublishedImage value={images[currentIndex]} alt={'Slide ' + (currentIndex + 1)} slot={imageSlot('slider', { priority: currentIndex === 0 })} wrapperStyle={{ height: '100%', aspectRatio: 'auto' }} style={{ width: '100%', height: '100%', display: 'block' }} />
           </div>
           {images.length > 1 && <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 50%)', zIndex: 1 }} />}
           {caption && (
@@ -3452,7 +3565,7 @@ function TextImageSection({ props, styles }: { props: ComponentProps; styles: Co
         </div>
         {imageUrl && (
           <div style={{ flex: 1, minWidth: '300px' }}>
-            <img src={imageUrl} alt={props.imageAlt || props.title || ''} style={{ width: '100%', borderRadius: '12px' }} />
+            <PublishedImage value={props.imageUrl} alt={props.imageAlt || normalizeImageValue(props.imageUrl).alt || props.title || ''} slot={imageSlot('text-image')} wrapperStyle={{ width: (props as any).imageWidth || '100%', borderRadius: '12px' }} style={{ width: (props as any).imageWidth || '100%', height: (props as any).imageHeight || 'auto', borderRadius: '12px' }} />
           </div>
         )}
       </div>
@@ -3582,7 +3695,7 @@ function TestimonialsSection({ props, styles }: { props: ComponentProps; styles:
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 {getImageUrl(item.imageUrl) ? (
                   <div style={{ width: '44px', height: '44px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: '2px solid ' + hexToRgba(accentColor, 0.2) }}>
-                    <img src={getImageUrl(item.imageUrl)} alt={item.title || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <PublishedImage value={item.imageUrl} alt={item.title || ''} slot={imageSlot('avatar')} wrapperStyle={{ height: '100%', aspectRatio: 'auto' }} style={{ width: '100%', height: '100%' }} />
                   </div>
                 ) : (
                   <div style={{ width: '44px', height: '44px', borderRadius: '50%', backgroundColor: hexToRgba(accentColor, 0.12), border: '2px solid ' + hexToRgba(accentColor, 0.2), display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '16px', fontWeight: 700, color: accentColor }}>
@@ -3871,7 +3984,7 @@ function HeaderSection({ props, styles, pages, navItems: providedNavItems }: { p
               ? (props.imageUrl as any).url || (props.imageUrl as any).src 
               : props.imageUrl;
             return logoUrl ? (
-              <img src={logoUrl} alt={props.imageAlt || props.title || 'Logo'} style={{ height: '40px', width: 'auto', objectFit: 'contain' }} />
+              <PublishedImage value={props.imageUrl} alt={props.imageAlt || props.title || 'Logo'} slot={imageSlot('logo')} style={{ height: '40px', width: 'auto' }} />
             ) : null;
           })()}
           {props.title && <span>{props.title}</span>}
@@ -4203,7 +4316,7 @@ function ProductGridSection({ props, styles, products }: { props: ComponentProps
               <div key={product.id} className="product-card-ssr">
                 <div className="product-image-ssr">
                   {product.image_url ? (
-                    <img src={product.image_url} alt={product.name} />
+                    <PublishedImage value={product.image_url} alt={product.name} slot={imageSlot('card')} />
                   ) : (
                     <div className="product-placeholder-ssr">📦</div>
                   )}
@@ -4239,7 +4352,9 @@ function GallerySection({ props, styles }: { props: ComponentProps; styles: Comp
           {images.map((image: ImageValue, index: number) => {
             const imageUrl = getImageUrl(image);
             return imageUrl ? (
-              <img key={index} src={imageUrl} alt="" style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: styles.borderRadius || '8px' }} />
+              <div key={index} style={{ position: 'relative', borderRadius: styles.borderRadius || '8px', overflow: 'hidden', aspectRatio: '1' }}>
+                <PublishedImage value={image} alt="" slot={imageSlot('gallery')} wrapperStyle={{ height: '100%', aspectRatio: 'auto' }} style={{ width: '100%', height: '100%', display: 'block', borderRadius: styles.borderRadius || '8px' }} />
+              </div>
             ) : null;
           })}
         </div>
@@ -4780,7 +4895,7 @@ function TeamSection({ props, styles }: { props: ComponentProps; styles: Compone
                 ...getItemStyle(index),
               }}>
                 {imageUrl ? (
-                  <img src={imageUrl} alt={member.name || member.title} style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', marginBottom: '20px' }} />
+                  <PublishedImage value={member.imageUrl} alt={member.name || member.title} slot={imageSlot('avatar')} wrapperStyle={{ width: '120px', height: '120px', borderRadius: '50%', marginBottom: '20px', aspectRatio: 'auto' }} style={{ width: '120px', height: '120px', borderRadius: '50%', marginBottom: '20px' }} />
                 ) : (
                   <div style={{ width: '120px', height: '120px', borderRadius: '50%', backgroundColor: hexToRgba(accentColor, 0.1), margin: '0 auto 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px' }}>
                     👤
@@ -4857,7 +4972,7 @@ function SplitSectionComponent({ props, styles }: { props: ComponentProps; style
         </div>
         <div style={{ order: layout === 'image-right' ? 2 : 1 }}>
           {imageUrl ? (
-            <img src={imageUrl} alt={props.imageAlt || ''} style={{ width: '100%', borderRadius: '16px', boxShadow: '0 25px 50px rgba(0,0,0,0.15)' }} />
+            <PublishedImage value={props.imageUrl} alt={props.imageAlt || ''} slot={imageSlot('text-image')} wrapperStyle={{ borderRadius: '16px', boxShadow: '0 25px 50px rgba(0,0,0,0.15)' }} style={{ width: '100%', borderRadius: '16px', boxShadow: '0 25px 50px rgba(0,0,0,0.15)' }} />
           ) : (
             <div style={{ aspectRatio: '4/3', backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ fontSize: '48px', opacity: 0.3 }}>\u{1F5BC}\u{FE0F}</span>
@@ -4955,7 +5070,7 @@ function TabsSection({ props, styles }: { props: ComponentProps; styles: Compone
             <h3 style={{ fontSize: '24px', fontWeight: 600, marginBottom: '16px' }}>{items[activeTab].title}</h3>
             <p style={{ fontSize: '16px', lineHeight: 1.7, opacity: 0.85 }}>{items[activeTab].content || items[activeTab].description}</p>
             {items[activeTab].imageUrl && (
-              <img src={getImageUrl(items[activeTab].imageUrl)} alt="" loading="lazy" style={{ width: '100%', borderRadius: '12px', marginTop: '24px' }} />
+              <PublishedImage value={items[activeTab].imageUrl} alt="" slot={imageSlot('content')} wrapperStyle={{ borderRadius: '12px', marginTop: '24px' }} style={{ width: '100%', borderRadius: '12px', marginTop: '24px' }} />
             )}
           </div>
         )}
@@ -5251,14 +5366,15 @@ function LogoCloudSection({ props, styles }: { props: ComponentProps; styles: Co
           {logos.map((logo: any, index: number) => {
             const logoUrl = getImageUrl(logo.imageUrl);
             return logoUrl ? (
-              <img
+              <PublishedImage
                 key={logo.id || index}
-                src={logoUrl}
+                value={logo.imageUrl}
                 alt={logo.name || logo.title || ''}
+                slot={imageSlot('logo')}
                 style={{
                   height: '40px',
+                  width: 'auto',
                   maxWidth: '140px',
-                  objectFit: 'contain',
                   filter: isGrayscale ? 'grayscale(100%) opacity(0.6)' : 'none',
                   transition: 'filter 0.3s ease',
                 }}
@@ -5404,6 +5520,8 @@ type PrimitiveNode = {
   variant?: string;
   svg?: string;
   children?: PrimitiveNode[];
+  /** 'canvas' on a box: a free canvas whose root styles come from the marker. */
+  layout?: string;
   /** Trusted Birdflow widget — only on type === 'capability'. Birdflow owns the implementation. */
   capability?: string;
   /** Presentation-only config for capability nodes (whitelisted keys, no endpoints/scripts). */
@@ -5469,6 +5587,9 @@ function customNodeBaseStyles(node: PrimitiveNode): Record<string, string> {
     hasHoverPreset && !(node.styles || {}).transition ? { transition: MOTION_TABLES.hoverTransition } : {};
   switch (node.type) {
     case 'box':
+      // A free canvas: the same fixed placement the editor derives, so the
+      // artboard scales with its width and its children stay put.
+      if (node.layout === 'canvas') return { ...motionBase, ...(node.styles || {}), ...canvasRootStyles((node.styles || {}).aspectRatio) };
       return { display: 'flex', flexDirection: 'column', ...motionBase, ...(node.styles || {}) };
     case 'text':
       return { margin: '0', ...motionBase, ...(node.styles || {}) };
@@ -5622,7 +5743,7 @@ function CustomNode({ node, staggerParent }: { node: PrimitiveNode; staggerParen
     case 'image': {
       const src = node.src ? safeCustomHref(node.src) : '';
       if (!src || src === '#') return null;
-      return <img className={cls} {...motionProps} src={src} alt={node.alt || ''} />;
+      return <PublishedImage className={cls} {...motionProps} value={{ url: src, alt: node.alt }} alt={node.alt || ''} slot={imageSlot('content')} />;
     }
     case 'button':
       return (
@@ -5953,6 +6074,8 @@ export function generateTrustedRuntime(): string {
     ['SVG_SHAPES', JSON.stringify(SVG_SHAPES)],
     ['renderSvgShape', renderSvgShape.toString()],
     ['createSectionDecoration', createSectionDecoration.toString()],
+    ['canvasRootStyles', canvasRootStyles.toString()],
+    ['createImageRuntime', createImageRuntime.toString()],
   ];
   return entries.map(([name, source]) => `export const ${name} = ${source};`).join('\n');
 }

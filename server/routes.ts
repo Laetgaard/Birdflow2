@@ -18,7 +18,7 @@ import { getPlatformCalendar } from "./platformCalendar";
 import { requireWebsitePermission, getWebsiteAccess, getAuthedUser, resolveWebsiteAccess } from "./websiteAccess";
 import { classifyTrafficSource, extractUtmSource, getClientIp, lookupCountry, copenhagenDayStart } from "./analytics";
 import { recordAdminAudit, summarizeBuilderStateChange, auditManageMutation } from "./adminAudit";
-import { isAllowedMediaStoragePath } from "./mediaPaths";
+import { isAllowedMediaStoragePath, parseMediaAssetPatch } from "./mediaPaths";
 import { eq, sql, and as andOp, eq as eqOp, ne as neOp, gte as gteOp, lt as ltOp } from "drizzle-orm";
 import { z, ZodError } from "zod";
 import crypto from "node:crypto";
@@ -90,6 +90,9 @@ import { checkMutationClaims, scrubStateClaims } from "./claimRules";
 import { buildReport } from "./aiReport";
 import { BuilderMutationSchema } from "@shared/aiBuilderSchema";
 import { sanitizeBuilderStateCustomContent, brandGuideToDesignTokens, buildBrandContext } from "@shared/customComponents";
+import { prepareAccountComponent, prepareAccountComponentVersion } from "./accountComponentValidation";
+import { adaptTreeToBrand } from "./accountComponentAdapt";
+import type { PrimitiveNode } from "@shared/customComponents";
 import { emailService } from "./email/service";
 import { getUncachableResendClient } from "./replit_integrations/resendClient";
 import { parseBookingPriceCents } from "./parseBookingPrice";
@@ -3811,7 +3814,12 @@ export async function registerRoutes(
   app.patch("/api/websites/:id/media/:mediaId", requireAuth, requireWebsitePermission("manageMedia"), async (req, res) => {
     try {
       const access = getWebsiteAccess(req);
-      const asset = await storage.updateMediaAsset(req.params.mediaId, req.params.id, req.body);
+      // Only the two fields the editor may change. The rest — storagePath
+      // above all, which the delete route hands to the service-role client —
+      // describes the stored file and is written once, on upload.
+      const patch = parseMediaAssetPatch(req.body);
+      if ("error" in patch) return res.status(400).json({ message: patch.error });
+      const asset = await storage.updateMediaAsset(req.params.mediaId, req.params.id, patch.value);
       if (!asset) {
         return res.status(404).json({ message: "Media asset not found" });
       }
@@ -3822,7 +3830,7 @@ export async function registerRoutes(
         resourceId: req.params.mediaId,
         httpMethod: "PATCH",
         route: "/api/websites/:id/media/:mediaId",
-        changedSummary: { changedFields: Object.keys(req.body ?? {}).sort() },
+        changedSummary: { changedFields: Object.keys(patch.value).sort() },
       });
 
       res.json(asset);
@@ -8882,20 +8890,13 @@ ${invoice.description ? `<p><em>${escapeHtml(invoice.description)}</em></p>` : "
     try {
       const userId = (req as any).user?.id as string;
       const body = req.body ?? {};
-      if (!body.name?.trim() || !body.tree) {
-        return res.status(400).json({ message: "name og tree er påkrævet" });
-      }
+      const prepared = prepareAccountComponent(body);
+      if (!prepared.ok) return res.status(prepared.status).json({ message: prepared.message });
       const comp = await storage.createAccountComponent({
         ownerId: userId,
-        name: body.name.trim(),
-        description: body.description ?? null,
-        category: body.category ?? null,
-        tags: Array.isArray(body.tags) ? body.tags : null,
-        tree: body.tree,
-        schema: body.schema ?? null,
-        designMetadata: body.designMetadata ?? null,
-        origin: body.origin ?? "customer",
-        createdFromWebsiteId: body.createdFromWebsiteId ?? null,
+        ...prepared.value,
+        origin: body.origin === "ai" ? "ai" : "customer",
+        createdFromWebsiteId: typeof body.createdFromWebsiteId === "string" ? body.createdFromWebsiteId : null,
         version: 1,
       });
       res.status(201).json(comp);
@@ -8955,16 +8956,18 @@ ${invoice.description ? `<p><em>${escapeHtml(invoice.description)}</em></p>` : "
   app.post("/api/account/components/:componentId/new-version", requireAuth, async (req, res) => {
     try {
       const userId = (req as any).user?.id as string;
-      const body = req.body ?? {};
-      if (!body.tree) return res.status(400).json({ message: "tree er påkrævet" });
+      const prepared = prepareAccountComponentVersion(req.body ?? {});
+      if (!prepared.ok) return res.status(prepared.status).json({ message: prepared.message });
       const updated = await storage.createNewAccountComponentVersion(
         req.params.componentId,
         userId,
-        body.tree,
-        body.schema ?? null
+        prepared.value.tree,
+        prepared.value.schema
       );
       if (!updated) return res.status(404).json({ message: "Komponenten findes ikke" });
-      res.json(updated);
+      const existingMeta = (updated.designMetadata ?? {}) as { thumbnail?: string; origin?: string };
+      const withThumbnail = await storage.updateAccountComponent(updated.id, userId, { designMetadata: { ...existingMeta, thumbnail: prepared.value.thumbnail } });
+      res.json(withThumbnail ?? updated);
     } catch (err: any) {
       res.status(500).json({ message: err.message });
     }
@@ -9004,37 +9007,7 @@ ${invoice.description ? `<p><em>${escapeHtml(invoice.description)}</em></p>` : "
 
       const targetBuilder = await storage.getBuilderState(targetWebsiteId);
       const targetBrand = (targetBuilder?.state as any)?.brandGuide ?? null;
-
-      const adaptPrompt = [
-        "You are a visual design adapter. You receive a component tree (JSON) and a target brand guide.",
-        "Return ONLY the adapted component tree as valid JSON, with no explanation.",
-        "Rules:",
-        "1. Replace color hex values with the target brand's palette equivalents.",
-        "2. Replace font families with the target brand's heading/body fonts.",
-        "3. Keep the structure, layout and content identical.",
-        "4. Do not add or remove nodes.",
-        `Target brand guide: ${JSON.stringify(targetBrand ?? {})}`,
-        `Component tree: ${JSON.stringify(comp.tree)}`,
-      ].join("\n");
-
-      let adaptedTree = comp.tree;
-      try {
-        const { meteredChat } = await import("./aiCall");
-        const { createSpendMeter } = await import("./aiSpend");
-        const adaptMeter = createSpendMeter("assistant");
-        const result = await meteredChat(
-          "assistant",
-          { messages: [{ role: "user", content: adaptPrompt }], temperature: 0.3 },
-          adaptMeter
-        );
-        const text = (result.choices[0]?.message?.content ?? "").trim();
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          adaptedTree = JSON.parse(jsonMatch[0]);
-        }
-      } catch {
-        // Fallback to the original tree if AI fails
-      }
+      const adaptedTree = await adaptTreeToBrand(comp.tree as PrimitiveNode, targetBrand);
 
       res.json({
         adaptedTree,

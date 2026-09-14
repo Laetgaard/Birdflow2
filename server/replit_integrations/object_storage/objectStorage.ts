@@ -95,7 +95,7 @@ export class ObjectStorageService {
   }
 
   // Downloads an object to the response.
-  async downloadObject(file: File, res: Response, cacheTtlSec: number = 3600) {
+  async downloadObject(file: File, res: Response, cacheTtlSec: number = 3600, immutable: boolean = false) {
     try {
       // Get file metadata
       const [metadata] = await file.getMetadata();
@@ -108,7 +108,7 @@ export class ObjectStorageService {
         "Content-Length": metadata.size,
         "Cache-Control": `${
           isPublic ? "public" : "private"
-        }, max-age=${cacheTtlSec}`,
+        }, max-age=${cacheTtlSec}${immutable ? ", immutable" : ""}`,
       });
 
       // Stream the file to the response

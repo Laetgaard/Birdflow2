@@ -11,6 +11,7 @@ import {
   Bold, Italic, Underline, X, GripHorizontal, Minus, Plus
 } from 'lucide-react';
 import { fontFamilyPresets, fontWeightPresets } from '@shared/componentRegistry';
+import { useImagePicker } from './ImagePickerContext';
 
 type ElementType = 'image' | 'button' | 'card' | 'text' | 'container' | 'icon';
 
@@ -165,6 +166,7 @@ export default function ElementEditPanel({
 }: ElementEditPanelProps) {
   const [activeTab, setActiveTab] = useState('style');
   const [urlInput, setUrlInput] = useState('');
+  const imagePicker = useImagePicker();
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -241,44 +243,55 @@ export default function ElementEditPanel({
 
         <div className="p-3 max-h-96 overflow-y-auto">
           <TabsContent value="style" className="mt-0 space-y-4">
-            {/* Image controls */}
+            {/* Image controls. The source is only offered where the caller can
+                actually store it; otherwise this panel styles the image and the
+                properties panel owns which picture it is. */}
             {elementType === 'image' && (
               <>
-                <div className="space-y-2">
-                  <Label className="text-xs text-muted-foreground">Billede</Label>
-                  <div className="flex gap-2">
-                    <Button variant="outline" size="sm" className="flex-1 h-8 text-xs">
-                      <Upload className="h-3 w-3 mr-1" />
-                      Upload
-                    </Button>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button variant="outline" size="sm" className="flex-1 h-8 text-xs">
-                          <Link className="h-3 w-3 mr-1" />
-                          URL
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-60 p-2">
-                        <Input
-                          value={urlInput}
-                          onChange={(e) => setUrlInput(e.target.value)}
-                          placeholder="https://..."
-                          className="text-xs h-8 mb-2"
-                        />
-                        <Button
-                          size="sm"
-                          className="w-full h-7"
-                          onClick={() => {
-                            onImageChange?.(urlInput);
-                            setUrlInput('');
-                          }}
-                        >
-                          Anvend
-                        </Button>
-                      </PopoverContent>
-                    </Popover>
+                {onImageChange && (
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground">Billede</Label>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 h-8 text-xs"
+                        disabled={!imagePicker}
+                        onClick={() => imagePicker?.open({ title: 'Billede', onSelect: (picked) => onImageChange(picked.url) })}
+                        data-testid="button-element-pick-image"
+                      >
+                        <Upload className="h-3 w-3 mr-1" />
+                        Vælg billede
+                      </Button>
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button variant="outline" size="sm" className="flex-1 h-8 text-xs">
+                            <Link className="h-3 w-3 mr-1" />
+                            URL
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-60 p-2">
+                          <Input
+                            value={urlInput}
+                            onChange={(e) => setUrlInput(e.target.value)}
+                            placeholder="https://..."
+                            className="text-xs h-8 mb-2"
+                          />
+                          <Button
+                            size="sm"
+                            className="w-full h-7"
+                            onClick={() => {
+                              onImageChange(urlInput);
+                              setUrlInput('');
+                            }}
+                          >
+                            Anvend
+                          </Button>
+                        </PopoverContent>
+                      </Popover>
+                    </div>
                   </div>
-                </div>
+                )}
 
                 <div className="space-y-2">
                   <div className="flex justify-between items-center">

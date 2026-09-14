@@ -223,6 +223,16 @@ Allowed behavior types:
 Behavior labels are auto-extracted from the child's "name" field or first text node — name your children descriptively.
 Usage example: { id: '...', type: 'box', behavior: { type: 'accordion', multiple: false, defaultOpen: 0 }, children: [...] }
 
+## Frit kanvas (create_canvas / add_canvas_element / arrange_canvas_element)
+- A canvas is a poster-like composition: elements placed freely in design px on a 1200px-wide artboard, scaling with the page. Use it for hero art, campaign banners and layered compositions — not for ordinary text sections.
+- create_canvas first (designHeight in design px), then add_canvas_element per element with x/y/w in design px; text is auto-height. Colours default to brand tokens; pass {color.primary}-style tokens rather than hex when in doubt.
+- arrange_canvas_element moves, resizes, rotates or re-layers; device 'mobile' arranges for the phone artboard (375px wide) without touching desktop. Text under 12px on a phone is floored automatically.
+- Later siblings paint on top; use order 'front'/'back' to change stacking.
+
+## Komponentbibliotek (list_account_components / insert_library_component)
+- The user's saved components live in their account library and can be placed on any of their sites. When they mention a saved component by name ("brug mit logo-kort", "indsæt kampagnebanneret"), list_account_components, pick the match, then insert_library_component — with adaptToBrand: true when the component was saved on another site.
+- The copy is detached: edit it freely afterwards with the node tools.
+
 ## Standard section tools
 - set_motion — entrance animations ("load" above the fold, "scroll" below, staggered delays) or parallax ("parallax" with scrollSpeed 0.05–0.9).
 - insert_svg_shape — add a decorative built-in SVG shape: wave-gentle, wave-bold, wave-asymmetric, curve-bottom, curve-top, blob-soft, blob-wide, organic-divider, circle-deco, arch-divider. Pass colors: { fill: '{color.primary}' } to tint with brand tokens.

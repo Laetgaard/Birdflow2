@@ -15,6 +15,7 @@
  */
 
 import type { PrimitiveNode } from "@shared/customComponents";
+import { isCanvasRoot, canvasTextReadability, readableMobileFontSize, parseCqw, MIN_MOBILE_FONT_PX } from "@shared/customComponents";
 
 /** Anything wider than this cannot fit the narrowest phone we support. */
 export const PHONE_WIDTH_PX = 640;
@@ -65,8 +66,28 @@ export function guardResponsive(root: PrimitiveNode, label: string): ResponsiveR
   const repairs: string[] = [];
   const blocking: string[] = [];
 
+  // 8) A free canvas scales as a whole: percent placement cannot overflow
+  //    and the root is positioned by construction, so rules 1-7 do not
+  //    apply inside it. What can go wrong is text shrinking below what a
+  //    phone can show; that is repaired with a floor, never by reflowing.
+  const walkCanvas = (root: PrimitiveNode) => {
+    const byId = new Map<string, PrimitiveNode>();
+    const index = (n: PrimitiveNode) => { byId.set(n.id, n); n.children?.forEach(index); };
+    index(root);
+    for (const issue of canvasTextReadability(root)) {
+      const node = byId.get(issue.nodeId);
+      const cqw = parseCqw(node?.styles?.fontSize);
+      if (!node || cqw === null) continue;
+      node.mobileStyles = { ...(node.mobileStyles ?? {}), fontSize: readableMobileFontSize(cqw) };
+      repairs.push(
+        `Mobiltilpasning: teksten "${issue.name}" i ${label} ville blive ${Math.round(issue.mobilePx)}px på mobil — sat til mindst ${MIN_MOBILE_FONT_PX}px.`
+      );
+    }
+  };
+
   const walk = (node: PrimitiveNode, hasPositionedAncestor: boolean) => {
     if (!node || typeof node !== "object") return;
+    if (isCanvasRoot(node)) { walkCanvas(node); return; }
     const nodeName = node.name || node.type;
     const styles = (node.styles ?? {}) as Record<string, string>;
 

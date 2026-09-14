@@ -35,6 +35,8 @@ import {
   updatePrimitiveNode,
   effectiveEditableSchema,
   isInsideBoundRepeater,
+  findCanvasRoot,
+  isCanvasRoot,
   type PrimitiveNode,
   type PrimitiveNodeType,
   type PrimitiveStyleKey,
@@ -47,6 +49,8 @@ import type { MotionSpec } from "@shared/motion";
 import { resolveDesignTokens } from "@shared/designTokens";
 import { uploadImage } from "@/lib/builderUpload";
 import SemanticFieldsPanel from "./SemanticFieldsPanel";
+import CanvasNodeFields from "./CanvasNodeFields";
+import { useCanvasMode } from "./canvasMode";
 import type { DesignTokens, SvgAsset } from "@shared/schema";
 
 /**
@@ -348,6 +352,7 @@ export default function CustomComponentEditor({
   const setTree = (next: PrimitiveNode) => {
     onUpdate({ props: { customTree: next } });
   };
+  const canvasMode = useCanvasMode();
 
   if (!tree) {
     return (
@@ -383,7 +388,10 @@ export default function CustomComponentEditor({
     </div>
   ) : null;
 
-  if (semanticAvailable && !showAdvanced && effective) {
+  // A free canvas is edited directly on the artboard and in the fields
+  // below; the named-fields view would only get in the way.
+  const isCanvasTree = isCanvasRoot(tree);
+  if (semanticAvailable && !showAdvanced && effective && !isCanvasTree) {
     return (
       <div className="space-y-3">
         {modeToggle}
@@ -408,6 +416,7 @@ export default function CustomComponentEditor({
   }
 
   const selected = selectedNodeId ? findPrimitiveNode(tree, selectedNodeId) : null;
+  const canvasRoot = selected ? findCanvasRoot(tree, selected.id) : null;
   const parentInfo = selected && selected.id !== tree.id ? findPrimitiveParent(tree, selected.id) : null;
   const nodeCount = countPrimitiveNodes(tree);
   const isRootSelected = selected?.id === tree.id;
@@ -640,7 +649,7 @@ export default function CustomComponentEditor({
 
   return (
     <div className="space-y-4">
-      {modeToggle}
+      {!isCanvasTree && modeToggle}
 
       {/* Layer tree */}
       <div className="space-y-2">
@@ -653,6 +662,10 @@ export default function CustomComponentEditor({
         </p>
       </div>
 
+      {isCanvasTree ? (
+        <p className="text-[11px] text-muted-foreground">Tilføj tekst, billeder, former og knapper fra værktøjslinjen over kanvasset. Træk for at flytte, træk i hjørnerne for at ændre størrelse.</p>
+      ) : (
+        <>
       {/* Add elements */}
       <div className="space-y-2">
         <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -679,6 +692,9 @@ export default function CustomComponentEditor({
         </div>
       </div>
 
+        </>
+      )}
+
       {editorError && <p className="text-xs text-destructive">{editorError}</p>}
 
       {selected ? (
@@ -704,6 +720,18 @@ export default function CustomComponentEditor({
             </Button>
           </div>
 
+          {canvasRoot ? (
+            <CanvasNodeFields
+              root={canvasRoot}
+              node={selected}
+              device={canvasMode?.device ?? "desktop"}
+              onChange={(nextRoot) => setTree(updatePrimitiveNode(tree, canvasRoot.id, () => nextRoot))}
+              globalStyles={globalStyles}
+              websiteId={websiteId}
+              accessToken={accessToken}
+            />
+          ) : (
+            <>
           {/* Node name */}
           <div className="space-y-1">
             <Label className="text-xs">Navn</Label>
@@ -824,6 +852,9 @@ export default function CustomComponentEditor({
                   </SelectContent>
                 </Select>
               </div>
+            </>
+          )}
+
             </>
           )}
 
@@ -948,6 +979,8 @@ export default function CustomComponentEditor({
 
           <Separator />
 
+          {!canvasRoot && (
+            <>
           {/* Per-device styles */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -983,6 +1016,9 @@ export default function CustomComponentEditor({
               {STYLE_FIELDS.map(renderStyleField)}
             </div>
           </div>
+
+            </>
+          )}
 
           <Separator />
 

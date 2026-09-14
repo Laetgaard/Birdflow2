@@ -22,14 +22,17 @@ import {
   generateGlobalsCss,
   generateProductDetailPage,
   generateRootLayout,
+  generateTrustedRuntime,
   resolveProductPageDesign,
 } from '../server/publisher/templates';
+import BuilderComponentRenderer from '../client/src/components/builder/ComponentRenderer';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ReadOnlySitePreview } from '../client/src/components/onboarding/ReadOnlySitePreview';
 import {
   fontFamilies,
   imageAltTexts,
+  imageAttributes,
   imageSources,
   linkTargets,
   loadPublishedRenderer,
@@ -1410,5 +1413,187 @@ describe('navigation and shared chrome parity', () => {
       const publishedHtml = renderPublishedFromStored(component, composedHome);
       expect(visibleText(publishedHtml)).toBe(visibleText(builderHtml));
     }
+  });
+});
+
+describe('canvas components', () => {
+  // A free canvas: the root carries the marker, its children are placed in
+  // percent of the artboard and sized in cqw. Both renderers must derive the
+  // same root placement from the marker and put every child in the same
+  // place, and the mobile artboard override must reach the phone breakpoint.
+  const canvasComponent = {
+    id: 'canvas-1',
+    type: 'custom' as const,
+    props: {
+      customTree: {
+        id: 'cv-root',
+        type: 'box',
+        name: 'Kanvas',
+        layout: 'canvas',
+        styles: { aspectRatio: '1200 / 600', backgroundColor: '#f5f3ff' },
+        mobileStyles: { aspectRatio: '375 / 700' },
+        children: [
+          { id: 'cv-title', type: 'text', tag: 'h2', text: 'Ro i hverdagen', styles: { position: 'absolute', left: '10%', top: '12.5%', width: '50%', fontSize: '3cqw', color: '#1e1b4b' } },
+          { id: 'cv-photo', type: 'image', src: '/objects/uploads/hero.webp', alt: 'Klinikken', styles: { position: 'absolute', left: '60%', top: '10%', width: '30%', height: '60%', objectFit: 'cover' } },
+          { id: 'cv-dot', type: 'box', name: 'Ellipse', styles: { position: 'absolute', left: '5%', top: '70%', width: '10%', height: '20%', display: 'block', backgroundColor: '#6366f1', borderRadius: '50%' }, children: [] },
+          { id: 'cv-cta', type: 'button', label: 'Book tid', href: '/booking', variant: 'primary', styles: { position: 'absolute', left: '10%', top: '75%', width: '20%', fontSize: '1.5cqw', rotate: '-4deg' } },
+        ],
+      },
+    },
+    styles: {},
+  } as unknown as BuilderComponentData;
+
+  const parseDecls = (text: string): Record<string, string> =>
+    Object.fromEntries(
+      text.split(';').map((d) => d.trim()).filter(Boolean).map((d) => {
+        const i = d.indexOf(':');
+        return [d.slice(0, i).trim(), d.slice(i + 1).trim()];
+      })
+    );
+  /**
+   * The inline style the builder gives the element that carries data-node-id,
+   * merged with the element right inside it: a text node's wrapper carries
+   * the placement and the tag inside carries the typography.
+   */
+  const builderNodeStyle = (html: string, id: string): Record<string, string> => {
+    const match = new RegExp(`<[a-zA-Z]+[^>]*data-node-id="${id}"[^>]*>`).exec(html);
+    const tag = match?.[0] ?? '';
+    const outer = parseDecls(/\sstyle="([^"]*)"/.exec(tag)?.[1] ?? '');
+    const isTextWrapper = /data-node-type="text"/.test(tag);
+    if (!isTextWrapper || !match) return outer;
+    const innerTag = /^\s*<[a-zA-Z0-9]+[^>]*>/.exec(html.slice(match.index + tag.length))?.[0] ?? '';
+    return { ...outer, ...parseDecls(/\sstyle="([^"]*)"/.exec(innerTag)?.[1] ?? '') };
+  };
+  /** The base CSS rule the publisher emits for the node's class. */
+  const publishedNodeRule = (html: string, id: string): Record<string, string> => {
+    const rule = new RegExp(`\\.pn-${id}\\{([^}]*)\\}`).exec(html);
+    return parseDecls(rule?.[1] ?? '');
+  };
+  const placementOf = (decls: Record<string, string>) =>
+    Object.fromEntries(['position', 'left', 'top', 'width', 'height', 'font-size', 'rotate'].filter((k) => k in decls).map((k) => [k, decls[k]]));
+
+  it('shows the same words, image and link on both sides', () => {
+    const builder = renderBuilder(canvasComponent);
+    const published = renderPublished(canvasComponent);
+    expect(visibleText(published)).toBe(visibleText(builder));
+    expect(imageSources(published)).toEqual(imageSources(builder));
+    expect(linkTargets(published)).toEqual(linkTargets(builder));
+  });
+
+  it('derives the same root placement from the marker on both sides', () => {
+    const builder = builderNodeStyle(renderBuilder(canvasComponent), 'cv-root');
+    const published = publishedNodeRule(renderPublished(canvasComponent), 'cv-root');
+    for (const [key, value] of Object.entries({ position: 'relative', width: '100%', 'aspect-ratio': '1200 / 600', 'container-type': 'inline-size', overflow: 'hidden', 'background-color': '#f5f3ff' })) {
+      expect(builder[key], `builder ${key}`).toBe(value);
+      expect(published[key], `published ${key}`).toBe(value);
+    }
+    expect(builder.display).toBe('block');
+    expect(published.display).toBe('block');
+  });
+
+  it('places every element identically, in artboard units', () => {
+    const builderHtml = renderBuilder(canvasComponent);
+    const publishedHtml = renderPublished(canvasComponent);
+    for (const id of ['cv-title', 'cv-photo', 'cv-dot', 'cv-cta']) {
+      const builder = placementOf(builderNodeStyle(builderHtml, id));
+      const published = placementOf(publishedNodeRule(publishedHtml, id));
+      expect(builder.position, id).toBe('absolute');
+      expect(published, id).toEqual(builder);
+    }
+    expect(placementOf(publishedNodeRule(publishedHtml, 'cv-title'))).toEqual({ position: 'absolute', left: '10%', top: '12.5%', width: '50%', 'font-size': '3cqw' });
+    expect(placementOf(publishedNodeRule(publishedHtml, 'cv-cta')).rotate).toBe('-4deg');
+  });
+
+  it('sends the mobile artboard to the phone breakpoint', () => {
+    const published = renderPublished(canvasComponent);
+    const mobileBlock = /@media \(max-width: 640px\)\{([^]*?)\}\s*(?:@media|<\/style>|$)/.exec(published)?.[1] ?? '';
+    expect(mobileBlock).toContain('.pn-cv-root{aspect-ratio:375 / 700;}');
+    // The builder's phone preview resolves the same override into the root.
+    const mobileBuilder = renderToStaticMarkup(
+      React.createElement(BuilderComponentRenderer as never, { component: canvasComponent, isPreview: true, allComponents: [canvasComponent], globalStyles: {}, deviceMode: 'mobile' })
+    );
+    expect(builderNodeStyle(mobileBuilder, 'cv-root')['aspect-ratio']).toBe('375 / 700');
+  });
+
+  it('the trusted runtime carries the root-style function, closure-free', () => {
+    expect(generateTrustedRuntime()).toContain('export const canvasRootStyles = ');
+    expect(loadPublishedRenderer().source).toContain("node.layout === 'canvas'");
+  });
+});
+
+
+describe('an image is fetched and drawn the same way on both sides', () => {
+  /**
+   * The two renderers used to decide independently what to put in `src`,
+   * whether to lazy-load, whether to reserve space, and where a crop sits —
+   * and several sections passed a stored `{url, crop}` object straight into
+   * `src`, which is how "[object Object]" reached the editor. Both now ask
+   * the same shared resolver, so these comparisons are of one answer.
+   */
+  const UPLOAD = '/objects/uploads/0f8fad5b-d9cb-469f-a165-70867728950e.webp';
+  const photo = (extra: Record<string, unknown> = {}) => ({ url: UPLOAD, width: 1600, height: 1000, alt: 'Klinikkens venteværelse', ...extra });
+
+  const withProps = (type: ComponentType, props: Record<string, unknown>): BuilderComponentData =>
+    ({ ...componentFor(type), props: { ...componentRegistry[type].defaultProps, ...props } }) as BuilderComponentData;
+
+  const cases: Array<[string, BuilderComponentData]> = [
+    ['hero centered', withProps('hero', { imageUrl: photo(), layout: 'centered' })],
+    ['hero split-left', withProps('hero', { imageUrl: photo(), layout: 'split-left' })],
+    ['hero split-right', withProps('hero', { imageUrl: photo(), layout: 'split-right' })],
+    ['hero minimal', withProps('hero', { imageUrl: photo(), layout: 'minimal' })],
+    ['hero bold', withProps('hero', { imageUrl: photo(), layout: 'bold' })],
+    ['hero cropped', withProps('hero', { imageUrl: photo({ crop: { x: 200, y: 100, width: 800, height: 400 } }) })],
+    ['hero focal', withProps('hero', { imageUrl: photo({ focal: { x: 0.2, y: 0.8 } }) })],
+    ['gallery', withProps('gallery', { images: [photo(), photo({ url: '/images/second.webp' })] })],
+    ['team', withProps('team', { items: [{ id: '1', title: 'Sara', name: 'Sara', role: 'Ejer', imageUrl: photo({ alt: 'Sara' }) }] })],
+    ['logo-cloud', withProps('logo-cloud', { items: [{ id: '1', title: 'Kunde', name: 'Kunde', imageUrl: photo({ alt: 'Kunde' }) }] })],
+    ['text-image', withProps('text-image', { imageUrl: photo() })],
+    ['split-section', withProps('split-section', { imageUrl: photo() })],
+    ['header', withProps('header', { imageUrl: photo({ alt: 'Logo' }) })],
+  ];
+
+  it.each(cases)('%s asks the browser for the same file, the same way', (_name, component) => {
+    expect(imageAttributes(renderPublished(component))).toEqual(imageAttributes(renderBuilder(component)));
+  });
+
+  it('never leaks a stored image object into src', () => {
+    for (const [, component] of cases) {
+      for (const html of [renderBuilder(component), renderPublished(component)]) {
+        expect(html).not.toContain('[object Object]');
+        for (const img of imageAttributes(html)) expect(img.src ?? '').not.toBe('');
+      }
+    }
+  });
+
+  it('gives the hero priority and everything below it lazy loading', () => {
+    const hero = imageAttributes(renderPublished(cases[0][1]))[0];
+    expect(hero.loading).toBe('eager');
+    expect(hero.fetchpriority).toBe('high');
+    const gallery = imageAttributes(renderPublished(withProps('gallery', { images: [photo()] })))[0];
+    expect(gallery.loading).toBe('lazy');
+  });
+
+  it('offers the same size candidates for an upload, and none for a foreign URL', () => {
+    const galleryImg = imageAttributes(renderPublished(withProps('gallery', { images: [photo()] })))[0];
+    expect(galleryImg.srcset).toBe(`${UPLOAD}?w=480 480w, ${UPLOAD}?w=960 960w, ${UPLOAD} 1600w`);
+    expect(galleryImg.sizes).toBe('(max-width: 640px) 100vw, 50vw');
+    const foreign = imageAttributes(renderPublished(withProps('gallery', { images: [{ url: 'https://images.unsplash.com/photo-1', width: 1600, height: 1000 }] })))[0];
+    expect(foreign.srcset).toBeUndefined();
+  });
+
+  it('reserves the box with the stored natural size, and lays a crop out exactly', () => {
+    const plain = imageAttributes(renderPublished(withProps('text-image', { imageUrl: photo() })))[0];
+    expect([plain.width, plain.height]).toEqual(['1600', '1000']);
+    const cropped = imageAttributes(renderPublished(cases[5][1]))[0];
+    // 1600 wide over an 800-wide crop is 200%, offset by -200/800 of it.
+    expect(cropped['style.width']).toBe('200%');
+    expect(cropped['style.left']).toBe('-25%');
+    expect(cropped['style.position']).toBe('absolute');
+    expect(cropped.width).toBeUndefined();
+  });
+
+  it('points a cropless image at the focal point the customer chose', () => {
+    const focal = imageAttributes(renderPublished(cases[6][1]))[0];
+    expect(focal['style.object-position']).toBe('20% 80%');
   });
 });

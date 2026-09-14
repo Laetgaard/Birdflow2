@@ -65,11 +65,15 @@ type Registry = {
 
 const CanvasDocumentContext = createContext<Registry | null>(null);
 
-/** The builder's own document, unshifted — the behaviour before the frame. */
+/**
+ * The builder's own document, unshifted — the behaviour before the frame.
+ * Safe to build on the server, where nothing measures: `doc` and `win` are
+ * only ever read from effects and event handlers.
+ */
 function builderDocument(): CanvasDocument {
   return {
-    doc: document,
-    win: window,
+    doc: (typeof document === 'undefined' ? undefined : document) as Document,
+    win: (typeof window === 'undefined' ? undefined : window) as Window,
     toParentRect: (rect) => ({
       top: rect.top,
       left: rect.left,
@@ -123,7 +127,7 @@ export function useRegisterCanvasDocument(): (canvas: CanvasDocument | null) => 
 export function useBuilderDocuments(): Document[] {
   const canvas = useCanvasDocument();
   return useMemo(
-    () => (canvas.doc === document ? [document] : [document, canvas.doc]),
+    () => (typeof document === 'undefined' ? [] : canvas.doc === document ? [document] : [document, canvas.doc]),
     [canvas.doc]
   );
 }

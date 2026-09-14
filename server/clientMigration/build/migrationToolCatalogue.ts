@@ -27,6 +27,12 @@ export const EXCLUDED_MIGRATION_TOOLS = new Set([
   "update_brand_guide",
   "batch_update_components",
   "set_motion",
+  // Library and canvas tools would introduce content the source site never had.
+  "list_account_components",
+  "insert_library_component",
+  "create_canvas",
+  "add_canvas_element",
+  "arrange_canvas_element",
 ]);
 
 export function migrationToolCatalogue(): AgentTool[] {

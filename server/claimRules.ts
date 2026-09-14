@@ -100,8 +100,10 @@ function backed(pool: EvidencePool, phrase: string): boolean {
 // it must neither feed the evidence pool nor get scrubbed.
 // `customSchema` (stored) and `schema` (the AI mutation key it arrives
 // under) are panel metadata — field labels name what a customer can edit,
-// they are not site copy and must not be claim-judged.
-const SKIP_SUBTREE_RE = /^(styles?|css|customCss|globalStyles|animations?|motion|transition|easing|svg|customSchema|schema)$/i;
+// they are not site copy and must not be claim-judged. The responsive and
+// hover buckets are styles too: a phone placement of `left: '0%'` is not
+// a statistic.
+const SKIP_SUBTREE_RE = /^(styles?|(?:tablet|mobile|hover)Styles|css|customCss|globalStyles|animations?|motion|transition|easing|svg|customSchema|schema)$/i;
 const SKIP_STRING_RE =
   /(id|ids|url|href|src|link|icon|logo|image|img|photo|avatar|color|colour|background|font|family|slug|path|anchor|variant|align|alignment|size|width|height|class|className|target|media|video|audio|poster|embed|format|layout|position|direction|shape|fit|mode|theme|level|tag|key|ref|testid|token|preset|gradient|shadow|radius|spacing|weight)$/i;
 

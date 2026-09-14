@@ -35,6 +35,7 @@ import {
 import { sanitizeStyleRecord, sanitizeLinkHref, STYLE_KEY_SET } from './styles';
 import { CAPABILITY_TYPE_SET, sanitizeCapabilityConfig, type CapabilityType } from './capabilities';
 import { sanitizeBehavior } from './behaviors';
+import { isCanvasRoot, parseAspect, parsePercent } from './canvas';
 import {
   sanitizeEditableSchema,
   coerceEditableSchemaShape,
@@ -45,7 +46,7 @@ import {
 
 // ============ Library entry types ============
 
-export const LIBRARY_CATEGORIES = ['hero', 'sektion', 'kort', 'cta', 'galleri', 'dekoration', 'andet'] as const;
+export const LIBRARY_CATEGORIES = ['hero', 'sektion', 'kort', 'cta', 'galleri', 'kanvas', 'dekoration', 'andet'] as const;
 export type LibraryCategory = (typeof LIBRARY_CATEGORIES)[number];
 
 export const LIBRARY_CATEGORY_LABELS: Record<LibraryCategory, string> = {
@@ -54,6 +55,7 @@ export const LIBRARY_CATEGORY_LABELS: Record<LibraryCategory, string> = {
   kort: 'Kort',
   cta: 'Call-to-action',
   galleri: 'Galleri',
+  kanvas: 'Kanvas',
   dekoration: 'Dekoration',
   andet: 'Andet',
 };
@@ -83,6 +85,7 @@ export type CustomComponentEntry = {
 export function inferLibraryCategory(source: BuilderComponentData | undefined | null): LibraryCategory {
   const type = source?.type;
   if (!type) return 'andet';
+  if (type === 'custom' && isCanvasRoot((source?.props as { customTree?: PrimitiveNode } | undefined)?.customTree)) return 'kanvas';
   if (type === 'hero') return 'hero';
   if (type === 'cta' || type === 'newsletter') return 'cta';
   if (type === 'gallery' || type === 'image-slider' || type === 'before-after') return 'galleri';
@@ -156,8 +159,52 @@ function thumbLeaf(node: PrimitiveNode, x: number, y: number, w: number, h: numb
   }
 }
 
+/**
+ * A canvas draws its children where they are: the artboard's aspect fitted
+ * into the area, every child at its percent box. Groups recurse the same
+ * way. A text without a height gets a thin line where its top is.
+ */
+function thumbCanvas(node: PrimitiveNode, x: number, y: number, w: number, h: number, depth: number, parts: string[]): void {
+  const aspect = parseAspect(node.styles?.aspectRatio) ?? { w: 1200, h: 600 };
+  const scale = Math.min(w / aspect.w, h / aspect.h);
+  const aw = aspect.w * scale;
+  const ah = aspect.h * scale;
+  const ax = x + (w - aw) / 2;
+  const ay = y + (h - ah) / 2;
+  parts.push(thumbRect(ax, ay, aw, ah, '#f1f5f9', 1, '#e2e8f0'));
+  thumbAbsoluteChildren(node, ax, ay, aw, ah, depth, parts);
+}
+
+function thumbAbsoluteChildren(node: PrimitiveNode, ax: number, ay: number, aw: number, ah: number, depth: number, parts: string[]): void {
+  const kids = Array.isArray(node.children) ? node.children.slice(0, 12) : [];
+  for (const kid of kids) {
+    if (parts.length > 60) return;
+    const left = parsePercent(kid.styles?.left);
+    const top = parsePercent(kid.styles?.top);
+    const width = parsePercent(kid.styles?.width);
+    if (left === null || top === null || width === null) continue;
+    const height = parsePercent(kid.styles?.height);
+    const kx = ax + (left / 100) * aw;
+    const ky = ay + (top / 100) * ah;
+    const kw = Math.max(2, (width / 100) * aw);
+    const kh = height === null ? Math.max(4, ah * 0.08) : Math.max(2, (height / 100) * ah);
+    if (kid.type === 'box' && kid.children?.length && depth < 3) {
+      parts.push(thumbRect(kx, ky, kw, kh, 'none', 1, '#cbd5e1'));
+      thumbAbsoluteChildren(kid, kx, ky, kw, kh, depth + 1, parts);
+    } else if (kid.type === 'box') {
+      parts.push(thumbRect(kx, ky, kw, kh, '#a5b4fc', kid.styles?.borderRadius === '50%' ? Math.min(kw, kh) / 2 : 1));
+    } else {
+      thumbLeaf(kid, kx, ky, kw, kh, parts);
+    }
+  }
+}
+
 function thumbLayout(node: PrimitiveNode, x: number, y: number, w: number, h: number, depth: number, parts: string[]): void {
   if (parts.length > 60) return;
+  if (isCanvasRoot(node)) {
+    thumbCanvas(node, x, y, w, h, depth, parts);
+    return;
+  }
   const kids = Array.isArray(node.children) ? node.children.slice(0, 6) : [];
   if (!kids.length || depth >= 3 || w < 14 || h < 10) {
     thumbLeaf(node, x, y, w, h, parts);
@@ -469,6 +516,8 @@ export function sanitizePrimitiveTree(root: PrimitiveNode): PrimitiveNode {
     if (!node || typeof node !== 'object') return false;
     if (!NODE_TYPE_SET.has(node.type as string)) return false;
     budget--;
+
+    if (node.layout !== undefined && !(node.type === 'box' && node.layout === 'canvas')) delete node.layout;
 
     node.styles = sanitizeStyleRecord(node.styles);
     node.tabletStyles = sanitizeStyleRecord(node.tabletStyles);

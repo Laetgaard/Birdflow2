@@ -12,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue
 } from "@/components/ui/select";
-import { Trash2, Plus, GripVertical, Upload, Crop, Loader2, Move, Type, Paintbrush, Sparkles, ChevronDown, ChevronUp, Square, Circle } from "lucide-react";
+import { Trash2, Plus, GripVertical, Upload, Move, Type, Paintbrush, Sparkles, ChevronDown, ChevronUp, Square, Circle } from "lucide-react";
 import {
   componentRegistry,
   themeColors,
@@ -34,9 +34,11 @@ import {
   type StyledText
 } from "@shared/componentRegistry";
 import { decorationShapeOptions } from "@shared/rendering/sectionDecoration";
-import ImageCropper from "./ImageCropper";
 import CustomComponentEditor from "./CustomComponentEditor";
-import { uploadImage } from "@/lib/builderUpload";
+import BuilderImage from "./BuilderImage";
+import { useImagePicker } from "./ImagePickerContext";
+import { normalizeImageValue } from "@shared/rendering/imageRender";
+import type { ImageValue } from "@shared/rendering/imageValue";
 import type { DesignTokens } from "@shared/schema";
 import {
   resolveDesignTokens,
@@ -75,19 +77,6 @@ function BrandBadge({ path, testId }: { path: string; testId?: string }) {
   );
 }
 
-type CropData = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-
-type ImageValue = {
-  url: string;
-  mediaId?: string;
-  crop?: CropData;
-};
-
 type Props = {
   component: BuilderComponentData;
   onUpdate: (updates: { props?: Partial<ComponentProps>; styles?: Partial<ComponentStyles> }) => void;
@@ -114,15 +103,10 @@ type TabId = 'content' | 'design' | 'animation';
 
 export default function PropertiesPanel({ component, onUpdate, onDelete, onMove, websiteId, accessToken, globalStyles, selectedNodeId, onNodeSelect, focusItemIndex, onFocusItemHandled, svgAssets, onSvgAssetsChanged }: Props) {
   const definition = componentRegistry[component.type];
+  const imagePicker = useImagePicker();
   const resolvedTokens = useMemo<ResolvedTokens>(() => resolveDesignTokens(globalStyles), [globalStyles]);
   const [activeTab, setActiveTab] = useState<TabId>('content');
-  const [uploadingField, setUploadingField] = useState<string | null>(null);
-  const [cropperOpen, setCropperOpen] = useState(false);
-  const [cropperImage, setCropperImage] = useState<string>('');
-  const [cropperField, setCropperField] = useState<{ field: FieldDefinition; index?: number } | null>(null);
-  const [initialCrop, setInitialCrop] = useState<CropData | undefined>();
   const [showAdvancedSpacing, setShowAdvancedSpacing] = useState(false);
-  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
   const focusItemCardRef = useRef<HTMLDivElement | null>(null);
 
   // An item clicked on the canvas: bring its card into view, hold the
@@ -197,65 +181,6 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
     };
   };
 
-  const parseImageValue = (value: any): ImageValue => {
-    if (typeof value === 'string') {
-      return { url: value };
-    }
-    if (value && typeof value === 'object' && 'url' in value) {
-      return value as ImageValue;
-    }
-    return { url: '' };
-  };
-
-  const handleFileUpload = async (field: FieldDefinition, file: File, arrayIndex?: number) => {
-    const fieldKey = arrayIndex !== undefined ? `${field.key}-${arrayIndex}` : field.key;
-    setUploadingField(fieldKey);
-
-    try {
-      const { url, mediaId } = await uploadImage(websiteId, accessToken, file);
-
-      if (arrayIndex !== undefined) {
-        const currentValue = getValue(field);
-        const images = Array.isArray(currentValue) ? [...currentValue] : [];
-        images[arrayIndex] = { url, mediaId };
-        setValue(field, images);
-      } else {
-        setValue(field, { url, mediaId });
-      }
-    } catch (error) {
-      console.error('Upload failed:', error);
-    } finally {
-      setUploadingField(null);
-    }
-  };
-
-  const openCropper = (imageUrl: string, field: FieldDefinition, index?: number, existingCrop?: CropData) => {
-    setCropperImage(imageUrl);
-    setCropperField({ field, index });
-    setInitialCrop(existingCrop);
-    setCropperOpen(true);
-  };
-
-  const handleCropSave = (crop: CropData) => {
-    if (!cropperField) return;
-
-    const { field, index } = cropperField;
-
-    if (index !== undefined) {
-      const currentValue = getValue(field);
-      const images = Array.isArray(currentValue) ? [...currentValue] : [];
-      const current = parseImageValue(images[index]);
-      images[index] = { ...current, crop };
-      setValue(field, images);
-    } else {
-      const current = parseImageValue(getValue(field));
-      setValue(field, { ...current, crop });
-    }
-
-    setCropperOpen(false);
-    setCropperField(null);
-  };
-
   // Parse padding into 4 values
   const parsePadding = (padding: string | undefined): { top: string; right: string; bottom: string; left: string } => {
     if (!padding) return { top: '60', right: '24', bottom: '60', left: '24' };
@@ -264,6 +189,12 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
     if (parts.length === 2) return { top: parts[0], right: parts[1], bottom: parts[0], left: parts[1] };
     if (parts.length === 3) return { top: parts[0], right: parts[1], bottom: parts[2], left: parts[1] };
     return { top: parts[0], right: parts[1], bottom: parts[2], left: parts[3] };
+  };
+
+  /** Ask the shared dialog for an image and write what comes back. */
+  const openPicker = (current: ImageValue | null, subject: string, write: (value: ImageValue) => void) => {
+    if (!imagePicker) return;
+    imagePicker.open({ value: current && current.url ? current : null, title: subject, onSelect: write });
   };
 
   const renderField = (field: FieldDefinition) => {
@@ -401,168 +332,85 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
         );
 
       case 'image': {
-        const imageValue = parseImageValue(value);
-        const isUploading = uploadingField === field.key;
+        const imageValue = normalizeImageValue(value as never);
 
         return (
           <div key={field.key} className="space-y-2">
             <Label className="text-xs">{field.label}</Label>
-            <div className="flex gap-1">
-              <Input
-                value={imageValue.url}
-                onChange={(e) => setValue(field, { ...imageValue, url: e.target.value })}
-                placeholder="https://... or upload"
-                className="flex-1"
-                data-testid={`input-${field.key}`}
-              />
-              <input
-                type="file"
-                accept="image/*"
-                className="hidden"
-                ref={el => { fileInputRefs.current[field.key] = el; }}
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) handleFileUpload(field, file);
-                  e.target.value = '';
-                }}
-              />
-              <Button
-                variant="outline"
-                size="icon"
-                className="h-9 w-9 shrink-0"
-                onClick={() => fileInputRefs.current[field.key]?.click()}
-                disabled={isUploading}
-                data-testid={`button-upload-${field.key}`}
-              >
-                {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              </Button>
+            <button
+              type="button"
+              className="w-full rounded-md border bg-muted/40 overflow-hidden text-left hover:ring-2 hover:ring-primary"
+              onClick={() => openPicker(imageValue, field.label, (picked) => setValue(field, picked))}
+              data-testid={`button-pick-${field.key}`}
+            >
+              {imageValue.url ? (
+                <BuilderImage value={imageValue} slot={{ fit: 'cover' }} style={{ width: '100%', height: '96px', display: 'block' }} />
+              ) : (
+                <span className="flex items-center justify-center gap-2 h-24 text-xs text-muted-foreground">
+                  <Upload className="h-4 w-4" /> Vælg billede
+                </span>
+              )}
+            </button>
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+              <span className="truncate">{imageValue.alt ? imageValue.alt : imageValue.url ? 'Ingen alt-tekst' : ''}</span>
               {imageValue.url && (
                 <Button
-                  variant="outline"
-                  size="icon"
-                  className="h-9 w-9 shrink-0"
-                  onClick={() => openCropper(imageValue.url, field, undefined, imageValue.crop)}
-                  data-testid={`button-crop-${field.key}`}
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-[11px]"
+                  onClick={() => setValue(field, '')}
+                  data-testid={`button-clear-${field.key}`}
                 >
-                  <Crop className="h-4 w-4" />
+                  Fjern
                 </Button>
               )}
             </div>
-            {imageValue.url && (
-              <div className="relative">
-                <img
-                  src={imageValue.url}
-                  alt="Preview"
-                  className="w-full h-24 object-cover rounded-md"
-                  style={imageValue.crop ? {
-                    objectFit: 'none',
-                    objectPosition: `-${imageValue.crop.x}px -${imageValue.crop.y}px`,
-                    width: imageValue.crop.width,
-                    height: Math.min(imageValue.crop.height, 96),
-                  } : undefined}
-                />
-                {imageValue.crop && (
-                  <span className="absolute bottom-1 right-1 text-xs bg-black/50 text-white px-1 rounded">
-                    Cropped
-                  </span>
-                )}
-              </div>
-            )}
           </div>
         );
       }
 
       case 'image-array': {
-        const images = Array.isArray(value) ? value.map(parseImageValue) : [];
+        const images = Array.isArray(value) ? (value as unknown[]).map((v) => normalizeImageValue(v as never)) : [];
+        const writeAt = (index: number, next: ImageValue | null) => {
+          const copy = [...images];
+          if (next === null) copy.splice(index, 1);
+          else copy[index] = next;
+          setValue(field, copy);
+        };
 
         return (
           <div key={field.key} className="space-y-2">
             <Label className="text-xs">{field.label}</Label>
-            {images.map((img, i) => {
-              const fieldKey = `${field.key}-${i}`;
-              const isUploading = uploadingField === fieldKey;
-
-              return (
-                <div key={i} className="space-y-1 p-2 border rounded-md bg-muted/30">
-                  <div className="flex gap-1">
-                    <Input
-                      value={img.url}
-                      onChange={(e) => {
-                        const newImages = [...images];
-                        newImages[i] = { ...img, url: e.target.value };
-                        setValue(field, newImages);
-                      }}
-                      placeholder="Image URL"
-                      className="flex-1"
-                    />
-                    <input
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      ref={el => { fileInputRefs.current[fieldKey] = el; }}
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleFileUpload(field, file, i);
-                        e.target.value = '';
-                      }}
-                    />
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="h-9 w-9 shrink-0"
-                      onClick={() => fileInputRefs.current[fieldKey]?.click()}
-                      disabled={isUploading}
-                      data-testid={`button-upload-${fieldKey}`}
-                    >
-                      {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                    </Button>
-                    {img.url && (
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-9 w-9 shrink-0"
-                        onClick={() => openCropper(img.url, field, i, img.crop)}
-                        data-testid={`button-crop-${fieldKey}`}
-                      >
-                        <Crop className="h-4 w-4" />
-                      </Button>
-                    )}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-9 w-9 shrink-0"
-                      onClick={() => {
-                        const newImages = images.filter((_, idx) => idx !== i);
-                        setValue(field, newImages);
-                      }}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  {img.url && (
-                    <div className="relative">
-                      <img
-                        src={img.url}
-                        alt={`Image ${i + 1}`}
-                        className="w-full h-16 object-cover rounded"
-                      />
-                      {img.crop && (
-                        <span className="absolute bottom-1 right-1 text-xs bg-black/50 text-white px-1 rounded">
-                          Cropped
-                        </span>
-                      )}
-                    </div>
+            {images.map((img, i) => (
+              <div key={i} className="flex items-center gap-2 p-2 border rounded-md bg-muted/30">
+                <button
+                  type="button"
+                  className="w-16 h-12 rounded overflow-hidden border bg-muted shrink-0"
+                  onClick={() => openPicker(img, `${field.label} ${i + 1}`, (picked) => writeAt(i, picked))}
+                  data-testid={`button-pick-${field.key}-${i}`}
+                >
+                  {img.url ? (
+                    <BuilderImage value={img} slot={{ fit: 'cover' }} style={{ width: '100%', height: '100%', display: 'block' }} />
+                  ) : (
+                    <span className="flex items-center justify-center h-full text-[10px] text-muted-foreground">Vælg</span>
                   )}
-                </div>
-              );
-            })}
+                </button>
+                <span className="flex-1 text-[11px] text-muted-foreground truncate">
+                  {img.alt || (img.url ? 'Ingen alt-tekst' : 'Tomt felt')}
+                </span>
+                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => writeAt(i, null)}>
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </div>
+            ))}
             <Button
               variant="outline"
               size="sm"
               className="w-full"
-              onClick={() => setValue(field, [...images, { url: '' }])}
+              onClick={() => openPicker(null, field.label, (picked) => setValue(field, [...images, picked]))}
+              data-testid={`button-add-${field.key}`}
             >
-              <Plus className="h-4 w-4 mr-1" /> Add Image
+              <Plus className="h-4 w-4 mr-1" /> Tilføj billede
             </Button>
           </div>
         );
@@ -626,6 +474,29 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
                     placeholder="Icon (emoji)"
                     className="h-8 text-sm"
                   />
+                )}
+                {item.imageUrl !== undefined && (
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      className="w-16 h-12 rounded overflow-hidden border bg-muted shrink-0"
+                      onClick={() => openPicker(normalizeImageValue(item.imageUrl as never), `Item ${i + 1}`, (picked) => {
+                        const newItems = [...items];
+                        newItems[i] = { ...item, imageUrl: picked };
+                        setValue(field, newItems);
+                      })}
+                      data-testid={`button-pick-item-${i}`}
+                    >
+                      {normalizeImageValue(item.imageUrl as never).url ? (
+                        <BuilderImage value={item.imageUrl as never} slot={{ fit: 'cover' }} style={{ width: '100%', height: '100%', display: 'block' }} />
+                      ) : (
+                        <span className="flex items-center justify-center h-full text-[10px] text-muted-foreground">Billede</span>
+                      )}
+                    </button>
+                    <span className="flex-1 text-[11px] text-muted-foreground truncate">
+                      {normalizeImageValue(item.imageUrl as never).alt || 'Ingen alt-tekst'}
+                    </span>
+                  </div>
                 )}
                 {item.role !== undefined && (
                   <Input
@@ -1770,18 +1641,6 @@ export default function PropertiesPanel({ component, onUpdate, onDelete, onMove,
         {activeTab === 'animation' && renderAnimationTab()}
       </div>
 
-      {cropperOpen && cropperImage && (
-        <ImageCropper
-          imageSrc={cropperImage}
-          open={cropperOpen}
-          onClose={() => {
-            setCropperOpen(false);
-            setCropperField(null);
-          }}
-          onSave={handleCropSave}
-          initialCrop={initialCrop}
-        />
-      )}
     </div>
   );
 }

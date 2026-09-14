@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { adaptTreeToBrand } from "./accountComponentAdapt";
 import type { BuilderStateData, BrandGuide } from "@shared/schema";
 import type { BuilderMutation } from "@shared/aiBuilderSchema";
 import {
@@ -29,6 +30,23 @@ import {
 import {
   buildBrandContext,
   findPrimitiveNode,
+  findPrimitiveParent,
+  cloneLibrarySource,
+  createCanvasRoot,
+  createCanvasElement,
+  isCanvasRoot,
+  findCanvasRoot,
+  artboardFrame,
+  absoluteBox,
+  nodeBox,
+  applyBoxToStyles,
+  reorderNode,
+  parsePercent,
+  aspectString,
+  MIN_ELEMENT_PX,
+  CANVAS_DESIGN_WIDTH,
+  CANVAS_MOBILE_DESIGN_WIDTH,
+  DEFAULT_CANVAS_HEIGHT,
   insertPrimitiveChild,
   updatePrimitiveNode,
   removePrimitiveNode,
@@ -627,6 +645,33 @@ export function buildReadTools(): AgentTool[] {
         ...(e.version ? { version: e.version } : {}),
       })),
     }),
+  });
+
+  tools.push({
+    name: "list_account_components",
+    description:
+      "List the user's saved components across ALL their websites (the account library behind 'Mine komponenter'): " +
+      "id, name, category, tags, version and whether it is a free canvas. Place one with insert_library_component.",
+    parameters: z.object({}),
+    mutates: false,
+    run: async (_args, ctx) => {
+      if (!ctx.ownerId) return { ok: false, error: "Kontobiblioteket kræver en logget-ind bruger." };
+      const rows = await storage.listAccountComponents(ctx.ownerId);
+      return {
+        ok: true,
+        summary: `Læste ${rows.length} komponenter fra kontobiblioteket`,
+        data: rows.map((row) => ({
+          id: row.id,
+          name: row.name,
+          ...(row.description ? { description: row.description } : {}),
+          ...(row.category ? { category: row.category } : {}),
+          ...(row.tags?.length ? { tags: row.tags } : {}),
+          version: row.version,
+          origin: row.origin,
+          canvas: isCanvasRoot(row.tree),
+        })),
+      };
+    },
   });
 
   tools.push({
@@ -2116,6 +2161,222 @@ export function buildToolCatalogue(): AgentTool[] {
   });
 
   // ---- termination ----
+
+  /* ─────────── the account library and free canvases ─────────── */
+
+  /** The canvas root a node sits in, or the tree's own (first) canvas. */
+  const canvasRootIn = (tree: PrimitiveNode, nodeId?: string): PrimitiveNode | null => {
+    if (nodeId) return findCanvasRoot(tree, nodeId);
+    if (isCanvasRoot(tree)) return tree;
+    let found: PrimitiveNode | null = null;
+    const walk = (n: PrimitiveNode) => { if (found) return; if (isCanvasRoot(n)) { found = n; return; } n.children?.forEach(walk); };
+    walk(tree);
+    return found;
+  };
+  /** The design-px frame of a container on a canvas: the artboard, or a group's box. */
+  const containerFrameIn = (root: PrimitiveNode, containerId: string, device: "desktop" | "mobile"): { width: number; height: number } | null => {
+    const frame = artboardFrame(root, device);
+    if (containerId === root.id) return frame;
+    const box = absoluteBox(root, containerId, frame, device);
+    return box ? { width: box.w, height: box.h } : null;
+  };
+  const placedAt = (ctx: AgentContext, pageId: string, position?: number) => {
+    const page = ctx.state.pages.find((p) => p.id === pageId);
+    if (!page) return undefined;
+    return typeof position === "number" ? page.components[position] : page.components[page.components.length - 1];
+  };
+
+  tools.push({
+    name: "insert_library_component",
+    description:
+      "Place one of the user's saved components (from list_account_components) on a page as a detached copy. " +
+      "adaptToBrand re-colours and re-fonts it for this site's brand guide first. Works for saved canvases too.",
+    parameters: z.object({
+      componentId: z.string().describe("Id from list_account_components"),
+      pageId: z.string(),
+      position: z.number().int().min(0).optional().describe("Index on the page; omit to append"),
+      adaptToBrand: z.boolean().optional(),
+      name: z.string().max(80).optional(),
+    }),
+    mutates: true,
+    run: async (args, ctx) => {
+      if (!ctx.ownerId) return { ok: false, error: "Kontobiblioteket kræver en logget-ind bruger." };
+      const comp = await storage.getAccountComponent(args.componentId, ctx.ownerId);
+      if (!comp) return { ok: false, error: `Komponent "${args.componentId}" findes ikke i kontobiblioteket.` };
+      let tree = comp.tree as PrimitiveNode;
+      if (args.adaptToBrand && ctx.state.brandGuide) tree = await adaptTreeToBrand(tree, ctx.state.brandGuide);
+      // A fresh copy: new node ids, so two placements never share a class.
+      const source = cloneLibrarySource({ id: "library", type: "custom", props: { customTree: tree }, styles: {} } as unknown as BuilderStateData["pages"][0]["components"][0]);
+      const copy = (source.props as { customTree: PrimitiveNode }).customTree;
+      const mutation = {
+        action: "add_custom_component",
+        pageId: args.pageId,
+        name: args.name ?? comp.name,
+        tree: copy,
+        ...(typeof args.position === "number" ? { position: args.position } : {}),
+      } as unknown as BuilderMutation;
+      const result = await applyWrite(mutation, ctx, () => `Indsatte "${comp.name}" fra komponentbiblioteket`);
+      if (!result.ok) return result;
+      const placed = placedAt(ctx, args.pageId, args.position);
+      if (placed && placed.type === "custom") {
+        (placed.props as Record<string, unknown>).libraryRef = { entryId: comp.id, version: comp.version, accountComponentId: comp.id };
+        return { ok: true, data: { componentId: placed.id, name: comp.name, canvas: isCanvasRoot(copy) }, summary: result.summary };
+      }
+      return result;
+    },
+  });
+
+  tools.push({
+    name: "create_canvas",
+    description:
+      "Add a free canvas to a page: a custom component whose elements are placed freely, like a poster, and scale with the page width. " +
+      `Designed at ${CANVAS_DESIGN_WIDTH}px wide (${CANVAS_MOBILE_DESIGN_WIDTH}px on phones); give designHeight in those pixels. ` +
+      "Then add elements with add_canvas_element. Prefer standard sections for ordinary content; a canvas is for compositions.",
+    parameters: z.object({
+      pageId: z.string(),
+      position: z.number().int().min(0).optional(),
+      designHeight: z.number().int().min(100).max(4000).optional().describe(`Height in design px at ${CANVAS_DESIGN_WIDTH} wide (default ${DEFAULT_CANVAS_HEIGHT})`),
+      background: z.string().max(60).optional().describe("Colour or a brand token like {color.surface}"),
+      name: z.string().max(80).optional(),
+    }),
+    mutates: true,
+    run: async (args, ctx) => {
+      const root = createCanvasRoot({ height: args.designHeight, background: args.background, name: args.name });
+      const mutation = {
+        action: "add_custom_component",
+        pageId: args.pageId,
+        name: args.name ?? "Kanvas",
+        tree: root,
+        ...(typeof args.position === "number" ? { position: args.position } : {}),
+      } as unknown as BuilderMutation;
+      const result = await applyWrite(mutation, ctx, () => "Oprettede et kanvas");
+      if (!result.ok) return result;
+      const placed = placedAt(ctx, args.pageId, args.position);
+      return {
+        ok: true,
+        summary: result.summary,
+        data: { componentId: placed?.id, rootNodeId: root.id, designWidth: CANVAS_DESIGN_WIDTH, designHeight: args.designHeight ?? DEFAULT_CANVAS_HEIGHT },
+      };
+    },
+  });
+
+  const canvasElementSchema = z.object({
+    kind: z.enum(["text", "image", "rect", "ellipse", "line", "button", "svg"]),
+    x: z.number().describe("Left, design px"),
+    y: z.number().describe("Top, design px"),
+    w: z.number().positive().describe("Width, design px"),
+    h: z.number().positive().optional().describe("Height, design px (text is auto-height when omitted)"),
+    rotate: z.number().min(-360).max(360).optional(),
+    text: z.string().max(2000).optional(),
+    tag: z.enum(["h1", "h2", "h3", "h4", "p", "span"]).optional(),
+    fontSizePx: z.number().positive().max(400).optional(),
+    fontWeight: z.string().max(10).optional(),
+    textAlign: z.enum(["left", "center", "right"]).optional(),
+    color: z.string().max(60).optional(),
+    fill: z.string().max(60).optional(),
+    stroke: z.string().max(60).optional(),
+    strokeWidthPx: z.number().positive().max(40).optional(),
+    radiusPx: z.number().min(0).max(400).optional(),
+    thicknessPx: z.number().positive().max(40).optional(),
+    src: z.string().max(2000).optional(),
+    alt: z.string().max(300).optional(),
+    label: z.string().max(80).optional(),
+    href: z.string().max(2000).optional(),
+    variant: z.enum(["primary", "secondary", "outline", "ghost", "link"]).optional(),
+    shapeId: z.string().max(40).optional().describe("A built-in shape id, e.g. wave-gentle, blob-soft"),
+    name: z.string().max(80).optional(),
+  });
+
+  tools.push({
+    name: "add_canvas_element",
+    description:
+      "Place one element on a free canvas (created with create_canvas) at x/y with width/height in design px " +
+      `(the artboard is ${CANVAS_DESIGN_WIDTH} wide). Kinds: text, image, rect, ellipse, line, button, svg. ` +
+      "Colours may be brand tokens ({color.primary}, {color.text}); omitted colours default to the brand. " +
+      "parentNodeId targets a group inside the canvas; omit it for the artboard itself.",
+    parameters: z.object({
+      pageId: z.string(),
+      componentId: z.string(),
+      parentNodeId: z.string().optional(),
+      element: canvasElementSchema,
+    }),
+    mutates: true,
+    run: async (args, ctx) => {
+      const found = findCustomTree(ctx, args.pageId, args.componentId);
+      if ("error" in found) return { ok: false, error: found.error };
+      const root = canvasRootIn(found.tree, args.parentNodeId);
+      if (!root) return { ok: false, error: `Komponent "${args.componentId}" er ikke et kanvas — opret ét med create_canvas først.` };
+      const parentId = args.parentNodeId ?? root.id;
+      const parent = findPrimitiveNode(root, parentId);
+      if (!parent || parent.type !== "box") return { ok: false, error: `"${parentId}" er ikke en gruppe på kanvasset.` };
+      const frame = containerFrameIn(root, parentId, "desktop");
+      if (!frame) return { ok: false, error: `Kunne ikke måle "${parentId}".` };
+      const { kind, x, y, w, h, rotate, ...opts } = args.element;
+      const node = createCanvasElement(kind, { x, y, w, h, rotate }, frame, opts);
+      const newTree = updatePrimitiveNode(found.tree, root.id, (r) => insertPrimitiveChild(r, parentId, node));
+      const mutation = { action: "update_custom_component" as const, pageId: args.pageId, componentId: args.componentId, tree: newTree } as BuilderMutation;
+      const result = await applyWrite(mutation, ctx, () => `Tilføjede ${node.name ?? kind} til kanvasset`);
+      return result.ok ? { ok: true, data: { nodeId: node.id }, summary: result.summary } : result;
+    },
+  });
+
+  tools.push({
+    name: "arrange_canvas_element",
+    description:
+      "Move, resize, rotate or re-layer an element on a free canvas, in design px. Omitted values keep their current value. " +
+      "device 'mobile' arranges the element on the phone artboard (375px wide) without touching the desktop layout.",
+    parameters: z.object({
+      pageId: z.string(),
+      componentId: z.string(),
+      nodeId: z.string(),
+      x: z.number().optional(),
+      y: z.number().optional(),
+      w: z.number().positive().optional(),
+      h: z.number().positive().optional(),
+      rotate: z.number().min(-360).max(360).optional(),
+      order: z.enum(["front", "back", "forward", "backward"]).optional(),
+      device: z.enum(["desktop", "mobile"]).default("desktop"),
+    }),
+    mutates: true,
+    run: async (args, ctx) => {
+      const found = findCustomTree(ctx, args.pageId, args.componentId);
+      if ("error" in found) return { ok: false, error: found.error };
+      const root = findCanvasRoot(found.tree, args.nodeId);
+      if (!root || root.id === args.nodeId) return { ok: false, error: `"${args.nodeId}" er ikke et element på et kanvas.` };
+      const node = findPrimitiveNode(root, args.nodeId);
+      const location = findPrimitiveParent(root, args.nodeId);
+      if (!node || !location) return { ok: false, error: `"${args.nodeId}" findes ikke.` };
+      const device = args.device ?? "desktop";
+      const frame = containerFrameIn(root, location.parent.id, device);
+      if (!frame) return { ok: false, error: "Kunne ikke måle elementets gruppe." };
+      let newRoot = root;
+      const moves = [args.x, args.y, args.w, args.h, args.rotate].some((v) => v !== undefined);
+      if (moves) {
+        const styles = device === "mobile" ? { ...(node.styles ?? {}), ...(node.mobileStyles ?? {}) } : (node.styles ?? {});
+        const box = nodeBox(node, frame, device) ?? { x: 0, y: 0, w: frame.width / 4, h: 0 };
+        const withHeight = typeof args.h === "number" || parsePercent(styles.height) !== null;
+        const next = {
+          x: args.x ?? box.x,
+          y: args.y ?? box.y,
+          w: Math.max(MIN_ELEMENT_PX, args.w ?? box.w),
+          h: withHeight ? Math.max(MIN_ELEMENT_PX, args.h ?? box.h) : undefined,
+          rotate: args.rotate ?? box.rotate,
+        };
+        const bucket = device === "mobile" ? "mobileStyles" : "styles";
+        newRoot = updatePrimitiveNode(newRoot, args.nodeId, (n) => ({ ...n, [bucket]: applyBoxToStyles(n[bucket], next, frame) }));
+        if (device === "mobile" && !newRoot.mobileStyles?.aspectRatio) {
+          const artboard = artboardFrame(root, "mobile");
+          newRoot = { ...newRoot, mobileStyles: { ...(newRoot.mobileStyles ?? {}), aspectRatio: aspectString(artboard.width, artboard.height) } };
+        }
+      }
+      if (args.order) newRoot = reorderNode(newRoot, args.nodeId, args.order);
+      if (newRoot === root) return { ok: true, data: { changed: false }, summary: "Intet at ændre" };
+      const newTree = updatePrimitiveNode(found.tree, root.id, () => newRoot);
+      const mutation = { action: "update_custom_component" as const, pageId: args.pageId, componentId: args.componentId, tree: newTree } as BuilderMutation;
+      const result = await applyWrite(mutation, ctx, () => `Arrangerede ${node.name ?? node.type} på kanvasset`);
+      return result.ok ? { ok: true, data: { nodeId: args.nodeId, changed: true }, summary: result.summary } : result;
+    },
+  });
 
   tools.push({
     name: "finish",
