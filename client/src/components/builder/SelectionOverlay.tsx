@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useBuilderSelection } from '@/contexts/BuilderSelectionContext';
 import { useCanvasDocument } from './canvasDocument';
+import { useCanvasMode } from './canvasMode';
 
 type OverlayRect = {
   top: number;
@@ -58,6 +59,9 @@ export default function SelectionOverlay() {
   // Canvas elements may live in a document of their own, with their own
   // coordinate space; `toParentRect` brings a rect back into this one.
   const canvas = useCanvasDocument();
+  // While a canvas element is selected its own overlay draws the handles.
+  const canvasMode = useCanvasMode();
+  const hideHandles = !!canvasMode?.active && canvasMode.selectedNodeIds.length > 0;
 
   useEffect(() => {
     setIsTouchDevice('ontouchstart' in window || navigator.maxTouchPoints > 0);
@@ -266,6 +270,7 @@ export default function SelectionOverlay() {
   const handleOffset = handleSize / 2;
 
   const renderResizeHandle = (handle: ResizeHandle, style: React.CSSProperties) => {
+    if (hideHandles) return null;
     const cursorMap: Record<ResizeHandle, string> = {
       'nw': 'nw-resize',
       'n': 'n-resize',

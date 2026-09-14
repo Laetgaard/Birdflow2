@@ -314,6 +314,9 @@ export default function ElementOverlay({
 
     elements.forEach((el) => {
       const element = el as HTMLElement;
+      // A free canvas owns everything inside it: its own overlay selects,
+      // moves and edits those elements.
+      if (element.closest('[data-canvas-root]')) return;
       const rect = element.getBoundingClientRect();
       if (rect.width < 10 || rect.height < 10) return;
       if (overlayRef.current?.contains(element)) return;
@@ -477,6 +480,7 @@ export default function ElementOverlay({
       const target = e.target as HTMLElement;
       if (overlayRef.current?.contains(target)) return;
       if (target.closest('[data-section-insert-point]')) return;
+      if (target.closest('[data-canvas-overlay]') || target.closest('[data-canvas-root]')) return;
       if (target.closest('[contenteditable="true"]')) return;
 
       // If clicking inside an already-selected component, proactively trigger
@@ -519,6 +523,7 @@ export default function ElementOverlay({
       const target = e.target as HTMLElement;
       if (overlayRef.current?.contains(target)) return;
       if (target.closest('[data-section-insert-point]')) return;
+      if (target.closest('[data-canvas-overlay]') || target.closest('[data-canvas-root]')) return;
 
       // If inside already-selected component, try to enter field editing directly
       if (selectedComponentId) {

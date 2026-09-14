@@ -70,6 +70,10 @@ import {
   type LibraryCategory,
   type CustomComponentEntry,
   type PrimitiveNode,
+  createCanvasRoot,
+  findCanvasRoot,
+  isCanvasRoot,
+  type CanvasDevice,
 } from "@shared/customComponents";
 import { sanitizeSvg } from "@shared/svgSanitizer";
 import BrandGuidePanel from "@/components/builder/BrandGuidePanel";
@@ -93,6 +97,8 @@ import BuilderInspector from "@/components/builder/BuilderInspector";
 import AIBuilderPanel from "@/components/AIBuilderPanel";
 import FloatingToolbar from "@/components/builder/FloatingToolbar";
 import SelectionOverlay from "@/components/builder/SelectionOverlay";
+import CanvasEditorOverlay from "@/components/builder/CanvasEditorOverlay";
+import { CanvasModeProvider, type CanvasMode } from "@/components/builder/canvasMode";
 import ContextMenu from "@/components/builder/ContextMenu";
 import CoachMarks from "@/components/builder/CoachMarks";
 import TemplateGalleryModal from "@/components/builder/TemplateGalleryModal";
@@ -249,7 +255,14 @@ export default function BuilderPage() {
   // True while a background AI build is running — badge shown on the AI tab.
   const [isBuildRunning, setIsBuildRunning] = useState(false);
   // Node selection inside custom components (primitive node trees)
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // Node selection inside a custom component. A free canvas selects many at
+  // once; every older consumer reads the last one as before.
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const selectedNodeId = selectedNodeIds.length ? selectedNodeIds[selectedNodeIds.length - 1] : null;
+  const setSelectedNodeId = useCallback((nodeId: string | null) => setSelectedNodeIds(nodeId ? [nodeId] : []), []);
+  const [canvasDevice, setCanvasDevice] = useState<CanvasDevice>('desktop');
+  const [canvasGrid, setCanvasGrid] = useState(false);
+  const [canvasSnap, setCanvasSnap] = useState(true);
   const selectComponentOnly = useCallback((componentId: string | null) => {
     setSelectedComponentId(componentId);
     setSelectedNodeId(null);
@@ -1296,6 +1309,70 @@ export default function BuilderPage() {
     return slot ? builderState.siteChrome?.[slot] ?? null : null;
   })();
 
+  // ============ Free canvas ============
+
+  /** Replace a custom component's tree: one undo step, or coalesced for nudges and typing. */
+  const updateComponentTree = useCallback((componentId: string, tree: PrimitiveNode, description: string, mode: 'commit' | 'debounce' = 'commit') => {
+    if (!builderState) return;
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: builderState.pages.map((page) => ({
+        ...page,
+        components: page.components.map((comp) => (comp.id === componentId ? { ...comp, props: { ...comp.props, customTree: tree } } : comp)),
+      })),
+    };
+    if (mode === 'commit') updateStateWithHistory(newState, description);
+    else debouncedHistoryPush(newState, description, 400);
+  }, [builderState, updateStateWithHistory, debouncedHistoryPush]);
+
+  const canvasMode = useMemo<CanvasMode>(() => {
+    const tree = selectedComponent?.type === 'custom' ? ((selectedComponent.props as { customTree?: PrimitiveNode }).customTree ?? null) : null;
+    const root = tree ? ((selectedNodeId && findCanvasRoot(tree, selectedNodeId)) || (isCanvasRoot(tree) ? tree : null)) : null;
+    return {
+      active: !!root,
+      componentId: root && selectedComponent ? selectedComponent.id : null,
+      tree,
+      root,
+      device: canvasDevice,
+      setDevice: setCanvasDevice,
+      selectedNodeIds,
+      setSelectedNodeIds,
+      editingField,
+      onEditField: setEditingField,
+      updateTree: (next, description, mode) => { if (selectedComponent) updateComponentTree(selectedComponent.id, next, description, mode); },
+      showGrid: canvasGrid,
+      setShowGrid: setCanvasGrid,
+      snapEnabled: canvasSnap,
+      setSnapEnabled: setCanvasSnap,
+      websiteId: id || '',
+      accessToken: session?.access_token || '',
+      brandLogoUrl: builderState?.brandGuide?.logoUrl,
+      onSaveCanvas: root ? () => {
+        if (!selectedComponent) return;
+        setSaveComponentName(root.name || 'Kanvas');
+        setSaveComponentCategory(inferLibraryCategory(selectedComponent as BuilderComponentData));
+        setSaveDuplicateOf(null);
+        setSaveComponentOpen(true);
+      } : undefined,
+    };
+  }, [selectedComponent, selectedNodeId, selectedNodeIds, canvasDevice, editingField, canvasGrid, canvasSnap, id, session?.access_token, builderState?.brandGuide?.logoUrl, updateComponentTree]);
+
+  /** A new free canvas on the active page: a custom component whose tree is an empty artboard. */
+  const addCanvasComponent = () => {
+    if (!builderState) return;
+    const newComponent = createComponent('custom');
+    const root = createCanvasRoot();
+    newComponent.props = { ...newComponent.props, customTree: root, customSchema: undefined } as typeof newComponent.props;
+    const newState: BuilderStateData = {
+      ...builderState,
+      pages: builderState.pages.map((page) => (page.id === builderState.activePage ? { ...page, components: [...page.components, newComponent] } : page)),
+    };
+    updateStateWithHistory(newState, 'Tilføj kanvas');
+    selectComponentOnly(newComponent.id);
+    setSelectedNodeIds([root.id]);
+    setSidebarTab('properties');
+  };
+
   // ============ Custom component library ("Mine komponenter") ============
 
   // Stored SVG illustrations: svg nodes carrying svgAssetId resolve against
@@ -2127,6 +2204,7 @@ export default function BuilderPage() {
           activePage={builderState?.activePage}
         >
           <CanvasDocumentProvider>
+          <CanvasModeProvider value={canvasMode}>
           <ElementSelectionProvider
             onElementStyleChange={(componentId, path, styles) => {
               // Update element styles within the component's builder state
@@ -2149,6 +2227,7 @@ export default function BuilderPage() {
             onClick={(e) => {
               const target = e.target as HTMLElement;
               if (target.closest('[data-component-id]')) return;
+              if (target.closest('[data-canvas-overlay]')) return;
               selectComponentOnly(null);
             }}
             data-preview-area
@@ -2258,6 +2337,7 @@ export default function BuilderPage() {
             />
           </main>
           <SelectionOverlay />
+          <CanvasEditorOverlay />
           <FloatingToolbar />
           <ContextMenu />
           <DragDropLayer />
@@ -2403,6 +2483,16 @@ export default function BuilderPage() {
                 >
                   <Puzzle className="w-4 h-4 text-primary" />
                   <span className="font-medium">Ny tom komponent</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-2 border-dashed border-2 hover:border-primary hover:bg-primary/5"
+                  onClick={addCanvasComponent}
+                  data-testid="add-canvas-component"
+                >
+                  <Layout className="w-4 h-4 text-primary" />
+                  <span className="font-medium">Nyt kanvas</span>
+                  <span className="ml-auto text-[10px] text-muted-foreground">frit layout</span>
                 </Button>
                 {(builderState?.customComponents?.length ?? 0) === 0 ? (
                   <p className="text-xs text-muted-foreground leading-relaxed">
@@ -2622,6 +2712,7 @@ export default function BuilderPage() {
         </aside>
         )}
         </ElementSelectionProvider>
+          </CanvasModeProvider>
         </CanvasDocumentProvider>
         </BuilderSelectionProvider>
       </div>
