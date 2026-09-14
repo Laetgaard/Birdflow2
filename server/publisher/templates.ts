@@ -3,6 +3,7 @@ import { createBookingView } from '../../shared/rendering/bookingView';
 import { groupBookingServices, groupServiceIds, mergeServiceSlots } from '../../shared/rendering/bookingServices';
 import { SVG_SHAPES, renderSvgShape } from '../../shared/svgShapes';
 import { createSectionDecoration } from '../../shared/rendering/sectionDecoration';
+import { canvasRootStyles } from '../../shared/generative/canvas';
 import { createBehaviorRuntime } from '../../shared/rendering/behaviorRuntime';
 import type { ThemeConfig, PageData, BuilderComponentData } from '../../shared/rendering/types';
 import { BREAKPOINTS, REDUCED_MOTION_QUERY } from '../../shared/rendering/contract';
@@ -2626,7 +2627,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import theme from '@/theme.json';
 import { useCart } from '@/components/CartProvider';
 import BookingForm from '@/components/BookingForm';
-import { createBehaviorRuntime, computeMotion as sharedComputeMotion, motionPhaseStyle as sharedMotionPhaseStyle, sectionMotionSpec as sharedSectionMotionSpec, staggerChildSpec as sharedStaggerChildSpec, createSectionDecoration, SVG_SHAPES, renderSvgShape } from '@/components/trustedRuntime';
+import { createBehaviorRuntime, computeMotion as sharedComputeMotion, motionPhaseStyle as sharedMotionPhaseStyle, sectionMotionSpec as sharedSectionMotionSpec, staggerChildSpec as sharedStaggerChildSpec, createSectionDecoration, SVG_SHAPES, renderSvgShape, canvasRootStyles } from '@/components/trustedRuntime';
 
 // Same decoration helpers the editor uses, bound to the same shape registry.
 const { sectionDecorationLayers: sharedSectionDecorationLayers, shapeDividerMarkup: sharedShapeDividerMarkup, hasSectionDecoration: sharedHasSectionDecoration } =
@@ -5404,6 +5405,8 @@ type PrimitiveNode = {
   variant?: string;
   svg?: string;
   children?: PrimitiveNode[];
+  /** 'canvas' on a box: a free canvas whose root styles come from the marker. */
+  layout?: string;
   /** Trusted Birdflow widget — only on type === 'capability'. Birdflow owns the implementation. */
   capability?: string;
   /** Presentation-only config for capability nodes (whitelisted keys, no endpoints/scripts). */
@@ -5469,6 +5472,9 @@ function customNodeBaseStyles(node: PrimitiveNode): Record<string, string> {
     hasHoverPreset && !(node.styles || {}).transition ? { transition: MOTION_TABLES.hoverTransition } : {};
   switch (node.type) {
     case 'box':
+      // A free canvas: the same fixed placement the editor derives, so the
+      // artboard scales with its width and its children stay put.
+      if (node.layout === 'canvas') return { ...motionBase, ...(node.styles || {}), ...canvasRootStyles((node.styles || {}).aspectRatio) };
       return { display: 'flex', flexDirection: 'column', ...motionBase, ...(node.styles || {}) };
     case 'text':
       return { margin: '0', ...motionBase, ...(node.styles || {}) };
@@ -5953,6 +5959,7 @@ export function generateTrustedRuntime(): string {
     ['SVG_SHAPES', JSON.stringify(SVG_SHAPES)],
     ['renderSvgShape', renderSvgShape.toString()],
     ['createSectionDecoration', createSectionDecoration.toString()],
+    ['canvasRootStyles', canvasRootStyles.toString()],
   ];
   return entries.map(([name, source]) => `export const ${name} = ${source};`).join('\n');
 }
