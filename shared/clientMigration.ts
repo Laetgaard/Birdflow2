@@ -60,14 +60,32 @@ export const MIGRATION_ACTIVE_STATUSES: MigrationStatus[] = [
 
 export const MAX_MIGRATION_PAGES = 60;
 export const DEFAULT_MIGRATION_PAGES = 30;
-export const MAX_MIGRATION_CEILING_USD = 20;
-export const DEFAULT_MIGRATION_CEILING_USD = 12;
-export const MAX_MIGRATION_ASSETS = 80;
+export const MAX_MIGRATION_CEILING_USD = 150;
+export const DEFAULT_MIGRATION_CEILING_USD = 20;
+export const MAX_MIGRATION_ASSETS = 300;
+export const DEFAULT_MIGRATION_ASSETS = 160;
 export const MAX_SECTIONS_PER_PAGE = 24;
+
+/**
+ * What a site of this many pages needs to be planned, rebuilt pixel-close
+ * and verified.
+ *
+ * A flat ceiling is the wrong shape: it is generous for a five-page site and
+ * starves a thirty-page one. Every section is placed deterministically first,
+ * so the ceiling never decides whether the site is complete — only how many
+ * sections get the agent's faithful upgrade on top. Costed for the reasoning
+ * model with a screenshot in every call: about $0.15 a call, four calls per
+ * upgraded section, three upgrades per page, plus the plan and the vision
+ * review. The admin can still override it per job.
+ */
+export function recommendedCeilingUsd(maxPages: number): number {
+  const pages = Math.max(1, Math.min(MAX_MIGRATION_PAGES, Math.round(maxPages || DEFAULT_MIGRATION_PAGES)));
+  return Math.min(MAX_MIGRATION_CEILING_USD, Math.max(DEFAULT_MIGRATION_CEILING_USD, Math.round(10 + 2.2 * pages)));
+}
 
 export const migrationLimitsSchema = z.object({
   maxPages: z.number().int().min(1).max(MAX_MIGRATION_PAGES).default(DEFAULT_MIGRATION_PAGES),
-  maxAssets: z.number().int().min(0).max(MAX_MIGRATION_ASSETS).default(MAX_MIGRATION_ASSETS),
+  maxAssets: z.number().int().min(0).max(MAX_MIGRATION_ASSETS).default(DEFAULT_MIGRATION_ASSETS),
   ceilingUsd: z.number().min(1).max(MAX_MIGRATION_CEILING_USD).default(DEFAULT_MIGRATION_CEILING_USD),
 });
 export type MigrationLimits = z.infer<typeof migrationLimitsSchema>;
@@ -89,6 +107,8 @@ export const createMigrationRequestSchema = z.object({
   consentAttested: z.literal(true),
   consentNote: z.string().max(1000).optional(),
   respectRobots: z.boolean().default(true),
+  /** Off by default: the job builds the site and the admin reviews the result. */
+  requirePlanReview: z.boolean().default(false),
   limits: migrationLimitsSchema.partial().optional(),
   /** Attach to an account that already exists instead of creating one. */
   existingUserId: z.string().optional(),
@@ -199,6 +219,8 @@ export const extractedSectionSchema = z.object({
   wordCount: z.number().int().nonnegative(),
   role: SectionRoleSchema,
   confidence: z.number().min(0).max(1),
+  /** The page segmented into nothing and this stands in for its whole body. */
+  fallback: z.boolean().optional(),
 });
 export type ExtractedSection = z.infer<typeof extractedSectionSchema>;
 
@@ -453,6 +475,119 @@ export function validateMigrationPlan(plan: MigrationPlan, input: PlanValidation
   return errors;
 }
 
+/**
+ * Make a plan satisfy `validateMigrationPlan` by dropping what cannot be
+ * honoured, never by inventing anything. Pure.
+ *
+ * The migration is worth more than any single page: a plan with one bad
+ * reference should cost the admin that reference, not the whole job. Every
+ * repair is returned so it can be surfaced as a warning rather than hidden.
+ */
+export function repairMigrationPlan(plan: MigrationPlan, input: PlanValidationInput): { plan: MigrationPlan; repairs: string[] } {
+  const known = new Set(input.sectionIds);
+  const media = new Set(input.mediaIds);
+  const pageIds = new Set(input.pageIds);
+  const repairs: string[] = [];
+  const next: MigrationPlan = structuredClone(plan);
+  const claimed = new Set<string>();
+
+  const pages: MigrationPagePlan[] = [];
+  for (const page of next.pages) {
+    if (!pageIds.has(page.sourcePageId)) {
+      repairs.push(`Page ${page.sourcePageId} was not extracted and was left out of the plan.`);
+      continue;
+    }
+    const sections: MigrationSectionPlan[] = [];
+    for (const section of page.sections) {
+      if (!known.has(section.sourceSectionId)) {
+        repairs.push(`Section ${section.sourceSectionId} was not extracted and was left out.`);
+        continue;
+      }
+      if (claimed.has(section.sourceSectionId)) {
+        repairs.push(`Section ${section.sourceSectionId} was planned more than once; the later one was left out.`);
+        continue;
+      }
+      claimed.add(section.sourceSectionId);
+      const mergeSourceIds = (section.mergeSourceIds ?? []).filter((id) => {
+        if (id === section.sourceSectionId) { repairs.push(`Section ${id} merged into itself; the merge was dropped.`); return false; }
+        if (!known.has(id)) { repairs.push(`Merged section ${id} was not extracted; the merge was dropped.`); return false; }
+        if (claimed.has(id)) { repairs.push(`Section ${id} was already accounted for; the merge was dropped.`); return false; }
+        claimed.add(id);
+        return true;
+      });
+      const imageMediaIds = section.imageMediaIds.filter((id) => {
+        if (media.has(id)) return true;
+        repairs.push(`Section ${section.sourceSectionId} referenced an image that was not imported; it was dropped.`);
+        return false;
+      });
+      let target = section.target;
+      const key = targetKey(target);
+      if (key !== "skip" && key !== "note" && !(ROLE_TARGET_COMPATIBILITY[section.role] ?? []).includes(key)) {
+        repairs.push(`Section ${section.sourceSectionId}: role ${section.role} cannot become ${key}; it was noted instead.`);
+        target = { kind: "note", message: `Planned as ${key}, which this section's role does not allow.` };
+      }
+      sections.push({ ...section, target, imageMediaIds, order: sections.length, ...(mergeSourceIds.length ? { mergeSourceIds } : { mergeSourceIds: undefined }) });
+    }
+    if (!sections.length) {
+      repairs.push(`Page ${page.sourcePageId} had no usable sections and was left out of the plan.`);
+      continue;
+    }
+    pages.push({ ...page, sections });
+  }
+
+  // Exactly one home page, whatever the model or a dropped page did to it.
+  const homes = pages.filter((page) => page.role === "home");
+  if (!homes.length && pages.length) {
+    pages[0].role = "home";
+    repairs.push(`No home page survived the plan; "${pages[0].targetName}" was made the front page.`);
+  } else if (homes.length > 1) {
+    for (const extra of homes.slice(1)) {
+      extra.role = "service";
+      repairs.push(`"${extra.targetName}" was a second home page and was made an ordinary page.`);
+    }
+  }
+  const home = pages.find((page) => page.role === "home");
+  if (home) home.targetSlug = "";
+
+  // Slugs are the site's paths, so they must be unique.
+  const slugs = new Set<string>();
+  for (const page of pages) {
+    if (page.role === "home") { slugs.add(""); continue; }
+    let slug = page.targetSlug || "side";
+    if (!slug || slugs.has(slug)) {
+      let n = 2;
+      while (slugs.has(`${slug}-${n}`)) n++;
+      repairs.push(`Two pages wanted the path "/${page.targetSlug}"; one became "/${slug}-${n}".`);
+      slug = `${slug}-${n}`;
+    }
+    slugs.add(slug);
+    page.targetSlug = slug;
+  }
+  next.pages = pages;
+
+  // Unsupported entries follow the same rules, and anything the plan forgot
+  // is recorded there rather than silently dropped.
+  const unsupported = next.unsupported.filter((entry) => {
+    if (!known.has(entry.sourceSectionId) || claimed.has(entry.sourceSectionId)) return false;
+    claimed.add(entry.sourceSectionId);
+    return true;
+  });
+  for (const id of input.sectionIds) {
+    if (claimed.has(id) || unsupported.length >= 200) continue;
+    unsupported.push({ sourceSectionId: id, message: "Its page was left out of the plan." });
+    claimed.add(id);
+  }
+  next.unsupported = unsupported.slice(0, 200);
+
+  next.chrome.header.nav = next.chrome.header.nav.filter((link) => slugs.has(link.targetSlug));
+  if (!next.chrome.header.nav.some((link) => link.targetSlug === "") && slugs.has("")) {
+    next.chrome.header.nav.unshift({ label: next.language === "en" ? "Home" : "Forside", targetSlug: "" });
+  }
+  next.chrome.header.nav = next.chrome.header.nav.slice(0, 12);
+  next.notes = next.notes.slice(0, 40);
+  return { plan: next, repairs };
+}
+
 /* ─────────────────────────── job DTOs ─────────────────────────── */
 
 export const migrationWarningSchema = z.object({
@@ -483,8 +618,15 @@ export type MigrationFidelity = {
   orderScore: number;
 };
 
+/**
+ * What became of each planned section. `placed` is the deterministic floor;
+ * `upgraded` means the agent replaced or refined it; `upgrade_failed` and
+ * `upgrade_skipped` mean the floor stays. (`agent` is the older name for
+ * `upgraded`, still found on rows built before the floor existed.)
+ */
+export type MigrationSectionBuildStatus = "placed" | "upgraded" | "upgrade_failed" | "upgrade_skipped" | "agent" | "failed" | "skipped" | "noted";
 export type MigrationPageBuildProgress = {
-  sections: Record<string, { status: "placed" | "agent" | "failed" | "skipped" | "noted"; componentId?: string; attempts: number; note?: string }>;
+  sections: Record<string, { status: MigrationSectionBuildStatus; componentId?: string; attempts: number; note?: string }>;
   agentSpendUsd: number;
 };
 

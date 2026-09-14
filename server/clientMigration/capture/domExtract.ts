@@ -84,7 +84,14 @@ export function finalizeExtraction(raw: RawExtraction, pageOrdinal: number, view
       images: (rest.images ?? []).map((img) => ({ ...img, sourceUrl: img.src || undefined })),
     };
     const guess = guessRole(base as any, index, viewport.height);
-    return { id: `p${pageOrdinal}-s${index}`, ...base, ...guess };
+    // A page-root fallback is honest about what it is: rich-text, low
+    // confidence, so the planner never treats it as a confident reading.
+    const isFallback = raw.bodyFallback === true && index === 0;
+    return {
+      id: `p${pageOrdinal}-s${index}`,
+      ...base,
+      ...(isFallback ? { role: "rich-text" as const, confidence: 0.2, fallback: true } : guess),
+    };
   });
   const candidate = {
     version: 1 as const,

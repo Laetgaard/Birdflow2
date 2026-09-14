@@ -221,6 +221,30 @@ describe("deterministic placement", () => {
     expect(c.props.content).toBe("<h2>Om &lt;klinikken&gt;</h2><p>A &amp; B</p><ul><li>Et</li><li>To</li></ul><blockquote>Citat — Nogen</blockquote>");
   });
 
+  it("puts the imported background behind the hero, and keeps the photo in front of it", () => {
+    const bg = "/objects/uploads/hero.webp";
+    const photo = "/objects/uploads/rum.webp";
+    const s = { ...hero, bgImage: bg, images: [{ src: photo, mediaId: "m-rum" }, { src: bg, mediaId: "m-hero", isBackground: true }] };
+    const c = place(0, s, { kind: "section", sectionType: "hero-section", variant: "bold" });
+    expect(c.styles.backgroundImage).toBe(`url(${bg})`);
+    expect(c.styles.backgroundSize).toBe("cover");
+    expect(c.props.imageUrl).toBe(photo);
+  });
+
+  it("uses no background the job did not import", () => {
+    const s = { ...hero, bgImage: `${ORIGIN}/img/intro-bg.png` };
+    const c = place(0, s, { kind: "section", sectionType: "hero-section" });
+    expect(c.styles.backgroundImage).toBeUndefined();
+    expect(JSON.stringify(c)).not.toContain("intro-bg.png");
+  });
+
+  it("keeps the pictures even when a section ends up as rich text", () => {
+    const s = section({ id: "p0-s6", headings: [{ level: 2, text: "Rummet" }], paragraphs: ["Et roligt rum."], images: [{ src: "/objects/uploads/rum.webp", mediaId: "m-rum", alt: "Klinikkens rum" }] });
+    const c = place(6, s, { kind: "component", componentType: "rich-text" });
+    expect(c.props.content).toContain('<img src="/objects/uploads/rum.webp" alt="Klinikkens rum" />');
+    expect(c.props.content).toContain("<p>Et roligt rum.</p>");
+  });
+
   it("returns nothing for skip, note and custom targets — the agent owns custom", () => {
     expect(buildPlacementMutation(hero, planFor(hero.id, { kind: "skip", reason: "x" }), ctx(0))).toBeNull();
     expect(buildPlacementMutation(hero, planFor(hero.id, { kind: "note", message: "x" }), ctx(0))).toBeNull();

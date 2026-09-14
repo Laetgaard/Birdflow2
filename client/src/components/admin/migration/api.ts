@@ -43,7 +43,9 @@ export type MigrationPageView = {
   verifyStatus: string;
   targetPageId: string | null;
   hasScreenshots: boolean;
-  sections: Array<{ id: string; role: string; confidence: number; headings: string[]; items: number; images: number; bbox: { x: number; y: number; w: number; h: number } }>;
+  hasRebuildScreenshot: boolean;
+  needsAttention: boolean;
+  sections: Array<{ id: string; role: string; confidence: number; fallback: boolean; headings: string[]; items: number; images: number; bbox: { x: number; y: number; w: number; h: number } }>;
   buildProgress: { sections?: Record<string, { status: string; componentId?: string; attempts: number; note?: string }>; agentSpendUsd?: number } | null;
   verify: { score?: { score: number; textCoverage: number; headingCoverage: number; ctaCoverage: number; imageCoverage: number; orderScore: number }; issues?: Array<{ id: string; severity: string; description: string; suggestedAction: string; componentId?: string }>; resolutions?: Array<{ issueId: string; description: string; status: string }>; iterations?: number; reviewed?: boolean } | null;
   updatedAt: string;
@@ -60,6 +62,20 @@ export const PHASE_LABELS: Record<MigrationPhase, string> = {
   build: "Byg",
   verify: "Kontrol",
   finish: "Afslut",
+};
+
+/** Why a job failed, in words the admin can act on. */
+export const ERROR_LABELS: Record<string, string> = {
+  source_unreachable: "Kilden kunne ikke nås",
+  blocked_by_bot_protection: "Blokeret af bot-beskyttelse",
+  too_few_pages: "For få sider fundet",
+  plan_invalid: "Planen kunne ikke laves",
+  builder_conflict: "Siden blev ændret imens",
+  spend_ceiling: "AI-loftet blev nået",
+  browser_crash: "Browseren gik ned",
+  provisioning_failed: "Projektet kunne ikke oprettes",
+  cancelled: "Annulleret",
+  unknown: "Ukendt fejl",
 };
 
 export const STATUS_LABELS: Record<string, string> = {

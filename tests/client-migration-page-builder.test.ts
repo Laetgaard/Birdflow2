@@ -1,9 +1,11 @@
 /**
- * One source page becomes one builder page. Standard sections are placed
- * deterministically at no cost; only custom sections reach the agent, and
- * when the agent cannot or may not run, the content still lands as text —
- * the page is never left with a hole. A rebuild after a crash replaces what
- * the crashed attempt left behind instead of duplicating it.
+ * One source page becomes one builder page. Every section is first placed
+ * deterministically as a real section with its images — the floor — at no
+ * cost. Only sections the plan marks custom reach the agent, which upgrades
+ * the floor to a faithful rebuild; when the agent cannot, will not or may
+ * not (budget) run, the floor stays. The page is never left with a hole and
+ * never degrades to bare text. A rebuild after a crash replaces what the
+ * crashed attempt left behind instead of duplicating it.
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -14,7 +16,7 @@ process.env.OPENAI_API_KEY ||= "test-dummy";
 
 const runAgentLoop = vi.fn();
 vi.mock("../server/aiAgent", () => ({ runAgentLoop: (...args: unknown[]) => runAgentLoop(...args) }));
-vi.mock("../server/aiAgentTools", () => ({ buildToolCatalogue: () => [{ name: "add_custom_component" }, { name: "generate_image" }, { name: "finish" }] }));
+vi.mock("../server/aiAgentTools", () => ({ buildToolCatalogue: () => [{ name: "create_custom_component" }, { name: "generate_image" }, { name: "analyze_design" }, { name: "finish" }] }));
 vi.mock("../server/clientMigration/capture/pageCapture", () => ({
   readMigrationFile: async () => { throw new Error("no object storage in tests"); },
   cropSection: async () => Buffer.alloc(0),
@@ -135,55 +137,91 @@ describe("deterministic pages", () => {
   });
 });
 
-describe("custom sections", () => {
-  it("hands a custom section to the agent with the crop-free brief and stamps what it placed", async () => {
-    runAgentLoop.mockImplementation(async ({ ctx, userMessage, tools, role }: any) => {
+describe("custom sections: the floor first, then the agent's upgrade", () => {
+  it("places the standard section first, shows the agent the crop as an image, and swaps in what it built", async () => {
+    runAgentLoop.mockImplementation(async ({ ctx, userMessage, userContent, tools, role, maxSteps }: any) => {
       expect(role).toBe("migrationBuild");
       expect(tools.map((t: any) => t.name)).not.toContain("generate_image");
+      expect(tools.map((t: any) => t.name)).not.toContain("analyze_design");
+      expect(tools.map((t: any) => t.name)).toContain("create_custom_component");
+      expect(maxSteps).toBeGreaterThanOrEqual(3);
+      // The brief names the floor it may replace and never pastes an image into the text.
       expect(userMessage).toContain("Det siger klienterne");
+      expect(userMessage).toContain('component "mig-0-2-0"');
       expect(userMessage).not.toMatch(/<image>/);
+      expect(userMessage).not.toContain("add_custom_component");
+      expect(userContent[0]).toMatchObject({ type: "text" });
       expect(ctx.approvedLargeChanges).toBe(true);
       expect(typeof ctx.guard).toBe("function");
+      // The floor is already on the page when the agent starts.
       const page = ctx.state.pages.find((p: any) => p.id === "home");
-      page.components.push({ id: "agent-made", type: "custom", props: { customTree: { type: "box", children: [] } }, styles: {} });
+      expect(page.components.some((c: any) => c.id === "mig-0-2-0" && c.type === "testimonials")).toBe(true);
+      page.components.splice(2, 0, { id: "agent-made", type: "custom", props: { customTree: { type: "box", children: [] } }, styles: {} });
       ctx.applied.push({ action: "add_custom_component" });
-      return { status: "finished", stopReason: "finish" };
+      return { status: "finished", stopReason: "finished" };
     });
     const base = input();
     base.pagePlan.sections[2].target = { kind: "custom", brief: "Three quote cards on a soft background" };
     const result = await buildPage(base);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
-    expect(result.progress.sections["p0-s2"]).toMatchObject({ status: "agent", componentId: "mig-0-2-c0" });
-    expect(result.page.components.map((c) => c.id)).toContain("mig-0-2-c0");
-    expect(result.page.components.map((c) => c.id)).not.toContain("agent-made");
+    expect(result.progress.sections["p0-s2"]).toMatchObject({ status: "upgraded", componentId: "mig-0-2-c0" });
+    const ids = result.page.components.map((c) => c.id);
+    expect(ids).toContain("mig-0-2-c0");
+    expect(ids).not.toContain("agent-made");
+    // The floor it replaced is gone, and the sections after it still follow.
+    expect(ids).not.toContain("mig-0-2-0");
+    expect(ids.indexOf("mig-0-2-c0")).toBeLessThan(ids.indexOf("mig-0-3-0"));
   });
 
-  it("keeps the content as text when the agent fails, and says so", async () => {
+  it("keeps the standard section — images and all — when the agent fails, and says so", async () => {
     runAgentLoop.mockRejectedValue(new Error("model unavailable"));
     const base = input();
     base.pagePlan.sections[2].target = { kind: "custom", brief: "x" };
     const result = await buildPage(base);
-    expect(result.progress.sections["p0-s2"]).toMatchObject({ status: "agent", componentId: "mig-0-2-0" });
-    expect(result.page.components.find((c) => c.id === "mig-0-2-0")?.type).toBe("rich-text");
-    expect(result.notes.join(" ")).toContain("agent could not rebuild it (model unavailable)");
+    expect(result.progress.sections["p0-s2"]).toMatchObject({ status: "upgrade_failed", componentId: "mig-0-2-0" });
+    expect(result.page.components.find((c) => c.id === "mig-0-2-0")?.type).toBe("testimonials");
+    expect(result.notes.join(" ")).toContain("the agent could not rebuild it (model unavailable)");
   });
 
-  it("does not call the agent at all when the page's budget is gone", async () => {
+  it("does not call the agent at all when the page's budget is gone, and keeps the floor", async () => {
     const base = input({ agentBudgetUsd: 0 });
     base.pagePlan.sections[2].target = { kind: "custom", brief: "x" };
     const result = await buildPage(base);
     expect(runAgentLoop).not.toHaveBeenCalled();
-    expect(result.page.components.find((c) => c.id === "mig-0-2-0")?.type).toBe("rich-text");
+    expect(result.progress.sections["p0-s2"]).toMatchObject({ status: "upgrade_skipped", componentId: "mig-0-2-0" });
+    expect(result.page.components.find((c) => c.id === "mig-0-2-0")?.type).toBe("testimonials");
     expect(result.notes.join(" ")).toContain("agent budget was used up");
   });
 
-  it("marks a section the agent left empty as failed rather than pretending", async () => {
-    runAgentLoop.mockResolvedValue({ status: "finished", stopReason: "max_steps" });
+  it("never starts a run too short to write anything", async () => {
+    // Enough for one call, not for three: a one-step run is forced to `finish`
+    // before it may place anything, so the floor stays and no call is paid for.
+    const { assumedCallCostUsd } = await import("../server/aiSpend");
+    const base = input({ agentBudgetUsd: assumedCallCostUsd("migrationBuild") * 1.5 });
+    base.pagePlan.sections[2].target = { kind: "custom", brief: "x" };
+    const result = await buildPage(base);
+    expect(runAgentLoop).not.toHaveBeenCalled();
+    expect(result.progress.sections["p0-s2"].status).toBe("upgrade_skipped");
+  });
+
+  it("reports an agent that changed nothing as a failed upgrade, not a finished one", async () => {
+    runAgentLoop.mockResolvedValue({ status: "finished", stopReason: "finished" });
     const base = input();
     base.pagePlan.sections[2].target = { kind: "custom", brief: "x" };
     const result = await buildPage(base);
-    // The rich-text fallback still lands, so nothing is lost even then.
-    expect(result.progress.sections["p0-s2"].status).toBe("agent");
-    expect(result.notes.join(" ")).toContain("agent finished without placing anything");
+    expect(result.progress.sections["p0-s2"]).toMatchObject({ status: "upgrade_failed", componentId: "mig-0-2-0" });
+    expect(result.notes.join(" ")).toContain("the agent made no change");
+    expect(result.page.components.map((c) => c.type)).toEqual(["hero", "services", "testimonials", "pricing-table", "faq", "contact-form"]);
+  });
+
+  it("counts an in-place improvement of the floor as an upgrade", async () => {
+    runAgentLoop.mockImplementation(async ({ ctx }: any) => {
+      ctx.applied.push({ action: "update_component" });
+      return { status: "finished", stopReason: "finished" };
+    });
+    const base = input();
+    base.pagePlan.sections[2].target = { kind: "custom", brief: "x" };
+    const result = await buildPage(base);
+    expect(result.progress.sections["p0-s2"]).toMatchObject({ status: "upgraded", componentId: "mig-0-2-0" });
   });
 });

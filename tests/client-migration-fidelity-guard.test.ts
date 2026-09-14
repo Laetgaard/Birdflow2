@@ -56,6 +56,19 @@ describe("text fidelity", () => {
     expect(guard(add({ buttonLink: "/booking", layout: "split", alignment: "center", accentColor: "#6366f1", height: "480px", icon: "leaf" }), ctx).ok).toBe(true);
   });
 
+  it("lets a component be named and described for the editor in the agent's own words", () => {
+    // `name` is required on create_custom_component and is never visitor-facing
+    // copy; refusing it as an invented sentence refused every correct call.
+    const create = { action: "add_custom_component", pageId: "home", name: "Hero med baggrundsbillede, overskrift og to knapper", tree: { type: "box", children: [] } } as any;
+    expect(guard(create, ctx).ok).toBe(true);
+    expect(guard(add({ title: "Ro i hverdagen", imageUrl: "/objects/uploads/hero.webp", alt: "Et roligt behandlingsrum i klinikken med dagslys" }), ctx).ok).toBe(true);
+  });
+
+  it("still refuses invented copy next to an allowed name", () => {
+    const create = { action: "add_custom_component", pageId: "home", name: "Hero med baggrundsbillede, overskrift og to knapper", tree: { type: "box", children: [{ type: "text", content: "Vi har hjulpet over 10.000 klienter siden 1998." }] } } as any;
+    expect(guard(create, ctx).ok).toBe(false);
+  });
+
   it("splits copy into sentences at punctuation, bullets and markup", () => {
     expect(sentencesOf("<p>Første samtale er uforpligtende. Afbud senest 24 timer før mødet!</p> • Ring til os på hverdage mellem 8 og 16")).toEqual([
       "Første samtale er uforpligtende.",

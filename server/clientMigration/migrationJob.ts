@@ -27,6 +27,7 @@ import type { BuilderStateData } from "@shared/schema";
 import {
   MigrationPlanSchema,
   migrationLimitsSchema,
+  repairMigrationPlan,
   type MigrationAssetRecord,
   type MigrationErrorCode,
   type MigrationFidelity,
@@ -62,6 +63,19 @@ const MAX_FIDELITY_ITERATIONS = 2;
 
 /** Budget slices, as shares of the job ceiling. */
 const SLICES = { plan: 0.15, build: 0.6, verify: 0.2, enrich: 0.05 } as const;
+
+/** Which metered roles draw on which slice, so a slice can be spent down. */
+const SLICE_ROLES: Record<keyof typeof SLICES, string[]> = {
+  plan: ["migrationPlan"],
+  build: ["migrationBuild"],
+  verify: ["migrationFidelity"],
+  enrich: ["migrationExtract"],
+};
+
+/** The least a page may be given for its rebuild, so no page is starved. */
+const MIN_PAGE_AGENT_BUDGET_USD = 0.35;
+/** The home page is seen first and most; it gets a larger share. */
+const HOME_PAGE_BUDGET_FACTOR = 1.75;
 
 const liveJobs = new Set<string>();
 let runningCount = 0;
@@ -160,8 +174,10 @@ async function runJob(jobId: string): Promise<void> {
       const phase = phases[index];
       await checkControl(rt);
       rt.job = (await store.getJob(jobId))!;
-      // A job waiting on the plan gate stops here; approval re-runs it from build.
-      if (phase === "build" && !rt.job.planReviewedAt) {
+      // A job waiting on the plan gate stops here; approval re-runs it from
+      // build. Only jobs that asked for the gate wait: by default the admin
+      // reviews a finished website rather than a mapping table.
+      if (phase === "build" && rt.job.requirePlanReview && !rt.job.planReviewedAt) {
         await store.setStatus(jobId, "awaiting_plan_review", { phase: "plan" });
         await store.releaseLease(jobId, PROCESS_ID);
         rt.log("plan ready; waiting for admin approval");
@@ -170,6 +186,9 @@ async function runJob(jobId: string): Promise<void> {
       const attempt = await store.bumpPhaseAttempt(jobId, phase);
       if (attempt > MAX_PHASE_ATTEMPTS) throw new PhaseFailure("unknown", `Phase ${phase} failed ${MAX_PHASE_ATTEMPTS} times.`);
       await store.updateJob(jobId, { phase, status: "running" });
+      // A phase that runs again reports only what happens this time; the
+      // admin should not read last attempt's failures next to this one's.
+      await store.clearWarnings(jobId, phase);
       rt.log(`phase ${phase} (attempt ${attempt})`);
       await runPhase(rt, phase);
       await store.heartbeat(jobId, PROCESS_ID, { spentUsd: meter.spentUsd, spendByRole: rt.spendByRole }, phase);
@@ -200,8 +219,15 @@ async function checkControl(rt: Runtime): Promise<void> {
   if (fresh.leaseOwner && fresh.leaseOwner !== PROCESS_ID) throw new JobControl("paused");
 }
 
+/**
+ * What is left of a slice. A slice must be spent down by what it has already
+ * spent, or it is a per-call cap rather than a budget — and the build phase
+ * could quietly consume the plan's and the verification's money too.
+ */
 function roomFor(rt: Runtime, slice: keyof typeof SLICES): number {
-  return Math.max(0, Math.min(rt.limits.ceilingUsd * SLICES[slice], rt.meter.limitUsd - rt.meter.spentUsd));
+  const spentOnSlice = SLICE_ROLES[slice].reduce((total, role) => total + (rt.spendByRole[role] ?? 0), 0);
+  const sliceLeft = rt.limits.ceilingUsd * SLICES[slice] - spentOnSlice;
+  return Math.max(0, Math.min(sliceLeft, rt.meter.limitUsd - rt.meter.spentUsd));
 }
 
 async function warn(rt: Runtime, phase: MigrationPhase, code: string, message: string, sourceUrl?: string): Promise<void> {
@@ -212,7 +238,7 @@ async function warn(rt: Runtime, phase: MigrationPhase, code: string, message: s
 
 async function withBrowser<T>(rt: Runtime, fn: (session: BrowserSession) => Promise<T>): Promise<T> {
   const origin = rt.job.canonicalOrigin ?? new URL(rt.job.sourceUrl).origin;
-  const session = await openBrowserSession(origin);
+  const session = await openBrowserSession(origin, { maxPages: rt.limits.maxPages });
   try {
     return await fn(session);
   } finally {
@@ -251,7 +277,9 @@ async function phaseDiscover(rt: Runtime): Promise<void> {
   if (!existing.length) {
     await store.replacePages(rt.job.id, discovery.pages.map((page, ordinal) => ({ ordinal, sourceUrl: page.url, title: page.title })));
   }
-  await store.updateJob(rt.job.id, { discovery: { ...discovery, pages: discovery.pages } as unknown as Record<string, unknown> });
+  // Discovery may have found the site serves a different origin than the URL
+  // the admin typed (apex vs www); the asset import must use the same one.
+  await store.updateJob(rt.job.id, { canonicalOrigin: discovery.canonicalOrigin, discovery: { ...discovery, pages: discovery.pages } as unknown as Record<string, unknown> });
 }
 
 async function phaseCapture(rt: Runtime): Promise<void> {
@@ -283,6 +311,27 @@ async function phaseCapture(rt: Runtime): Promise<void> {
         if (bot && page.ordinal === 0) throw new PhaseFailure("blocked_by_bot_protection", "The start page is behind bot protection and cannot be captured.");
       }
     }
+    // A page that read as empty is usually lazy-loaded rather than blank.
+    // One thorough re-read before giving up, so its content is not lost.
+    for (const page of await store.listPages(rt.job.id)) {
+      await checkControl(rt);
+      const sections = (page.extraction as { sections?: unknown[] } | null)?.sections;
+      if (page.captureStatus !== "captured" || (sections?.length ?? 0) > 0) continue;
+      try {
+        const result = await capturePage(session, { jobId: rt.job.id, pageId: page.id, pageOrdinal: page.ordinal, url: page.sourceUrl, keepHtml: true, thorough: true });
+        await store.updatePage(page.id, {
+          screenshots: result.screenshots as unknown as Record<string, unknown>,
+          renderedHtmlPath: result.renderedHtmlPath ?? null,
+          extraction: result.extraction as unknown as Record<string, unknown>,
+        });
+        if (!result.extraction.sections.length) {
+          await warn(rt, "capture", "page_empty", "No content could be read from this page, even on a second thorough pass.", page.sourceUrl);
+        }
+      } catch (error: any) {
+        if (error instanceof JobControl) throw error;
+        await warn(rt, "capture", "page_empty", `No content could be read from this page (${String(error?.message ?? error).slice(0, 200)}).`, page.sourceUrl);
+      }
+    }
     for (const warning of session.warnings) await warn(rt, "capture", warning.split(":")[0], warning);
   });
   const captured = (await store.listPages(rt.job.id)).filter((page) => page.captureStatus === "captured");
@@ -302,10 +351,14 @@ async function phaseExtract(rt: Runtime): Promise<void> {
   if ((rt.job.assets as unknown[]).length && (await store.listPages(rt.job.id)).every((page) => page.extractStatus === "imported" || page.captureStatus !== "captured")) return;
   const items = await loadExtractions(rt);
   const origin = rt.job.canonicalOrigin ?? new URL(rt.job.sourceUrl).origin;
+  // What earlier runs imported goes in and comes back out in the union: a
+  // re-read page must never cost the other pages their images.
   const { assets, extractions, warnings } = await importPageAssets({
     websiteId: rt.job.websiteId,
     origin,
     extractions: items.map((item) => item.extraction),
+    existingAssets: (rt.job.assets as MigrationAssetRecord[]) ?? [],
+    screenshotPaths: items.map((item) => (item.page.screenshots as { desktop?: { storagePath?: string } } | null)?.desktop?.storagePath),
     maxAssets: rt.limits.maxAssets,
     onProgress: (done, total) => { if (done % 10 === 0) rt.log(`assets ${done}/${total}`); },
   });
@@ -338,10 +391,17 @@ async function phasePlan(rt: Runtime): Promise<void> {
   const before = rt.meter.spentUsd;
   const useModel = roomFor(rt, "plan") >= assumedCallCostUsd("migrationPlan");
   if (!useModel) await warn(rt, "plan", "spend_slice", "Not enough budget for the mapping model; the deterministic plan was used.");
-  const { plan, warnings } = await producePlan({ sources, assets, siteName: rt.job.company, language: rt.job.language as "da" | "en", pixelClose: true, meter: rt.meter, useModel });
+  let plan: MigrationPlan;
+  let warnings: string[];
+  try {
+    ({ plan, warnings } = await producePlan({ sources, assets, siteName: rt.job.company, language: rt.job.language as "da" | "en", pixelClose: true, meter: rt.meter, useModel }));
+  } catch (error: any) {
+    if (error instanceof JobControl || error instanceof PhaseFailure) throw error;
+    throw new PhaseFailure("plan_invalid", String(error?.message ?? error).slice(0, 500));
+  }
   rt.spendByRole.migrationPlan = (rt.spendByRole.migrationPlan ?? 0) + (rt.meter.spentUsd - before);
   for (const warning of warnings) await warn(rt, "plan", "plan", warning);
-  const autoApprove = process.env.MIGRATION_AUTO_APPROVE_PLAN === "1";
+  const autoApprove = !rt.job.requirePlanReview || process.env.MIGRATION_AUTO_APPROVE_PLAN === "1";
   await store.updateJob(rt.job.id, { plan: plan as unknown as Record<string, unknown>, ...(autoApprove ? { planReviewedAt: new Date(), planReviewedBy: "auto" } : {}) });
 }
 
@@ -362,8 +422,16 @@ async function phaseBuild(rt: Runtime): Promise<void> {
     await store.updatePage(row.id, { buildStatus: "building" });
     const builder = await storage.getBuilderState(rt.job.websiteId);
     if (!builder) throw new PhaseFailure("provisioning_failed", "The client's builder state is missing.");
+    // An even share of what the build slice has left, over the pages that
+    // still need building. Dividing by the pages *remaining* rather than a
+    // fixed count lets a cheap page hand its unspent budget to a later one,
+    // and stops the first page — the home page, built first — from getting the
+    // smallest share of all.
     const pagesLeft = Math.max(1, pending.length - pending.indexOf(pagePlan));
-    const agentBudgetUsd = Math.min(1.5, roomFor(rt, "build") / pagesLeft);
+    const buildRoom = roomFor(rt, "build");
+    const evenShare = buildRoom / pagesLeft;
+    const weighted = pagePlan.role === "home" ? evenShare * HOME_PAGE_BUDGET_FACTOR : evenShare;
+    const agentBudgetUsd = Math.min(1.5, buildRoom, Math.max(MIN_PAGE_AGENT_BUDGET_USD, weighted));
     const before = rt.meter.spentUsd;
     const result = await buildPage({
       state: builder.state as BuilderStateData,
@@ -422,7 +490,12 @@ async function phaseVerify(rt: Runtime): Promise<void> {
     while (iterations < MAX_FIDELITY_ITERATIONS && roomFor(rt, "verify") >= assumedCallCostUsd("migrationFidelity")) {
       iterations++;
       const before = rt.meter.spentUsd;
-      const review = await reviewPageFidelity({ state, pageId: page.id, pagePlan, sourceScreenshots: { desktop: screenshots.desktop?.storagePath, mobile: screenshots.mobile?.storagePath }, language: rt.job.language as "da" | "en", meter: rt.meter });
+      const review = await reviewPageFidelity({ state, pageId: page.id, pagePlan, sourceScreenshots: { desktop: screenshots.desktop?.storagePath, mobile: screenshots.mobile?.storagePath }, language: rt.job.language as "da" | "en", meter: rt.meter, store: { jobId: rt.job.id, pageRowId: row.id } });
+      // Keep the rebuild's screenshots on the page row so the admin's compare
+      // view can show both sides without re-rendering anything.
+      if (review.rebuiltPaths?.desktop) screenshots.rebuild = { storagePath: review.rebuiltPaths.desktop };
+      if (review.rebuiltPaths?.mobile) screenshots.rebuildMobile = { storagePath: review.rebuiltPaths.mobile };
+      if (review.rebuiltPaths?.desktop || review.rebuiltPaths?.mobile) await store.updatePage(row.id, { screenshots });
       rt.spendByRole.migrationFidelity = (rt.spendByRole.migrationFidelity ?? 0) + (rt.meter.spentUsd - before);
       if (!review.ran) { if (review.skippedReason) await warn(rt, "verify", "review_skipped", review.skippedReason, row.sourceUrl); break; }
       reviewed = true;
@@ -536,11 +609,114 @@ export async function requestRetry(jobId: string): Promise<void> {
   const job = await store.getJob(jobId);
   if (!job) throw new Error("Job not found");
   if (job.status !== "failed") throw new Error("Only a failed job can be retried.");
-  const phase = job.phase as MigrationPhase;
+  let phase = job.phase as MigrationPhase;
+  const extra: Partial<store.MigrationJob> = {};
+  if (phase === "plan") {
+    // The plan is recomputed from scratch, so a stale plan and its approval
+    // must not survive the retry. A plan usually fails because a page read as
+    // empty, and re-running the same computation over the same extractions
+    // would fail identically — so rewind far enough to re-read those pages.
+    extra.plan = null;
+    extra.planReviewedAt = null;
+    extra.planReviewedBy = null;
+    const empty = (await store.listPages(jobId)).filter((page) => !((page.extraction as { sections?: unknown[] } | null)?.sections?.length));
+    for (const page of empty) await store.updatePage(page.id, { captureStatus: "pending", captureError: null });
+    if (empty.length) phase = "capture";
+  }
   const attempts = { ...(job.phaseAttempts ?? {}) };
   if ((attempts[phase] ?? 0) >= MAX_PHASE_ATTEMPTS) attempts[phase] = MAX_PHASE_ATTEMPTS - 1;
   await store.resetPagesForRetry(jobId, phase);
-  await store.updateJob(jobId, { status: "queued", error: null, errorCode: null, phaseAttempts: attempts, pauseRequested: false, cancelRequested: false, leaseOwner: null, leaseUntil: null });
+  await store.updateJob(jobId, { status: "queued", phase, error: null, errorCode: null, phaseAttempts: attempts, pauseRequested: false, cancelRequested: false, leaseOwner: null, leaseUntil: null, ...extra });
+  runMigrationJob(jobId);
+}
+
+/** Phases whose attempt counters must be cleared when re-entering at `phase`. */
+function attemptsFrom(job: store.MigrationJob, phase: MigrationPhase): Record<string, number> {
+  const phases: MigrationPhase[] = ["discover", "capture", "extract", "brand", "plan", "build", "verify", "finish"];
+  const attempts = { ...(job.phaseAttempts ?? {}) };
+  for (const later of phases.slice(phases.indexOf(phase))) attempts[later] = 0;
+  return attempts;
+}
+
+/**
+ * Re-read and rebuild one page. A single bad page should never cost the whole
+ * migration, so this rewinds just far enough to redo it: the plan is dropped
+ * because the page's sections are about to change under it.
+ */
+export async function requestPageRetry(jobId: string, pageId: string): Promise<void> {
+  const job = await store.getJob(jobId);
+  if (!job) throw new Error("Job not found");
+  if (job.status === "running" && isMigrationLive(jobId)) throw new Error("Vent til det igangværende trin er færdigt, eller sæt migreringen på pause først.");
+  const page = await store.getPage(jobId, pageId);
+  if (!page) throw new Error("Page not found");
+  await store.updatePage(page.id, { captureStatus: "pending", captureError: null, extractStatus: "pending", buildStatus: "pending", verifyStatus: "pending" });
+  await store.updateJob(jobId, {
+    status: "queued",
+    phase: "capture",
+    plan: null,
+    planReviewedAt: null,
+    planReviewedBy: null,
+    error: null,
+    errorCode: null,
+    phaseAttempts: attemptsFrom(job, "capture"),
+    pauseRequested: false,
+    leaseOwner: null,
+    leaseUntil: null,
+  });
+  runMigrationJob(jobId);
+}
+
+/**
+ * Leave one page out of the migration entirely. Without this a page that can
+ * never be read strands the whole job, which is exactly what used to happen.
+ */
+export async function requestPageExclude(jobId: string, pageId: string): Promise<void> {
+  const job = await store.getJob(jobId);
+  if (!job) throw new Error("Job not found");
+  if (job.status === "running" && isMigrationLive(jobId)) throw new Error("Sæt migreringen på pause, før du fjerner en side.");
+  const page = await store.getPage(jobId, pageId);
+  if (!page) throw new Error("Page not found");
+  if ((await store.listPages(jobId)).length <= 1) throw new Error("Den sidste side kan ikke fjernes.");
+  await store.deletePage(jobId, pageId);
+
+  // The stored plan still refers to the page; repair it against what is left
+  // rather than leaving a dangling reference for the build to trip over.
+  const parsed = MigrationPlanSchema.safeParse(job.plan);
+  if (parsed.success) {
+    const pages = await store.listPages(jobId);
+    const extractions = pages.map((row) => row.extraction as unknown as PageExtraction | null);
+    const { plan } = repairMigrationPlan(parsed.data, {
+      sectionIds: extractions.flatMap((extraction) => extraction?.sections.map((section) => section.id) ?? []),
+      mediaIds: (job.assets as MigrationAssetRecord[]).map((asset) => asset.mediaId),
+      pageIds: pages.map((row) => row.id),
+    });
+    await store.updateJob(jobId, { plan: plan as unknown as Record<string, unknown> });
+  }
+}
+
+/** Re-enter the pipeline at a chosen phase, for a job that needs a nudge. */
+export async function requestResumeAtPhase(jobId: string, phase: MigrationPhase): Promise<void> {
+  const job = await store.getJob(jobId);
+  if (!job) throw new Error("Job not found");
+  if (job.status === "done") throw new Error("En godkendt migrering kan ikke køres om.");
+  await store.resetPagesForRetry(jobId, phase);
+  await store.updateJob(jobId, {
+    status: "queued",
+    phase,
+    error: null,
+    errorCode: null,
+    phaseAttempts: attemptsFrom(job, phase),
+    pauseRequested: false,
+    cancelRequested: false,
+    leaseOwner: null,
+    leaseUntil: null,
+    ...(phase === "plan" || phase === "capture" || phase === "discover" || phase === "extract" || phase === "brand"
+      ? { plan: null, planReviewedAt: null, planReviewedBy: null }
+      : {}),
+    // Re-discovering starts from nothing: the page list, the assets and the
+    // discovery record all belong to the list being thrown away.
+    ...(phase === "discover" ? { assets: [], discovery: null } : {}),
+  });
   runMigrationJob(jobId);
 }
 

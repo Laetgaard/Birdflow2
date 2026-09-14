@@ -49,6 +49,7 @@ export async function createJob(input: {
   consentAttested: true;
   consentNote?: string;
   respectRobots: boolean;
+  requirePlanReview?: boolean;
   limits: Record<string, number>;
 }): Promise<MigrationJob> {
   await ready();
@@ -64,6 +65,7 @@ export async function createJob(input: {
     consentAttested: true,
     consentNote: input.consentNote ?? null,
     respectRobots: input.respectRobots,
+    requirePlanReview: input.requirePlanReview ?? false,
     limits: input.limits,
   }).returning();
   return row;
@@ -106,6 +108,19 @@ export async function addWarning(id: string, warning: MigrationWarning): Promise
 
 export async function setAssets(id: string, assets: MigrationAssetRecord[]): Promise<void> {
   await updateJob(id, { assets: assets as unknown[] });
+}
+
+/** Drop one phase's warnings, for a phase about to run again. */
+export async function clearWarnings(id: string, phase: MigrationPhase): Promise<void> {
+  await ready();
+  await db.execute(sql`
+    UPDATE client_migration_jobs
+    SET warnings = COALESCE(
+      (SELECT jsonb_agg(w) FROM jsonb_array_elements(warnings) AS w WHERE w->>'phase' <> ${phase}),
+      '[]'::jsonb
+    ), updated_at = now()
+    WHERE id = ${id}
+  `);
 }
 
 /**
@@ -221,11 +236,22 @@ export async function updatePage(pageId: string, patch: Partial<Omit<MigrationPa
   return row;
 }
 
+export async function deletePage(jobId: string, pageId: string): Promise<boolean> {
+  await ready();
+  const rows = await db.delete(clientMigrationPages)
+    .where(and(eq(clientMigrationPages.jobId, jobId), eq(clientMigrationPages.id, pageId)))
+    .returning();
+  return rows.length > 0;
+}
+
 export async function resetPagesForRetry(jobId: string, phase: MigrationPhase): Promise<void> {
   await ready();
   // A retry of a phase only clears that phase's failures; finished units keep
-  // their results so nothing expensive is repeated.
-  if (phase === "capture") {
+  // their results so nothing expensive is repeated. Discovery is the
+  // exception: re-running it means the page list itself was wrong.
+  if (phase === "discover") {
+    await db.delete(clientMigrationPages).where(eq(clientMigrationPages.jobId, jobId));
+  } else if (phase === "capture") {
     await db.update(clientMigrationPages).set({ captureStatus: "pending", captureError: null, updatedAt: new Date() })
       .where(and(eq(clientMigrationPages.jobId, jobId), eq(clientMigrationPages.captureStatus, "failed")));
   } else if (phase === "extract") {

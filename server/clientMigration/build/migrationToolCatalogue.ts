@@ -33,6 +33,17 @@ export const EXCLUDED_MIGRATION_TOOLS = new Set([
   "create_canvas",
   "add_canvas_element",
   "arrange_canvas_element",
+  // Whole-site reads and metered analyses: the agent works on one section of
+  // one page it is told about, and each of these costs a call (or a browser
+  // round-trip) that places nothing.
+  "analyze_design",
+  "run_self_check",
+  "read_pages",
+  "list_pages",
+  "find_text",
+  "list_custom_components",
+  "duplicate_component",
+  "move_component",
 ]);
 
 export function migrationToolCatalogue(): AgentTool[] {

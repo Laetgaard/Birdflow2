@@ -271,21 +271,25 @@ export const AI_CONFIG: Record<AiRole, AiRoleConfig> = {
   // below are per-call sanity caps; the real ceiling for a migration is the
   // job's own meter, which every one of these roles charges.
 
+  // The migration roles rebuild a customer's pages from screenshots and
+  // must follow tool schemas to the letter: they run on the reasoning model,
+  // which sees images, with Kimi as the fallback rather than the other way
+  // round. The job's own ceiling (recommendedCeilingUsd) is costed for it.
   migrationPlan: {
-    provider: "kimi",
-    model: KIMI_MODEL,
+    provider: "openai",
+    model: OPENAI_REASONING_MODEL,
     maxCompletionTokens: 16384,
-    maxRunCostUsd: 1,
-    fallbackProvider: "openai",
-    fallbackModel: OPENAI_REASONING_MODEL,
+    maxRunCostUsd: 2,
+    fallbackProvider: "kimi",
+    fallbackModel: KIMI_MODEL,
   },
   migrationBuild: {
-    provider: "kimi",
-    model: KIMI_MODEL,
+    provider: "openai",
+    model: OPENAI_REASONING_MODEL,
     maxCompletionTokens: 12288,
-    maxRunCostUsd: 5,
-    fallbackProvider: "openai",
-    fallbackModel: OPENAI_REASONING_MODEL,
+    maxRunCostUsd: 8,
+    fallbackProvider: "kimi",
+    fallbackModel: KIMI_MODEL,
   },
   migrationFidelity: {
     provider: "kimi",

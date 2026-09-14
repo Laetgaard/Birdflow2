@@ -17,6 +17,13 @@ import { guardResponsive } from "../../responsiveGuard";
 const FORBIDDEN_IMAGE_RE = /^ai:\/\/|unsplash\.com|images\.unsplash|picsum\.photos|placeholder\.com|via\.placeholder|placehold\.co|pexels\.com|dummyimage/i;
 const IMAGE_KEY_RE = /(image|img|src|logo|background|photo|avatar|poster|thumbnail)/i;
 const TECHNICAL_KEY_RE = /^(id|ids|type|action|pageId|componentId|href|link|url|target|variant|icon|layout|alignment|align|columns|position|styles?|css|fontFamily|color|colour|.*Color|.*Colour|className|key|nodeId|nodeType|nth|styleKey|keys|itemLabel|itemFields|schema|customSchema|videoProvider|autoPlay|speed|grayscale|highlighted|required|placeholder|period|prefix|suffix|value|year|maxWidth|showCart|imageSide|kind|capability|config)$/;
+/**
+ * Keys that name or describe a thing for the editor and for screen readers,
+ * never text the visitor reads on the page. A component's `name` is required
+ * and is written by the agent in its own words; refusing it as invented copy
+ * refuses every correct call.
+ */
+const METADATA_KEY_RE = /^(name|alt|altText|ariaLabel|aria-label|label|tags|category|summary|reason|note)$/;
 
 /** Short UI words ("Læs mere", "Send") need no evidence. */
 const MIN_EVIDENCE_LENGTH = 25;
@@ -92,7 +99,7 @@ export function makeFidelityGuard(options: FidelityGuardOptions): MutationGuard 
         }
         continue;
       }
-      if (isTechnical(key, text)) continue;
+      if (isTechnical(key, text) || METADATA_KEY_RE.test(key)) continue;
       for (const sentence of sentencesOf(text)) {
         if (!backedBy(pool, sentence)) {
           return { ok: false, reason: `Sætningen "${sentence.slice(0, 90)}" findes ikke på kundens side. Brug kun tekst ordret fra kilden — opfind intet.` };

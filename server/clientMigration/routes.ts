@@ -19,6 +19,7 @@ import {
   MigrationPlanSchema,
   validateMigrationPlan,
   MAX_MIGRATION_CEILING_USD,
+  MIGRATION_PHASES,
   type MigrationJobSummary,
   type MigrationStatus,
   type PageExtraction,
@@ -26,7 +27,7 @@ import {
 import { AccountExistsError, attachExistingAccount, createClientAccount, grantManualPlan, markOnboardingHandled } from "./adminAccounts";
 import { createMigratedWebsite } from "./siteProvisioning";
 import * as store from "./migrationStore";
-import { approvePlanAndContinue, isMigrationLive, requestCancel, requestPause, requestResume, requestRetry, requestReverify, runMigrationJob } from "./migrationJob";
+import { approvePlanAndContinue, isMigrationLive, requestCancel, requestPageExclude, requestPageRetry, requestPause, requestResume, requestResumeAtPhase, requestRetry, requestReverify, runMigrationJob } from "./migrationJob";
 import { sendClientInvite } from "./notify";
 import { readMigrationFile, cropSection } from "./capture/pageCapture";
 import { updateDecisionByUser } from "../onboardingDecision";
@@ -84,7 +85,10 @@ function pageView(page: store.MigrationPage) {
     verifyStatus: page.verifyStatus,
     targetPageId: page.targetPageId,
     hasScreenshots: !!page.screenshots,
-    sections: extraction?.sections.map((section) => ({ id: section.id, role: section.role, confidence: section.confidence, headings: section.headings.map((h) => h.text).slice(0, 3), items: section.items.length, images: section.images.length, bbox: section.bbox })) ?? [],
+    hasRebuildScreenshot: !!(page.screenshots as { rebuild?: unknown } | null)?.rebuild,
+    // Nothing readable, or only the page-root fallback: the admin should look.
+    needsAttention: !extraction?.sections.length || extraction.sections.every((section) => section.fallback === true),
+    sections: extraction?.sections.map((section) => ({ id: section.id, role: section.role, confidence: section.confidence, fallback: section.fallback === true, headings: section.headings.map((h) => h.text).slice(0, 3), items: section.items.length, images: section.images.length, bbox: section.bbox })) ?? [],
     buildProgress: page.buildProgress,
     verify: page.verify ? { score: (page.verify as any).score, issues: ((page.verify as any).issues ?? []).slice(0, 12), resolutions: (page.verify as any).resolutions ?? [], iterations: (page.verify as any).iterations, reviewed: (page.verify as any).reviewed } : null,
     updatedAt: page.updatedAt.toISOString(),
@@ -135,6 +139,7 @@ export function registerClientMigrationRoutes(app: Express, guards: { requireAut
         consentAttested: true,
         consentNote: input.consentNote,
         respectRobots: input.respectRobots,
+        requirePlanReview: input.requirePlanReview,
         limits: migrationLimitsSchema.parse(input.limits ?? {}),
       });
       await markOnboardingHandled(account.userId, websiteId, job.id, input.sourceUrl);
@@ -181,7 +186,8 @@ export function registerClientMigrationRoutes(app: Express, guards: { requireAut
     try {
       const page = await store.getPage(req.params.id, req.params.pageId);
       if (!page?.screenshots) return res.status(404).end();
-      const viewport = req.query.viewport === "mobile" ? "mobile" : "desktop";
+      const requested = String(req.query.viewport ?? "desktop");
+      const viewport = ["mobile", "rebuild", "rebuildMobile"].includes(requested) ? requested : "desktop";
       const path = (page.screenshots as any)?.[viewport]?.storagePath as string | undefined;
       if (!path) return res.status(404).end();
       const bytes = await readMigrationFile(path);
@@ -229,6 +235,38 @@ export function registerClientMigrationRoutes(app: Express, guards: { requireAut
       }
     });
   }
+
+  const pageActions: Array<[string, (jobId: string, pageId: string) => Promise<void>, string]> = [
+    ["retry", requestPageRetry, "client_migration.page_retried"],
+    ["exclude", requestPageExclude, "client_migration.page_excluded"],
+  ];
+  for (const [action, handler, auditAction] of pageActions) {
+    app.post(`/api/admin/migrations/:id/pages/:pageId/${action}`, requireAuth, requireAdmin, async (req, res) => {
+      try {
+        const job = await store.getJob(req.params.id);
+        if (!job) return res.status(404).json({ message: "Migreringen findes ikke." });
+        await handler(job.id, req.params.pageId);
+        await audit(req, job.websiteId, auditAction, "migrationJob", job.id, { pageId: req.params.pageId });
+        res.json({ ok: true });
+      } catch (error: any) {
+        res.status(400).json({ message: error?.message ?? "Handlingen mislykkedes." });
+      }
+    });
+  }
+
+  app.post("/api/admin/migrations/:id/resume-at", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const job = await store.getJob(req.params.id);
+      if (!job) return res.status(404).json({ message: "Migreringen findes ikke." });
+      const parsed = z.object({ phase: z.enum(MIGRATION_PHASES) }).safeParse(req.body ?? {});
+      if (!parsed.success) return res.status(400).json({ message: "Ukendt fase." });
+      await requestResumeAtPhase(job.id, parsed.data.phase);
+      await audit(req, job.websiteId, "client_migration.resumed_at_phase", "migrationJob", job.id, { phase: parsed.data.phase });
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(400).json({ message: error?.message ?? "Migreringen kunne ikke genstartes." });
+    }
+  });
 
   app.patch("/api/admin/migrations/:id/limits", requireAuth, requireAdmin, async (req, res) => {
     try {
