@@ -260,7 +260,6 @@ export default function BuilderPage() {
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const selectedNodeId = selectedNodeIds.length ? selectedNodeIds[selectedNodeIds.length - 1] : null;
   const setSelectedNodeId = useCallback((nodeId: string | null) => setSelectedNodeIds(nodeId ? [nodeId] : []), []);
-  const [canvasDevice, setCanvasDevice] = useState<CanvasDevice>('desktop');
   const [canvasGrid, setCanvasGrid] = useState(false);
   const [canvasSnap, setCanvasSnap] = useState(true);
   const selectComponentOnly = useCallback((componentId: string | null) => {
@@ -1333,8 +1332,10 @@ export default function BuilderPage() {
       componentId: root && selectedComponent ? selectedComponent.id : null,
       tree,
       root,
-      device: canvasDevice,
-      setDevice: setCanvasDevice,
+      // The artboard being edited is whichever the preview shows; the toolbar's
+      // Desktop/Mobil tabs drive the same toggle as the top bar.
+      device: device === 'mobile' ? 'mobile' : 'desktop',
+      setDevice: (next: CanvasDevice) => setDevice(next === 'mobile' ? 'mobile' : 'desktop'),
       selectedNodeIds,
       setSelectedNodeIds,
       editingField,
@@ -1355,7 +1356,7 @@ export default function BuilderPage() {
         setSaveComponentOpen(true);
       } : undefined,
     };
-  }, [selectedComponent, selectedNodeId, selectedNodeIds, canvasDevice, editingField, canvasGrid, canvasSnap, id, session?.access_token, builderState?.brandGuide?.logoUrl, updateComponentTree]);
+  }, [selectedComponent, selectedNodeId, selectedNodeIds, device, editingField, canvasGrid, canvasSnap, id, session?.access_token, builderState?.brandGuide?.logoUrl, updateComponentTree]);
 
   /** A new free canvas on the active page: a custom component whose tree is an empty artboard. */
   const addCanvasComponent = () => {

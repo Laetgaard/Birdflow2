@@ -20,6 +20,8 @@ import { uploadImage } from '@/lib/builderUpload';
 import {
   applyBoxToStyles,
   artboardFrame,
+  aspectString,
+  isCanvasRoot,
   containingBox,
   cqwToPx,
   nodeBox,
@@ -175,6 +177,19 @@ export default function CanvasNodeFields({ root, node, device, onChange, globalS
         <Label className="text-xs">Navn</Label>
         <Input value={node.name ?? ''} onChange={(e) => patch((n) => ({ ...n, name: e.target.value }))} className="h-8 text-xs" data-testid="canvas-node-name" />
       </div>
+
+      {isCanvasRoot(node) && (
+        <div className="space-y-1">
+          <NumberField
+            label={device === 'mobile' ? 'Kanvas-højde på mobil' : 'Kanvas-højde'}
+            suffix="px"
+            value={frame.height}
+            onCommit={(v) => { if (v !== null && v > 0) setStyle('aspectRatio', aspectString(frame.width, Math.round(v)), bucket); }}
+            testId="canvas-field-artboard-height"
+          />
+          <p className="text-[11px] text-muted-foreground">Bredden er {frame.width}px i designet og følger skærmen; højden skalerer med.</p>
+        </div>
+      )}
 
       {box && (
         <>

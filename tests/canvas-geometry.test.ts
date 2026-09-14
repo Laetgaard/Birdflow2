@@ -37,6 +37,9 @@ import {
   canvasToGroup,
   canvasTextReadability,
   readableMobileFontSize,
+  applyReadabilityRepairs,
+  resetMobileOverrides,
+  hasMobilePlacement,
   canvasRootStyles,
   sanitizePrimitiveTree,
   sanitizeStyleRecord,
@@ -284,6 +287,32 @@ describe('readability on a phone', () => {
     const issues = canvasTextReadability(root);
     expect(issues).toEqual([{ nodeId: 'small', name: 'Tekst', mobilePx: 7.5 }]);
     expect(readableMobileFontSize(2)).toBe(`max(2cqw, ${MIN_MOBILE_FONT_PX}px)`);
+  });
+});
+
+describe('the mobile artboard', () => {
+  it('repairs readability the same way the guard does, and only where needed', () => {
+    const root = canvas([text('small', { x: 0, y: 0, w: 100 }, 24), text('big', { x: 0, y: 0, w: 100 }, 60), { ...text('own', { x: 0, y: 0, w: 100 }, 24), mobileStyles: { fontSize: '4cqw' } }]);
+    const { tree, repaired } = applyReadabilityRepairs(root);
+    expect(repaired).toEqual(['small']);
+    expect(tree.children![0].mobileStyles).toEqual({ fontSize: `max(2cqw, ${MIN_MOBILE_FONT_PX}px)` });
+    expect(tree.children![1].mobileStyles).toBeUndefined();
+    expect(tree.children![2].mobileStyles).toEqual({ fontSize: '4cqw' });
+    expect(canvasTextReadability(tree)).toEqual([]);
+    expect(root.children![0].mobileStyles).toBeUndefined(); // pure
+  });
+
+  it('knows which elements have their own mobile placement, and forgets them all on reset', () => {
+    const placed = { ...rect('a', { x: 0, y: 0, w: 100, h: 100 }), mobileStyles: { left: '10%', top: '10%' } };
+    const sized = { ...text('b', { x: 0, y: 0, w: 100 }), mobileStyles: { fontSize: '5cqw' } };
+    const root = { ...canvas([placed, sized]), mobileStyles: { aspectRatio: '375 / 700' } };
+    expect(hasMobilePlacement(placed)).toBe(true);
+    expect(hasMobilePlacement(sized)).toBe(false);
+    const reset = resetMobileOverrides(root);
+    expect(reset.mobileStyles).toBeUndefined();
+    expect(reset.children!.every((c) => c.mobileStyles === undefined)).toBe(true);
+    expect(artboardFrame(reset, 'mobile')).toEqual({ width: 375, height: 187.5 });
+    expect(root.mobileStyles).toEqual({ aspectRatio: '375 / 700' }); // pure
   });
 });
 

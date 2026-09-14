@@ -30,7 +30,12 @@ import {
   MIN_ELEMENT_PX,
   alignBoxes,
   applyBoxToStyles,
+  applyReadabilityRepairs,
   artboardFrame,
+  aspectString,
+  canvasTextReadability,
+  hasMobilePlacement,
+  resetMobileOverrides,
   clonePrimitiveTree,
   createCanvasElement,
   distributeBoxes,
@@ -227,9 +232,15 @@ export default function CanvasEditorOverlay() {
   /* ───────────── writing the tree ───────────── */
 
   const commitRoot = useCallback((nextRoot: PrimitiveNode, description: string, m: 'commit' | 'debounce' = 'commit') => {
-    if (!tree || !root || !mode) return;
-    mode.updateTree(updatePrimitiveNode(tree, root.id, () => nextRoot), description, m);
-  }, [tree, root, mode]);
+    if (!tree || !root || !mode || !frame) return;
+    // The first edit on the mobile artboard gives it a height of its own;
+    // until then the phone shows the scaled desktop.
+    let committed = nextRoot;
+    if (device === 'mobile' && !committed.mobileStyles?.aspectRatio) {
+      committed = { ...committed, mobileStyles: { ...(committed.mobileStyles ?? {}), aspectRatio: aspectString(frame.width, frame.height) } };
+    }
+    mode.updateTree(updatePrimitiveNode(tree, root.id, () => committed), description, m);
+  }, [tree, root, mode, frame, device]);
 
   const writePlacement = useCallback((r: PrimitiveNode, id: string, box: CanvasBox, containerFrame: CanvasFrame, withHeight: boolean): PrimitiveNode =>
     updatePrimitiveNode(r, id, (n) => {
@@ -620,6 +631,19 @@ export default function CanvasEditorOverlay() {
     commitRoot(next, 'Flyt element', 'debounce');
   }, [root, measured, selectedIds, designInfo, writePlacement, commitRoot]);
 
+  const resetMobile = useCallback(() => {
+    if (!root || !tree || !mode) return;
+    mode.updateTree(updatePrimitiveNode(tree, root.id, () => resetMobileOverrides(root)), 'Nulstil mobil-artboard');
+  }, [root, tree, mode]);
+
+  const readability = useMemo(() => (root ? canvasTextReadability(root) : []), [root]);
+
+  const fixReadability = useCallback(() => {
+    if (!root || !tree || !mode) return;
+    const { tree: next } = applyReadabilityRepairs(root);
+    mode.updateTree(updatePrimitiveNode(tree, root.id, () => next), 'Gør tekst læsbar på mobil');
+  }, [root, tree, mode]);
+
   const escapeSelection = useCallback(() => {
     if (!root) return;
     const first = selectedIds[0];
@@ -775,6 +799,13 @@ export default function CanvasEditorOverlay() {
         </div>
       )}
 
+      {/* Elements with their own mobile placement, while that artboard is open. */}
+      {device === 'mobile' && !live && Object.entries(measured.nodes).map(([id, n]) => {
+        const node = findPrimitiveNode(root, id);
+        if (!node || !hasMobilePlacement(node)) return null;
+        return <div key={`m-${id}`} style={{ position: 'absolute', left: n.rect.left + n.rect.width - 14, top: n.rect.top - 6, width: 14, height: 14, borderRadius: 3, background: '#0ea5e9', color: '#fff', fontSize: 9, fontWeight: 700, lineHeight: '14px', textAlign: 'center', pointerEvents: 'none' }} title="Egen placering på mobil">M</div>;
+      })}
+
       {live?.kind === 'marquee' && (
         <div style={{ position: 'absolute', left: live.rect.left, top: live.rect.top, width: live.rect.width, height: live.rect.height, background: `${ACCENT}1a`, border: `1px solid ${ACCENT}` }} />
       )}
@@ -797,6 +828,12 @@ export default function CanvasEditorOverlay() {
           onUngroup={ungroupSelection}
           onDuplicate={duplicateSelection}
           onDelete={deleteSelection}
+          device={device}
+          onDevice={(d) => mode?.setDevice(d)}
+          hasMobileOverrides={!!root.mobileStyles?.aspectRatio || (root.children ?? []).some(hasMobilePlacement)}
+          onResetMobile={resetMobile}
+          readabilityCount={readability.length}
+          onFixReadability={fixReadability}
           onSaveCanvas={mode?.onSaveCanvas}
           onSaveSelection={mode?.onSaveSelection && selectedIds.length ? () => mode.onSaveSelection!(selectedIds) : undefined}
         />

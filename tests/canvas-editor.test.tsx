@@ -79,7 +79,8 @@ describe('the toolbar', () => {
       <CanvasToolbar
         selectionCount={selectionCount} canUngroup={false} showGrid={false} snapEnabled
         onToggleGrid={noop} onToggleSnap={noop} onAdd={noop} onAddImage={noop} onAlign={noop} onDistribute={noop}
-        onReorder={noop} onGroup={noop} onUngroup={noop} onDuplicate={noop} onDelete={noop} {...extra}
+        onReorder={noop} onGroup={noop} onUngroup={noop} onDuplicate={noop} onDelete={noop}
+        device="desktop" onDevice={noop} hasMobileOverrides={false} onResetMobile={noop} readabilityCount={0} onFixReadability={noop} {...extra}
       />
     );
   const button = (html: string, testId: string) => new RegExp(`<button[^>]*data-testid="${testId}"[^>]*>`).exec(html)?.[0] ?? '';
@@ -104,6 +105,19 @@ describe('the toolbar', () => {
     const html = render(1, { canUngroup: true });
     expect(html).toContain('data-testid="canvas-ungroup"');
     expect(html).not.toContain('data-testid="canvas-group"');
+  });
+
+  it('switches artboards, offers a reset only once mobile differs, and flags unreadable text', () => {
+    const desktop = render(0);
+    expect(desktop).toContain('data-testid="canvas-artboard-desktop"');
+    expect(desktop).toContain('data-testid="canvas-artboard-mobile"');
+    expect(desktop).not.toContain('canvas-reset-mobile');
+    expect(desktop).not.toContain('canvas-readability');
+    expect(render(0, { device: 'mobile', hasMobileOverrides: false })).not.toContain('canvas-reset-mobile');
+    expect(render(0, { device: 'mobile', hasMobileOverrides: true })).toContain('data-testid="canvas-reset-mobile"');
+    const flagged = render(0, { readabilityCount: 2 });
+    expect(flagged).toContain('data-testid="canvas-readability"');
+    expect(flagged).toContain('2 tekster');
   });
 
   it('shows the save actions only when the page provides them', () => {

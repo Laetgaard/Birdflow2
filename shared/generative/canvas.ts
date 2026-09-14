@@ -617,6 +617,33 @@ export function canvasTextReadability(root: PrimitiveNode, mobileWidth: number =
   return issues;
 }
 
+/** Drop every mobile override on the canvas: the phone shows the scaled desktop again. */
+export function resetMobileOverrides(root: PrimitiveNode): PrimitiveNode {
+  const next = deepClone(root);
+  const walk = (n: PrimitiveNode) => { delete n.mobileStyles; n.children?.forEach(walk); };
+  walk(next);
+  return next;
+}
+
+/** Whether a node has its own placement on the mobile artboard. */
+export function hasMobilePlacement(node: PrimitiveNode): boolean {
+  const m = node.mobileStyles;
+  return !!m && (m.left !== undefined || m.top !== undefined || m.width !== undefined || m.height !== undefined || m.rotate !== undefined);
+}
+
+/** Floor every unreadable text on the phone — the same repair the guard applies at save. */
+export function applyReadabilityRepairs(root: PrimitiveNode, mobileWidth: number = CANVAS_MOBILE_DESIGN_WIDTH): { tree: PrimitiveNode; repaired: string[] } {
+  const issues = canvasTextReadability(root, mobileWidth);
+  let tree = root;
+  for (const issue of issues) {
+    tree = updatePrimitiveNode(tree, issue.nodeId, (n) => {
+      const cqw = parseCqw(n.styles?.fontSize);
+      return cqw === null ? n : { ...n, mobileStyles: { ...(n.mobileStyles ?? {}), fontSize: readableMobileFontSize(cqw) } };
+    });
+  }
+  return { tree, repaired: issues.map((i) => i.nodeId) };
+}
+
 // ============ Rendering ============
 
 /**

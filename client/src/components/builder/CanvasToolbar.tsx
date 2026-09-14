@@ -32,8 +32,12 @@ import {
   Image as ImageIcon,
   Magnet,
   Minus,
+  Monitor,
   MousePointerClick,
+  RotateCcw,
   Save,
+  Smartphone,
+  TriangleAlert,
   SendToBack,
   Shapes,
   Sparkles,
@@ -42,7 +46,7 @@ import {
   Type as TypeIcon,
   Ungroup,
 } from 'lucide-react';
-import type { AlignMode, CanvasElementKind, CanvasElementOptions, ReorderOp } from '@shared/customComponents';
+import type { AlignMode, CanvasDevice, CanvasElementKind, CanvasElementOptions, ReorderOp } from '@shared/customComponents';
 import { SVG_SHAPES } from '@shared/svgShapes';
 
 export type CanvasToolbarProps = {
@@ -64,6 +68,14 @@ export type CanvasToolbarProps = {
   onDelete: () => void;
   onSaveCanvas?: () => void;
   onSaveSelection?: () => void;
+  /** Which artboard is open; switching drives the preview's device toggle. */
+  device: CanvasDevice;
+  onDevice: (device: CanvasDevice) => void;
+  hasMobileOverrides: boolean;
+  onResetMobile: () => void;
+  /** Texts that would be unreadable on a phone and have no mobile size. */
+  readabilityCount: number;
+  onFixReadability: () => void;
 };
 
 const ALIGN: Array<{ mode: AlignMode; label: string; icon: typeof AlignStartVertical }> = [
@@ -160,6 +172,21 @@ export default function CanvasToolbar(p: CanvasToolbarProps) {
 
       <Tool title="Snap til kanter og midte" onClick={p.onToggleSnap} active={p.snapEnabled} testId="canvas-snap"><Magnet className="h-4 w-4" /></Tool>
       <Tool title="Gitter (8 px)" onClick={p.onToggleGrid} active={p.showGrid} testId="canvas-grid"><Grid3X3 className="h-4 w-4" /></Tool>
+
+      <span className="mx-1 h-5 w-px bg-border" />
+
+      <div className="flex overflow-hidden rounded-md border" data-testid="canvas-artboard-tabs">
+        <button type="button" className={`px-2 py-1 ${p.device === 'desktop' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`} onClick={() => p.onDevice('desktop')} title="Desktop-artboard" data-testid="canvas-artboard-desktop"><Monitor className="h-3.5 w-3.5" /></button>
+        <button type="button" className={`px-2 py-1 ${p.device === 'mobile' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'}`} onClick={() => p.onDevice('mobile')} title="Mobil-artboard — arrangér elementerne til telefonen" data-testid="canvas-artboard-mobile"><Smartphone className="h-3.5 w-3.5" /></button>
+      </div>
+      {p.device === 'mobile' && p.hasMobileOverrides && (
+        <Tool title="Nulstil mobil — vis desktop skaleret ned igen" onClick={p.onResetMobile} testId="canvas-reset-mobile"><RotateCcw className="h-4 w-4" /></Tool>
+      )}
+      {p.readabilityCount > 0 && (
+        <Button variant="ghost" size="sm" className="h-8 gap-1.5 px-2 text-xs text-amber-600" title="Tekst, der bliver for lille på telefonen — klik for at give den en mindstestørrelse" onClick={p.onFixReadability} data-testid="canvas-readability">
+          <TriangleAlert className="h-3.5 w-3.5" />{p.readabilityCount} {p.readabilityCount === 1 ? 'tekst' : 'tekster'} · Ret
+        </Button>
+      )}
 
       {(p.onSaveCanvas || p.onSaveSelection) && <span className="mx-1 h-5 w-px bg-border" />}
       {p.onSaveSelection && (
