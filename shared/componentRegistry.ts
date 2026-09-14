@@ -772,6 +772,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'secondaryButtonText', label: 'Secondary Button Text', type: 'text', group: 'content' },
       { key: 'secondaryButtonLink', label: 'Secondary Button URL', type: 'text', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
+      { key: 'backgroundOpacity', label: 'Baggrundsdæmpning over billede', type: 'range', group: 'style', min: 0, max: 100, step: 5, unit: '%' },
       { key: 'buttonColor', label: 'Button Color', type: 'color', group: 'style' },
       { key: 'buttonHoverColor', label: 'Button Hover Color', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
@@ -1195,7 +1196,9 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       accentColor: '#e2e8f0',
     },
     fields: [
-      { key: 'style', label: 'Divider Style', type: 'select', group: 'content', options: ['solid', 'dashed', 'dotted', 'gradient', 'dots', 'ornamental'] },
+      { key: 'style', label: 'Divider Style', type: 'select', group: 'content', options: ['solid', 'dashed', 'dotted', 'gradient', 'dots', 'ornamental', 'image'] },
+      { key: 'imageUrl', label: 'Ornament (billede)', type: 'image', group: 'content' },
+      { key: 'ornamentHeight', label: 'Ornamentets højde', type: 'text', group: 'content', placeholder: '48px' },
       { key: 'dividerThickness', label: 'Thickness', type: 'text', group: 'content', placeholder: '1px' },
       { key: 'dividerWidth', label: 'Width', type: 'select', group: 'content', options: ['narrow', 'medium', 'full'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },

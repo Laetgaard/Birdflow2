@@ -9,7 +9,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { MIGRATION_ACTIVE_STATUSES, MIGRATION_PHASES } from "../shared/clientMigration";
 import { PLATFORM_PLANS } from "../shared/schema";
-import { AI_ROLES } from "../server/aiConfig";
+import { AI_ROLES, aiConfig } from "../server/aiConfig";
+import { VERIFY_STATUS_LABELS } from "../client/src/components/admin/migration/api";
 import { CLIENT_MIGRATION_DDL } from "../server/clientMigration/migrationDbSchema";
 import { EXCLUDED_MIGRATION_TOOLS } from "../server/clientMigration/build/migrationToolCatalogue";
 
@@ -209,6 +210,26 @@ describe("the AI roles and the invite", () => {
     }
   });
 
+  it("runs every migration role on OpenAI, primary and fallback alike", () => {
+    // A second provider is a second account, a second balance and a second
+    // way for the whole phase to stop. A 429 for insufficient balance on the
+    // comparison model is what killed the run this was written for.
+    for (const role of ["migrationPlan", "migrationBuild", "migrationFidelity", "migrationExtract"] as const) {
+      const config = aiConfig(role);
+      expect(config.provider, role).toBe("openai");
+      if (config.fallbackProvider) expect(config.fallbackProvider, role).toBe("openai");
+    }
+    expect(read("server/aiConfig.ts").slice(read("server/aiConfig.ts").indexOf("migrationPlan:"))).not.toContain('provider: "kimi"');
+  });
+
+  it("never sends one provider's parameters to another", () => {
+    // reasoning_effort is an OpenAI parameter; a fallback used to inherit the
+    // primary's parameters wholesale and ship it to the other provider.
+    const src = read("server/aiConfig.ts");
+    expect(src).toContain("export function chatParamsFor(role: AiRole, provider");
+    expect(read("server/aiCall.ts")).toContain("chatParamsFor(role, config.fallbackProvider)");
+  });
+
   it("has the invitation template in both languages and sends it through the email service", () => {
     const templates = read("server/email/defaultTemplates.ts");
     expect(templates.match(/migration_invite: \{/g)?.length).toBe(2);
@@ -226,5 +247,54 @@ describe("the AI roles and the invite", () => {
     const admin = read("client/src/pages/admin.tsx");
     expect(admin).toContain('value="migration"');
     expect(admin).toContain("<MigrationTab");
+  });
+});
+
+describe("verification can never kill a job", () => {
+  it("guards every page of the verify phase on its own", () => {
+    const src = read("server/clientMigration/migrationJob.ts");
+    const verify = src.slice(src.indexOf("async function phaseVerify"), src.indexOf("async function phaseFinish"));
+    // Only a pause or a cancel may leave the loop; everything else costs one page.
+    expect(verify).toContain("if (error instanceof JobControl) throw error;");
+    expect(verify).toContain('verifyStatus: "failed"');
+    expect(verify).toContain('warn(rt, "verify", "page_failed"');
+    // The aggregate is written per page, so a crash keeps the scores earned.
+    expect(verify.match(/await writeAggregate\(\)/g)?.length).toBeGreaterThanOrEqual(2);
+    // A page is banked once attempted, not only when it succeeded.
+    expect(verify).toContain('row.verifyStatus !== "pending"');
+    // One browser for the phase, and none at all when nothing can render.
+    expect(verify.match(/openReviewBrowser\(\)/g)?.length).toBe(1);
+    expect(verify).toContain("publishedRendererHealth()");
+  });
+
+  it("spends a phase's life only when the phase actually fails, and keeps the real error", () => {
+    const src = read("server/clientMigration/migrationJob.ts");
+    expect(src).toContain("bumpPhaseAttempt(jobId, phase)");
+    expect(src.slice(src.indexOf("failed ${MAX_PHASE_ATTEMPTS} times"))).toBeTruthy();
+    expect(src).toContain("Last error:");
+  });
+
+  it("tells the admin the real reason a page was not compared", () => {
+    for (const reason of ["renderer_unavailable", "screenshot_failed", "no_source_screenshot", "model_unavailable", "scoring_failed", "skipped_budget", "done"]) {
+      expect(VERIFY_STATUS_LABELS[reason], reason).toBeTruthy();
+    }
+    // Every warning, not just the first: the second one says what went wrong.
+    const review = read("server/clientMigration/verify/fidelityReview.ts");
+    expect(review).toContain("warnings.join(");
+    expect(review).not.toContain("warnings[0]");
+  });
+
+  it("keeps one stub map for the published renderer, so it cannot drift again", () => {
+    // A map that forgot @/components/trustedRuntime rendered every review
+    // screenshot blank, silently, for as long as nobody looked.
+    const shared = read("server/publisher/inProcessRenderer.ts");
+    expect(shared).toContain('"@/components/trustedRuntime"');
+    expect(shared).toContain('"@/components/BookingForm"');
+    for (const rel of ["server/visualReview.ts", "server/publishParity.ts"]) {
+      expect(read(rel), rel).toContain("loadPublishedRenderer");
+      expect(read(rel), rel).not.toContain('"@/components/CartProvider"');
+    }
+    // And the server says so at boot rather than leaving blank screenshots.
+    expect(read("server/index.ts")).toContain("publishedRendererHealth()");
   });
 });

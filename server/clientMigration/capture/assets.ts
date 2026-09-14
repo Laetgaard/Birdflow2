@@ -23,9 +23,16 @@ const JOB_ASSET_BYTES = 60 * 1024 * 1024;
 const MIN_DISPLAY_PX = 48;
 /** A background cut out of the screenshot is stored at this width. */
 const BACKGROUND_CROP_WIDTH = 1600;
+/**
+ * Ornaments have their own small quota. They are tiny, they repeat (the same
+ * divider twenty times, stored once by hash), and they must never cost a
+ * content photo its place — but leaving them out is how a page loses the
+ * flourishes that made it look like the client's.
+ */
+const ORNAMENT_CAP = 24;
 
 type Bbox = { x: number; y: number; w: number; h: number };
-type AssetJob = {
+export type AssetJob = {
   url: string;
   alt?: string;
   sectionId: string;
@@ -36,14 +43,14 @@ type AssetJob = {
   isLogo?: boolean;
   isBackground?: boolean;
   bbox?: Bbox;
-  /** Import order under the cap: logos, then backgrounds, then content, then small things. */
-  rank: 0 | 1 | 2 | 3;
+  /** Import order under the cap: logos, then backgrounds, then content, then small things; ornaments draw on their own quota. */
+  rank: 0 | 1 | 2 | 3 | 4;
 };
 
 const isStoragePath = (url: string | undefined): boolean => !!url && url.startsWith("/objects/");
 const svgKind = (url: string): "image" | "svg" => (/\.svg(?:$|\?)/i.test(url) ? "svg" : "image");
 
-function collectAssetJobs(extractions: PageExtraction[], origin: string, alreadyImported: Set<string>): AssetJob[] {
+export function collectAssetJobs(extractions: PageExtraction[], origin: string, alreadyImported: Set<string>): AssetJob[] {
   const jobs: AssetJob[] = [];
   const seen = new Set<string>();
   const originHost = new URL(origin).hostname;
@@ -74,13 +81,15 @@ function collectAssetJobs(extractions: PageExtraction[], origin: string, already
       }
       for (const img of section.images) {
         if (img.svgMarkup) {
-          if ((img.displayWidth ?? 0) >= 120 || (img.displayHeight ?? 0) >= 120) push({ url: "", alt: img.alt, sectionId: section.id, pageIndex, pageUrl: page.url, kind: "svg", svgMarkup: img.svgMarkup, rank: 3 });
+          // A decorative inline <svg> is kept whatever its size; anything else needs to be big enough to be a picture.
+          if (img.decorative || (img.displayWidth ?? 0) >= 120 || (img.displayHeight ?? 0) >= 120) push({ url: "", alt: img.alt, sectionId: section.id, pageIndex, pageUrl: page.url, kind: "svg", svgMarkup: img.svgMarkup, rank: img.decorative ? 4 : 3 });
           continue;
         }
         if (!acceptUrl(img.src)) continue;
         const small = (img.displayWidth ?? 999) < MIN_DISPLAY_PX && (img.displayHeight ?? 999) < MIN_DISPLAY_PX;
-        if (!img.isBackground && small) continue;
-        push({ url: img.src, alt: img.alt, sectionId: section.id, pageIndex, pageUrl: page.url, kind: svgKind(img.src), isBackground: img.isBackground, bbox: img.isBackground ? section.bbox : undefined, rank: img.isBackground ? 1 : (img.displayWidth ?? 999) < 160 && (img.displayHeight ?? 999) < 160 ? 3 : 2 });
+        if (!img.isBackground && !img.decorative && small) continue;
+        const rank: AssetJob["rank"] = img.isBackground ? 1 : img.decorative ? 4 : (img.displayWidth ?? 999) < 160 && (img.displayHeight ?? 999) < 160 ? 3 : 2;
+        push({ url: img.src, alt: img.alt, sectionId: section.id, pageIndex, pageUrl: page.url, kind: svgKind(img.src), isBackground: img.isBackground, bbox: img.isBackground ? section.bbox : undefined, rank });
       }
       for (const item of section.items) {
         if (acceptUrl(item.imageSrc)) push({ url: item.imageSrc!, alt: item.title, sectionId: section.id, pageIndex, pageUrl: page.url, kind: svgKind(item.imageSrc!), rank: 2 });
@@ -88,6 +97,26 @@ function collectAssetJobs(extractions: PageExtraction[], origin: string, already
     }
   });
   return jobs;
+}
+
+/**
+ * Which jobs actually get imported, and what the admin is told about the rest.
+ *
+ * Ornaments draw on a quota of their own. They used to compete with the
+ * content photos for one pool of 160 and lose every time — a gold divider
+ * ranked below every picture on the page — so the dividers a site is built
+ * around simply never arrived. Nothing dropped is silent.
+ */
+export function orderAssetJobs(jobs: AssetJob[], room: number, maxAssets: number): { ordered: AssetJob[]; warnings: string[] } {
+  const warnings: string[] = [];
+  const contentJobs = jobs.filter((job) => job.rank < 4);
+  const ornamentJobs = jobs.filter((job) => job.rank === 4);
+  if (contentJobs.length > room) warnings.push(`asset_cap: ${contentJobs.length - room} images beyond the limit of ${maxAssets} were not imported`);
+  const ordered = [...contentJobs.sort((a, b) => a.rank - b.rank).slice(0, room), ...ornamentJobs.slice(0, ORNAMENT_CAP)];
+  const kept = new Set(ordered);
+  for (const job of contentJobs) if (!kept.has(job)) warnings.push(`image_missing:${job.sectionId}:${job.url || "inline-svg"}:beyond the image limit`);
+  for (const job of ornamentJobs) if (!kept.has(job)) warnings.push(`image_missing:${job.sectionId}:${job.url || "inline-svg"}:decorative beyond ornament limit`);
+  return { ordered, warnings };
 }
 
 /** Import everything the pages reference; returns the asset records and the rewritten extractions. */
@@ -115,18 +144,16 @@ export async function importPageAssets(args: {
   }
   const alreadyImported = new Set(assets.flatMap((record) => [record.sourceUrl, record.storagePath]));
   const jobs = collectAssetJobs(args.extractions, args.origin, alreadyImported);
-  const room = Math.max(0, args.maxAssets - assets.length);
-  if (jobs.length > room) warnings.push(`asset_cap: ${jobs.length - room} images beyond the limit of ${args.maxAssets} were not imported`);
+  const room = Math.max(0, args.maxAssets - assets.filter((record) => !record.sourceUrl.startsWith("ornament:")).length);
+  const { ordered, warnings: quotaWarnings } = orderAssetJobs(jobs, room, args.maxAssets);
+  warnings.push(...quotaWarnings);
   let bytes = 0;
 
-  const ordered = [...jobs].sort((a, b) => a.rank - b.rank).slice(0, room);
   const remember = (job: AssetJob, record: MigrationAssetRecord) => {
     if (!record.usedBy.includes(job.sectionId)) record.usedBy.push(job.sectionId);
     if (job.url) byUrl.set(job.url, record);
     if (job.svgMarkup) bySvg.set(job.svgMarkup, record);
   };
-  const skippedForCap = jobs.filter((job) => !ordered.includes(job));
-  for (const job of skippedForCap) warnings.push(`image_missing:${job.sectionId}:${job.url || "inline-svg"}:beyond the image limit`);
 
   for (let index = 0; index < ordered.length; index++) {
     const job = ordered[index];

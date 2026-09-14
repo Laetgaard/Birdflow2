@@ -16,17 +16,51 @@ import type { RawExtraction } from "./domExtract.browser";
 
 export type RoleGuess = { role: SectionRole; confidence: number };
 
+type Rect = { x: number; y: number; w: number; h: number };
+const overlapArea = (a: Rect, b: Rect) => Math.max(0, Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)) * Math.max(0, Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y));
+
+/**
+ * Which of a section's images are its backdrop rather than its pictures.
+ *
+ * A CSS background is one by definition. An <img> is one when it covers
+ * most of the section AND the words sit on it — that overlap is the one
+ * signal that separates "text over a photo" from "text beside a photo",
+ * whatever CSS the theme used to stack them. Backdrops go last so the first
+ * image stays the picture the visitor sees in front.
+ */
+export function classifyBackdrops<T extends { images: Array<{ x?: number; y?: number; displayWidth?: number; displayHeight?: number; isBackground?: boolean; coversSection?: boolean; behindText?: boolean; decorative?: boolean }>; bbox: Rect; textRects?: Rect[] }>(section: T): T {
+  const area = Math.max(1, section.bbox.w * section.bbox.h);
+  const textRects = section.textRects ?? [];
+  const images = section.images.map((img) => {
+    if (img.isBackground || img.decorative || img.x === undefined || img.y === undefined) return img;
+    const rect = { x: img.x, y: img.y, w: img.displayWidth ?? 0, h: img.displayHeight ?? 0 };
+    const coversSection = rect.w * rect.h >= area * 0.6 && rect.w >= section.bbox.w * 0.85;
+    const behindText = textRects.some((t) => overlapArea(t, rect) >= t.w * t.h * 0.5);
+    return { ...img, coversSection, behindText, isBackground: coversSection && behindText };
+  });
+  return { ...section, images: [...images.filter((img) => !img.isBackground), ...images.filter((img) => img.isBackground)] };
+}
+
+/** Everything in a section that is a backdrop: the CSS one or an image flagged as one. */
+export function hasBackdrop(section: { bgImage?: string; images: Array<{ isBackground?: boolean }> }): boolean {
+  return !!section.bgImage || section.images.some((img) => img.isBackground);
+}
+
 const NUMBERISH = /^[\d.,]+\s?[%+kKxX]?\+?$|^\d+[\d.,]*\s?(år|years|kunder|clients|%|\+)$/i;
 const SERVICE_WORDS = /(service|ydelse|behandling|priser|pris|book|booking|tilbud|konsultation|terapi|session)/i;
 const STEP_WORDS = /^(?:\d+[.)]\s*|(?:step|trin|skridt)\b)/i;
 
 export function guessRole(section: Omit<ExtractedSection, "role" | "confidence" | "id">, index: number, viewportHeight: number): RoleGuess {
   const items = section.items ?? [];
-  const images = section.images ?? [];
+  const allImages = section.images ?? [];
+  // The pictures of the section: not its backdrop, not its ornaments.
+  const images = allImages.filter((img) => !img.isBackground && !img.decorative);
+  const backdrop = hasBackdrop({ bgImage: section.bgImage, images: allImages });
+  if ((section.textLength ?? 0) < 10 && !items.length && images.length === 0 && allImages.some((img) => img.decorative)) return { role: "divider", confidence: 0.8 };
   const headings = section.headings ?? [];
   const h1 = headings.some((h) => h.level === 1);
   const bigHeading = (section.headingSize ?? 0) >= 36;
-  const tallImage = images.some((img) => (img.displayHeight ?? 0) >= section.bbox.h * 0.4 && (img.displayWidth ?? 0) >= section.bbox.w * 0.4);
+  const tallImage = allImages.some((img) => !img.decorative && (img.displayHeight ?? 0) >= section.bbox.h * 0.4 && (img.displayWidth ?? 0) >= section.bbox.w * 0.4);
   const questionHeadings = headings.filter((h) => /\?\s*$/.test(h.text)).length;
   const priceItems = items.filter((item) => item.price).length;
   const quoteItems = items.filter((item) => item.quote).length;
@@ -48,8 +82,10 @@ export function guessRole(section: Omit<ExtractedSection, "role" | "confidence" 
     return w >= section.bbox.w * 0.3 && w <= section.bbox.w * 0.6 && section.textLength > 60;
   })();
 
-  if (index === 0 && (h1 || bigHeading) && (section.bgImage || tallImage || section.bbox.h >= viewportHeight * 0.6)) return { role: "hero", confidence: 0.9 };
+  if (index === 0 && (h1 || bigHeading) && (backdrop || tallImage || section.bbox.h >= viewportHeight * 0.6)) return { role: "hero", confidence: 0.9 };
   if (index === 0 && h1) return { role: "hero", confidence: 0.7 };
+  // A headline over a full-bleed backdrop is a hero wherever it sits on the page.
+  if (backdrop && (h1 || bigHeading) && images.length === 0 && section.bbox.h >= viewportHeight * 0.4) return { role: "hero", confidence: 0.8 };
   if (items.length >= 3 && priceItems >= Math.max(3, Math.ceil(items.length * 0.8))) return { role: "pricing", confidence: 0.9 };
   if (items.length >= 3 && (quoteItems >= 2 || (section.quotes?.length ?? 0) >= 2)) return { role: "testimonials", confidence: 0.85 };
   if ((section.quotes?.length ?? 0) >= 2) return { role: "testimonials", confidence: 0.75 };
@@ -78,11 +114,11 @@ export function finalizeExtraction(raw: RawExtraction, pageOrdinal: number, view
   const sections = raw.sections.slice(0, MAX_SECTIONS_PER_PAGE).map((section, index) => {
     const { hiddenTexts, ...rest } = section as typeof section & { hiddenTexts?: string[] };
     const paragraphs = [...(rest.paragraphs ?? []), ...((hiddenTexts ?? []).filter((t) => !(rest.paragraphs ?? []).includes(t)))].slice(0, 25);
-    const base = {
+    const base = classifyBackdrops({
       ...rest,
       paragraphs,
       images: (rest.images ?? []).map((img) => ({ ...img, sourceUrl: img.src || undefined })),
-    };
+    } as any);
     const guess = guessRole(base as any, index, viewport.height);
     // A page-root fallback is honest about what it is: rich-text, low
     // confidence, so the planner never treats it as a confident reading.

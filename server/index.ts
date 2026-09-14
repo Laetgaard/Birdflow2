@@ -21,6 +21,7 @@ import { startPublishActivationReconciler } from "./publisher/worker";
 import { resumeOrphanedBuilds } from "./buildWorker";
 import { startClientMigrationSchema } from "./clientMigration/migrationDbSchema";
 import { resumeOrphanedMigrations } from "./clientMigration/migrationJob";
+import { publishedRendererHealth } from "./publisher/inProcessRenderer";
 import { storage as appStorage } from "./storage";
 import { registerSeoRoutes } from "./seo";
 import { ensureBookingSchema } from "./bookingSchema";
@@ -287,6 +288,14 @@ app.use((req, res, next) => {
         console.error("[ClientMigration] Orphan recovery failed:", err)
       );
     }
+  });
+
+  // The published renderer is compiled in-process from the publisher's own
+  // templates, so it can break without anything failing to start: visual
+  // review and migration verification simply stop producing screenshots.
+  // Checking it once at boot turns that silence into a line in the log.
+  void publishedRendererHealth().then((health) => {
+    if (!health.ok) console.error("[Publisher] Renderer unavailable — visual review and migration verification cannot take screenshots:", health.error);
   });
 
   // The per-website language choice made in onboarding. Same idempotent-DDL

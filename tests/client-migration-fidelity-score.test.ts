@@ -75,6 +75,28 @@ describe("scorePageFidelity", () => {
     expect(scorePageFidelity({ extraction: page(), plan: unskipped, page: built([hero(), practical()]), importedPaths: allowedPaths() }).textCoverage).toBeLessThan(1);
   });
 
+  it("counts images one by one, so half the photos placed is half the coverage", () => {
+    // Two images planned, one of them on the page.
+    const twoImages = page();
+    twoImages.sections[1].images = [{ src: "/objects/uploads/rum.webp", mediaId: "m-rum" } as never];
+    const twoPlanned = plan();
+    twoPlanned.sections[1].imageMediaIds = ["m-rum"];
+    const result = scorePageFidelity({ extraction: twoImages, plan: twoPlanned, page: built([hero(), practical()]), importedPaths: allowedPaths() });
+    expect(result.imageCoverage).toBe(0.5);
+
+    const withPhoto = { id: "c", type: "image", props: { imageUrl: "/objects/uploads/rum.webp" }, styles: {} };
+    const both = scorePageFidelity({ extraction: twoImages, plan: twoPlanned, page: built([hero(), practical(), withPhoto as never]), importedPaths: allowedPaths() });
+    expect(both.imageCoverage).toBe(1);
+  });
+
+  it("scores a page written by an older extractor instead of crashing on it", () => {
+    const sparse = page() as Record<string, any>;
+    // A row from before a list existed: the score must still run.
+    for (const s of sparse.sections) { delete s.lists; delete s.quotes; delete s.items; delete s.images; }
+    const result = scorePageFidelity({ extraction: sparse as never, plan: plan(), page: built([hero(), practical()]), importedPaths: allowedPaths() });
+    expect(result.score).toBeGreaterThan(0);
+  });
+
   it("gives an empty page a score of zero for what was planned", () => {
     const result = scorePageFidelity({ extraction: page(), plan: plan(), page: built([]), importedPaths: allowedPaths() });
     expect(result.textCoverage).toBe(0);

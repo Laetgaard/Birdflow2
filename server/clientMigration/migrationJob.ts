@@ -45,14 +45,15 @@ import { deriveBrandGuide } from "./brand/brandFromCapture";
 import { producePlan, type PlanSource } from "./plan/planAgent";
 import { buildPage } from "./build/pageBuilder";
 import { scorePageFidelity } from "./verify/fidelityScore";
-import { reviewPageFidelity } from "./verify/fidelityReview";
+import { reviewPageFidelity, type VerifySkipReason } from "./verify/fidelityReview";
 import { finalizeMigratedSite } from "./finish/finalize";
 import { runAgentLoop } from "../aiAgent";
 import type { AgentContext } from "../aiAgentTools";
 import { makeFidelityGuard } from "./build/fidelityGuard";
 import { migrationToolCatalogue } from "./build/migrationToolCatalogue";
 import { sectionEvidence } from "./plan/sectionMapper";
-import { resolveIssues, type VisualIssue } from "../visualReview";
+import { resolveIssues, openReviewBrowser, type ReviewBrowser, type VisualIssue } from "../visualReview";
+import { publishedRendererHealth } from "../publisher/inProcessRenderer";
 import { safeHost } from "./notify";
 
 const PROCESS_ID = `${process.pid}-${randomUUID().slice(0, 8)}`;
@@ -183,14 +184,27 @@ async function runJob(jobId: string): Promise<void> {
         rt.log("plan ready; waiting for admin approval");
         return;
       }
-      const attempt = await store.bumpPhaseAttempt(jobId, phase);
-      if (attempt > MAX_PHASE_ATTEMPTS) throw new PhaseFailure("unknown", `Phase ${phase} failed ${MAX_PHASE_ATTEMPTS} times.`);
+      // A life is spent when a phase actually throws, not when it is entered:
+      // a container restart mid-phase used to consume one, and three restarts
+      // killed a job that had never failed.
+      const failures = rt.job.phaseAttempts?.[phase] ?? 0;
+      if (failures >= MAX_PHASE_ATTEMPTS) {
+        // Keep the real reason. The old message replaced it with "unknown",
+        // so the admin was told nothing about why the phase kept failing.
+        const last = rt.job.error ? ` Last error: ${String(rt.job.error).slice(0, 400)}` : "";
+        throw new PhaseFailure("unknown", `Phase ${phase} failed ${MAX_PHASE_ATTEMPTS} times.${last}`);
+      }
       await store.updateJob(jobId, { phase, status: "running" });
       // A phase that runs again reports only what happens this time; the
       // admin should not read last attempt's failures next to this one's.
       await store.clearWarnings(jobId, phase);
-      rt.log(`phase ${phase} (attempt ${attempt})`);
-      await runPhase(rt, phase);
+      rt.log(`phase ${phase} (attempt ${failures + 1})`);
+      try {
+        await runPhase(rt, phase);
+      } catch (error) {
+        if (!(error instanceof JobControl)) await store.bumpPhaseAttempt(jobId, phase).catch(() => undefined);
+        throw error;
+      }
       await store.heartbeat(jobId, PROCESS_ID, { spentUsd: meter.spentUsd, spendByRole: rt.spendByRole }, phase);
     }
     await store.updateJob(jobId, { status: "awaiting_final_review", phase: "finish", finishedAt: new Date(), leaseOwner: null, leaseUntil: null });
@@ -458,6 +472,12 @@ async function phaseBuild(rt: Runtime): Promise<void> {
   }
 }
 
+/**
+ * What became of one page's verification. Every value is a fact about this
+ * run — "skipped_budget" means money was actually refused, nothing else.
+ */
+type VerifyStatus = "done" | "scoring_failed" | "failed" | VerifySkipReason;
+
 async function phaseVerify(rt: Runtime): Promise<void> {
   const plan = MigrationPlanSchema.parse(rt.job.plan);
   const items = await loadExtractions(rt);
@@ -467,81 +487,157 @@ async function phaseVerify(rt: Runtime): Promise<void> {
   const fidelity: Record<string, MigrationFidelity & { reviewed?: boolean; issues?: number }> = {};
   const ordered = [...plan.pages].sort((a, b) => (a.role === "home" ? -1 : b.role === "home" ? 1 : (a.navOrder ?? 999) - (b.navOrder ?? 999)));
 
-  for (const pagePlan of ordered) {
-    await checkControl(rt);
-    const row = pages.find((p) => p.id === pagePlan.sourcePageId);
-    const item = items.find((i) => i.page.id === pagePlan.sourcePageId);
-    if (!row || !item || row.buildStatus !== "built" || !row.targetPageId) continue;
-    if (row.verifyStatus === "done" && row.verify) { fidelity[row.id] = (row.verify as any).score; continue; }
-    const builder = await storage.getBuilderState(rt.job.websiteId);
-    if (!builder) throw new PhaseFailure("provisioning_failed", "The client's builder state is missing.");
-    let state = builder.state as BuilderStateData;
-    let revision = builder.revision;
-    const page = state.pages.find((p) => p.id === row.targetPageId);
-    if (!page) continue;
+  // A missing builder state is the one thing here that is the job's problem
+  // rather than a page's, so it is checked once, up front.
+  const initial = await storage.getBuilderState(rt.job.websiteId);
+  if (!initial) throw new PhaseFailure("provisioning_failed", "The client's builder state is missing.");
+  rt.log(`verify: ${ordered.length} pages against builder revision ${initial.revision}`);
 
-    let score = scorePageFidelity({ extraction: item.extraction, plan: pagePlan, page, importedPaths: allowed });
-    let issues: VisualIssue[] = [];
-    let resolutions: ReturnType<typeof resolveIssues> = [];
-    let reviewed = false;
-    let iterations = 0;
+  // The aggregate is written after every page, not once at the end: a phase
+  // that dies on page nine must still leave the admin the eight scores it
+  // earned.
+  const writeAggregate = async () => {
+    const scores = Object.values(fidelity).map((f) => f.score);
+    const overall = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
+    await store.updateJob(rt.job.id, { fidelity: { pages: fidelity, overall: Math.round(overall * 1000) / 1000 } as unknown as Record<string, unknown> });
+  };
 
-    const screenshots = (row.screenshots as any) ?? {};
-    while (iterations < MAX_FIDELITY_ITERATIONS && roomFor(rt, "verify") >= assumedCallCostUsd("migrationFidelity")) {
-      iterations++;
-      const before = rt.meter.spentUsd;
-      const review = await reviewPageFidelity({ state, pageId: page.id, pagePlan, sourceScreenshots: { desktop: screenshots.desktop?.storagePath, mobile: screenshots.mobile?.storagePath }, language: rt.job.language as "da" | "en", meter: rt.meter, store: { jobId: rt.job.id, pageRowId: row.id } });
-      // Keep the rebuild's screenshots on the page row so the admin's compare
-      // view can show both sides without re-rendering anything.
-      if (review.rebuiltPaths?.desktop) screenshots.rebuild = { storagePath: review.rebuiltPaths.desktop };
-      if (review.rebuiltPaths?.mobile) screenshots.rebuildMobile = { storagePath: review.rebuiltPaths.mobile };
-      if (review.rebuiltPaths?.desktop || review.rebuiltPaths?.mobile) await store.updatePage(row.id, { screenshots });
-      rt.spendByRole.migrationFidelity = (rt.spendByRole.migrationFidelity ?? 0) + (rt.meter.spentUsd - before);
-      if (!review.ran) { if (review.skippedReason) await warn(rt, "verify", "review_skipped", review.skippedReason, row.sourceUrl); break; }
-      reviewed = true;
-      if (iterations > 1) resolutions = resolveIssues(issues, review.issues);
-      issues = review.issues;
-      const actionable = issues.filter((issue) => (issue.severity === "critical" || issue.severity === "high") && issue.componentId);
-      if (!actionable.length || iterations >= MAX_FIDELITY_ITERATIONS || roomFor(rt, "verify") < assumedCallCostUsd("migrationBuild")) break;
+  // The published renderer is a compiled module, not a service. If it cannot
+  // load, no page in this job will ever be photographed — so say it once, do
+  // not launch a browser to photograph blank documents, and let every page
+  // record the real reason instead of being told it ran out of money.
+  const health = await publishedRendererHealth();
+  if (!health.ok) await warn(rt, "verify", "renderer_unavailable", `Publisher renderer unavailable, so no rebuild screenshots could be taken: ${health.error.slice(0, 200)}`);
 
-      // One corrective pass, behind the same guard as the build.
-      const guard = makeFidelityGuard({ evidence: sectionEvidence(item.extraction), allowedImagePaths: allowed, label: pagePlan.targetName });
-      const ctx: AgentContext = { websiteId: rt.job.websiteId, state: structuredClone(state), applied: [], notes: [], createdImages: [], imageCache: new Map(Array.from({ length: 8 }, (_, i) => [`blocked-${i}`, ""])), spendMeter: rt.meter, approvedLargeChanges: true, guard };
-      const fixBefore = rt.meter.spentUsd;
-      try {
-        await runAgentLoop({
-          tools: migrationToolCatalogue(),
-          systemPrompt: "You are BirdFlow's migration agent correcting a rebuilt page so it matches the customer's original. Use only the tools. Use only text and images already present on the page or supplied here; never invent. Call finish when done.",
-          userMessage: `Page "${page.id}". Fix these differences from the original, each naming the component to change:\n${actionable.map((i) => `- [${i.severity}] ${i.componentId}: ${i.description} → ${i.suggestedAction}`).join("\n")}\n\nAvailable image paths: ${Array.from(allowed).slice(0, 40).join(", ")}`,
-          ctx,
-          maxSteps: 6,
-          role: "migrationBuild",
-          spendMeter: rt.meter,
-          finalTurn: { toolName: "finish", reminder: "Call finish now.", satisfied: () => true },
-        });
-        rt.spendByRole.migrationBuild = (rt.spendByRole.migrationBuild ?? 0) + (rt.meter.spentUsd - fixBefore);
-        if (ctx.applied.length) {
-          const saved = await storage.updateBuilderState(rt.job.websiteId, ctx.state, revision, { svgAssetOrigin: "customer" } as any);
-          if (!saved) throw new PhaseFailure("builder_conflict", "The site was edited during verification.");
-          state = ctx.state;
-          revision = (saved as any).revision;
-          const fixedPage = state.pages.find((p) => p.id === row.targetPageId)!;
-          score = scorePageFidelity({ extraction: item.extraction, plan: pagePlan, page: fixedPage, importedPaths: allowed });
-        }
-      } catch (error) {
-        if (error instanceof PhaseFailure) throw error;
-        await warn(rt, "verify", "correction_failed", String((error as Error)?.message ?? error), row.sourceUrl);
-        break;
+  // One browser for the whole phase, opened by the first page that needs it.
+  let browser: ReviewBrowser | null = null;
+
+  try {
+    for (const pagePlan of ordered) {
+      await checkControl(rt);
+      const row = pages.find((p) => p.id === pagePlan.sourcePageId);
+      const item = items.find((i) => i.page.id === pagePlan.sourcePageId);
+      if (!row || !item || row.buildStatus !== "built" || !row.targetPageId) continue;
+      // A page already attempted is banked whatever the outcome. Only "done"
+      // used to count, which meant a renderer failure made every re-entry
+      // redo all ten pages — and that is how the phase burned its lives.
+      if (row.verifyStatus !== "pending" && row.verify) {
+        const stored = row.verify as { score?: MigrationFidelity; reviewed?: boolean; issues?: unknown[] };
+        if (stored?.score) fidelity[row.id] = { ...stored.score, reviewed: !!stored.reviewed, issues: Array.isArray(stored.issues) ? stored.issues.length : 0 };
+        continue;
       }
+
+      // Everything below is per page: a page may fail, the phase may not.
+      try {
+        const builder = await storage.getBuilderState(rt.job.websiteId);
+        if (!builder) throw new Error("The client's builder state is missing.");
+        let state = builder.state as BuilderStateData;
+        let revision = builder.revision;
+        const page = state.pages.find((p) => p.id === row.targetPageId);
+        if (!page) {
+          await store.updatePage(row.id, { verifyStatus: "failed", verify: { reason: "failed", detail: "The rebuilt page is no longer in the builder." } as unknown as Record<string, unknown> });
+          continue;
+        }
+
+        // The deterministic score is the number the admin trusts, so it gets
+        // its own guard: a crash in it costs this page's score, not the run.
+        let score: MigrationFidelity;
+        try {
+          score = scorePageFidelity({ extraction: item.extraction, plan: pagePlan, page, importedPaths: allowed });
+        } catch (error) {
+          const detail = String((error as Error)?.message ?? error).slice(0, 300);
+          await warn(rt, "verify", "scoring_failed", `Fidelity score failed for ${pagePlan.targetName}: ${detail}`, row.sourceUrl);
+          await store.updatePage(row.id, { verifyStatus: "scoring_failed", verify: { reason: "scoring_failed", detail } as unknown as Record<string, unknown> });
+          continue;
+        }
+
+        let issues: VisualIssue[] = [];
+        let resolutions: ReturnType<typeof resolveIssues> = [];
+        let reviewed = false;
+        let iterations = 0;
+        let skipReason: VerifySkipReason | undefined;
+
+        const screenshots = (row.screenshots as any) ?? {};
+        while (health.ok && iterations < MAX_FIDELITY_ITERATIONS && roomFor(rt, "verify") >= assumedCallCostUsd("migrationFidelity")) {
+          iterations++;
+          const before = rt.meter.spentUsd;
+          if (!browser) browser = await openReviewBrowser();
+          const review = await reviewPageFidelity({ state, pageId: page.id, pagePlan, sourceScreenshots: { desktop: screenshots.desktop?.storagePath, mobile: screenshots.mobile?.storagePath }, language: rt.job.language as "da" | "en", meter: rt.meter, store: { jobId: rt.job.id, pageRowId: row.id }, browser });
+          // Keep the rebuild's screenshots on the page row so the admin's compare
+          // view can show both sides without re-rendering anything.
+          if (review.rebuiltPaths?.desktop) screenshots.rebuild = { storagePath: review.rebuiltPaths.desktop };
+          if (review.rebuiltPaths?.mobile) screenshots.rebuildMobile = { storagePath: review.rebuiltPaths.mobile };
+          if (review.rebuiltPaths?.desktop || review.rebuiltPaths?.mobile) await store.updatePage(row.id, { screenshots });
+          rt.spendByRole.migrationFidelity = (rt.spendByRole.migrationFidelity ?? 0) + (rt.meter.spentUsd - before);
+          if (!review.ran) {
+            skipReason = review.reason ?? "screenshot_failed";
+            if (review.skippedReason) await warn(rt, "verify", "review_skipped", `${pagePlan.targetName}: ${review.skippedReason}`, row.sourceUrl);
+            break;
+          }
+          reviewed = true;
+          if (iterations > 1) resolutions = resolveIssues(issues, review.issues);
+          issues = review.issues;
+          const actionable = issues.filter((issue) => (issue.severity === "critical" || issue.severity === "high") && issue.componentId);
+          if (!actionable.length || iterations >= MAX_FIDELITY_ITERATIONS || roomFor(rt, "verify") < assumedCallCostUsd("migrationBuild")) break;
+
+          // One corrective pass, behind the same guard as the build.
+          const guard = makeFidelityGuard({ evidence: sectionEvidence(item.extraction), allowedImagePaths: allowed, label: pagePlan.targetName });
+          const ctx: AgentContext = { websiteId: rt.job.websiteId, state: structuredClone(state), applied: [], notes: [], createdImages: [], imageCache: new Map(Array.from({ length: 8 }, (_, i) => [`blocked-${i}`, ""])), spendMeter: rt.meter, approvedLargeChanges: true, guard };
+          const fixBefore = rt.meter.spentUsd;
+          try {
+            await runAgentLoop({
+              tools: migrationToolCatalogue(),
+              systemPrompt: "You are BirdFlow's migration agent correcting a rebuilt page so it matches the customer's original. Use only the tools. Use only text and images already present on the page or supplied here; never invent. Call finish when done.",
+              userMessage: `Page "${page.id}". Fix these differences from the original, each naming the component to change:\n${actionable.map((i) => `- [${i.severity}] ${i.componentId}: ${i.description} → ${i.suggestedAction}`).join("\n")}\n\nAvailable image paths: ${Array.from(allowed).slice(0, 40).join(", ")}`,
+              ctx,
+              maxSteps: 6,
+              role: "migrationBuild",
+              spendMeter: rt.meter,
+              finalTurn: { toolName: "finish", reminder: "Call finish now.", satisfied: () => true },
+            });
+            rt.spendByRole.migrationBuild = (rt.spendByRole.migrationBuild ?? 0) + (rt.meter.spentUsd - fixBefore);
+            if (ctx.applied.length) {
+              const saved = await storage.updateBuilderState(rt.job.websiteId, ctx.state, revision, { svgAssetOrigin: "customer" } as any);
+              // A conflict on a correction costs this page its correction —
+              // its review already happened and its score already stands.
+              if (!saved) {
+                await warn(rt, "verify", "builder_conflict", `The site was edited while ${pagePlan.targetName} was being corrected; its fixes were not saved.`, row.sourceUrl);
+                break;
+              }
+              state = ctx.state;
+              revision = (saved as any).revision;
+              const fixedPage = state.pages.find((p) => p.id === row.targetPageId);
+              // Re-scoring is a bonus, not a requirement: if it throws, the
+              // page keeps the score it already earned.
+              if (fixedPage) try { score = scorePageFidelity({ extraction: item.extraction, plan: pagePlan, page: fixedPage, importedPaths: allowed }); } catch { /* keep the score from before the correction */ }
+            }
+          } catch (error) {
+            await warn(rt, "verify", "correction_failed", String((error as Error)?.message ?? error), row.sourceUrl);
+            break;
+          }
+        }
+
+        const status: VerifyStatus = reviewed ? "done" : skipReason ?? (health.ok ? "skipped_budget" : "renderer_unavailable");
+        // Only a genuine refusal of money says "budget"; the other reasons
+        // already warned for themselves inside the loop.
+        if (status === "skipped_budget" && iterations === 0) await warn(rt, "verify", "skipped_budget", `Vision comparison skipped for ${pagePlan.targetName}: verify budget used up.`, row.sourceUrl);
+        fidelity[row.id] = { ...score, reviewed, issues: issues.length };
+        await store.updatePage(row.id, { verifyStatus: status, verify: { score, issues, resolutions, iterations, reviewed, ...(status === "done" ? {} : { reason: status }) } as unknown as Record<string, unknown> });
+        await store.updateJob(rt.job.id, { builderRevision: revision });
+      } catch (error) {
+        if (error instanceof JobControl) throw error;
+        // One page can never cost the job. It is recorded as attempted, so a
+        // resume moves on rather than dying on the same page three times.
+        const detail = String((error as Error)?.message ?? error).slice(0, 300);
+        await warn(rt, "verify", "page_failed", `${pagePlan.targetName}: ${detail}`, row.sourceUrl);
+        await store.updatePage(row.id, { verifyStatus: "failed", verify: { reason: "failed", detail } as unknown as Record<string, unknown> }).catch(() => undefined);
+      }
+      await writeAggregate();
     }
-    if (!reviewed && iterations === 0) await warn(rt, "verify", "skipped_budget", `Vision comparison skipped for ${pagePlan.targetName}: verify budget used up.`, row.sourceUrl);
-    fidelity[row.id] = { ...score, reviewed, issues: issues.length };
-    await store.updatePage(row.id, { verifyStatus: reviewed ? "done" : "skipped_budget", verify: { score, issues, resolutions, iterations, reviewed } as unknown as Record<string, unknown> });
-    await store.updateJob(rt.job.id, { builderRevision: revision });
+  } finally {
+    if (browser) await browser.close().catch(() => undefined);
   }
-  const scores = Object.values(fidelity).map((f) => f.score);
-  const overall = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
-  await store.updateJob(rt.job.id, { fidelity: { pages: fidelity, overall: Math.round(overall * 1000) / 1000 } as unknown as Record<string, unknown> });
+  await writeAggregate();
 }
 
 async function phaseFinish(rt: Runtime): Promise<void> {

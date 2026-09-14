@@ -7,7 +7,7 @@
  * belongs to nobody, so a restarted server may pick it up.
  */
 
-import { and, asc, desc, eq, inArray, lt, or, sql, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, ne, or, sql, isNull } from "drizzle-orm";
 import { db } from "../storage";
 import {
   clientMigrationJobs,
@@ -261,7 +261,10 @@ export async function resetPagesForRetry(jobId: string, phase: MigrationPhase): 
     await db.update(clientMigrationPages).set({ buildStatus: "pending", updatedAt: new Date() })
       .where(and(eq(clientMigrationPages.jobId, jobId), inArray(clientMigrationPages.buildStatus, ["failed", "building"])));
   } else if (phase === "verify") {
+    // Verification banks every attempt, not just the successful ones, so an
+    // explicit re-run has to offer a second chance to all of them. Only a
+    // page that genuinely got its comparison keeps its result.
     await db.update(clientMigrationPages).set({ verifyStatus: "pending", updatedAt: new Date() })
-      .where(and(eq(clientMigrationPages.jobId, jobId), eq(clientMigrationPages.verifyStatus, "failed")));
+      .where(and(eq(clientMigrationPages.jobId, jobId), ne(clientMigrationPages.verifyStatus, "done")));
   }
 }

@@ -65,6 +65,7 @@ vi.mock("../server/clientMigration/migrationStore", () => ({
       if (phase === "discover") { pages.delete(id); continue; }
       if (phase === "capture" && p.captureStatus === "failed") p.captureStatus = "pending";
       if (phase === "build" && p.buildStatus === "building") p.buildStatus = "pending";
+      if (phase === "verify" && p.verifyStatus !== "done") p.verifyStatus = "pending";
     }
   },
 }));
@@ -112,13 +113,23 @@ const buildPage = vi.fn(async ({ state, pagePlan, pageOrdinal }: any) => {
   return { state: next, page, progress: { sections: Object.fromEntries(pagePlan.sections.map((s: any) => [s.sourceSectionId, { status: "placed", attempts: 1 }])), agentSpendUsd: 0 }, notes: [] };
 });
 vi.mock("../server/clientMigration/build/pageBuilder", () => ({ buildPage: (...args: unknown[]) => buildPage(...(args as [any])) }));
-const reviewPageFidelity = vi.fn(async () => ({ ran: false, issues: [], skippedReason: "vision disabled in tests" }));
+const reviewPageFidelity = vi.fn(async () => ({ ran: false, issues: [], reason: "model_unavailable", skippedReason: "vision disabled in tests" }));
 vi.mock("../server/clientMigration/verify/fidelityReview", () => ({ reviewPageFidelity: (...args: unknown[]) => reviewPageFidelity(...(args as [])) }));
+// The deterministic score runs for real; the tests that need it to fail
+// replace the implementation for one page.
+const realScore = (await vi.importActual<typeof import("../server/clientMigration/verify/fidelityScore")>("../server/clientMigration/verify/fidelityScore")).scorePageFidelity;
+const scorePageFidelity = vi.fn((args: any) => realScore(args));
+vi.mock("../server/clientMigration/verify/fidelityScore", () => ({ scorePageFidelity: (...args: unknown[]) => scorePageFidelity(...(args as [any])) }));
+// The published renderer compiles in-process; in tests it is simply healthy
+// unless a test says otherwise.
+const publishedRendererHealth = vi.fn(async () => ({ ok: true }) as { ok: true } | { ok: false; error: string });
+vi.mock("../server/publisher/inProcessRenderer", () => ({ publishedRendererHealth: () => publishedRendererHealth() }));
 const finalizeMigratedSite = vi.fn(async ({ expectedRevision }: any) => ({ revision: expectedRevision + 1, snapshotId: 4242 }));
 vi.mock("../server/clientMigration/finish/finalize", () => ({ finalizeMigratedSite: (...args: unknown[]) => finalizeMigratedSite(...(args as [any])) }));
 vi.mock("../server/aiAgent", () => ({ runAgentLoop: vi.fn() }));
 vi.mock("../server/aiAgentTools", () => ({ buildToolCatalogue: () => [] }));
-vi.mock("../server/visualReview", () => ({ resolveIssues: () => [] }));
+const closeBrowser = vi.fn(async () => undefined);
+vi.mock("../server/visualReview", () => ({ resolveIssues: () => [], openReviewBrowser: async () => ({ close: closeBrowser }) }));
 vi.mock("../server/onboardingDecision", () => ({ bumpSiteRevision: vi.fn(async () => undefined) }));
 vi.mock("../server/clientMigration/notify", () => ({ safeHost: (url: string) => new URL(url).host }));
 
@@ -175,6 +186,11 @@ beforeEach(() => {
   buildPage.mockClear();
   finalizeMigratedSite.mockClear();
   reviewPageFidelity.mockClear();
+  scorePageFidelity.mockClear();
+  scorePageFidelity.mockImplementation((args: any) => realScore(args));
+  publishedRendererHealth.mockClear();
+  publishedRendererHealth.mockResolvedValue({ ok: true });
+  closeBrowser.mockClear();
   meteredChat.mockClear();
   updateBuilderState.mockClear();
   defaultDiscovery();
@@ -226,7 +242,9 @@ describe("a job from one link to the plan gate", () => {
     expect(job.finishedAt).toBeInstanceOf(Date);
     expect(buildPage).toHaveBeenCalledTimes(2);
     expect(buildPage.mock.calls.map((c) => c[0].pagePlan.targetSlug)).toEqual(["", "ydelser"]);
-    expect(pagesOf(id).map((p) => [p.buildStatus, p.verifyStatus])).toEqual([["built", "skipped_budget"], ["built", "skipped_budget"]]);
+    // The comparison model was unreachable — which is what the page rows say.
+    // "skipped_budget" is reserved for money actually being refused.
+    expect(pagesOf(id).map((p) => [p.buildStatus, p.verifyStatus])).toEqual([["built", "model_unavailable"], ["built", "model_unavailable"]]);
     expect(pagesOf(id)[0].targetPageId).toBe("home");
     expect(builder.state.pages.map((p) => p.path)).toEqual(["/", "/ydelser"]);
     expect(job.fidelity.pages[pagesOf(id)[0].id].score).toBeGreaterThan(0);
@@ -235,6 +253,8 @@ describe("a job from one link to the plan gate", () => {
     expect(job.snapshotId).toBe(4242);
     expect(job.warnings.filter((w: Row) => w.code === "skipped_budget").length).toBe(0);
     expect(job.warnings.filter((w: Row) => w.code === "review_skipped").length).toBe(2);
+    // One browser for the whole phase, closed when the phase ends.
+    expect(closeBrowser).toHaveBeenCalledTimes(1);
   });
 
   it("approves with an edited plan and refuses approval when the job is not waiting for one", async () => {
@@ -258,6 +278,73 @@ describe("a job from one link to the plan gate", () => {
     } finally {
       delete process.env.MIGRATION_AUTO_APPROVE_PLAN;
     }
+  });
+});
+
+/**
+ * Verification is the last phase before the site is handed to the admin, and
+ * it used to be the one that killed jobs: one page's exception aborted the
+ * phase, three of those and the job was dead with the real error replaced by
+ * "unknown". Nothing here may cost more than the page it happened on.
+ */
+describe("verification never costs more than the page it failed on", () => {
+  async function runToFinish(id: string): Promise<Row> {
+    await runToCompletion(id);
+    await runner.approvePlanAndContinue(id, "admin-1");
+    await vi.waitFor(() => expect(runner.isMigrationLive(id)).toBe(false), { timeout: 15_000, interval: 10 });
+    return jobs.get(id)!;
+  }
+
+  it("records the page whose score throws and finishes the phase anyway", async () => {
+    const id = seedJob();
+    let call = 0;
+    scorePageFidelity.mockImplementation((args: any) => {
+      if (++call === 1) throw new Error("extraction row is malformed");
+      return realScore(args);
+    });
+
+    const job = await runToFinish(id);
+    expect(job.status).toBe("awaiting_final_review");
+    expect(pagesOf(id).map((p) => p.verifyStatus)).toEqual(["scoring_failed", "model_unavailable"]);
+    expect(job.warnings.filter((w: Row) => w.code === "scoring_failed").length).toBe(1);
+    // The second page still has a score, and the aggregate is built from it.
+    expect(job.fidelity.pages[pagesOf(id)[0].id]).toBeUndefined();
+    expect(job.fidelity.pages[pagesOf(id)[1].id].score).toBeGreaterThan(0);
+    expect(finalizeMigratedSite).toHaveBeenCalledTimes(1);
+  });
+
+  it("says the renderer was unavailable instead of blaming the budget, and photographs nothing", async () => {
+    const id = seedJob();
+    publishedRendererHealth.mockResolvedValue({ ok: false, error: "Ustubbet modul: @/components/trustedRuntime" });
+
+    const job = await runToFinish(id);
+    expect(job.status).toBe("awaiting_final_review");
+    expect(pagesOf(id).map((p) => p.verifyStatus)).toEqual(["renderer_unavailable", "renderer_unavailable"]);
+    expect(reviewPageFidelity).not.toHaveBeenCalled();
+    expect(closeBrowser).not.toHaveBeenCalled();
+    expect(job.warnings.filter((w: Row) => w.code === "renderer_unavailable").length).toBe(1);
+    expect(job.warnings.filter((w: Row) => w.code === "skipped_budget").length).toBe(0);
+    // Every page still carries its deterministic score.
+    expect(Object.keys(job.fidelity.pages)).toHaveLength(2);
+  });
+
+  it("keeps the phase alive when one page explodes, and banks the pages already attempted", async () => {
+    const id = seedJob();
+    reviewPageFidelity.mockImplementationOnce(async () => { throw new Error("comparison store is down"); });
+
+    const job = await runToFinish(id);
+    expect(job.status).toBe("awaiting_final_review");
+    expect(pagesOf(id).map((p) => p.verifyStatus)).toEqual(["failed", "model_unavailable"]);
+    expect(job.warnings.filter((w: Row) => w.code === "page_failed").length).toBe(1);
+
+    // A crash in the middle of verification resumes past the pages already
+    // attempted — which is how the phase used to burn all three of its lives,
+    // redoing ten pages and launching twenty browsers every time.
+    reviewPageFidelity.mockClear();
+    Object.assign(jobs.get(id)!, { status: "running", phase: "verify", finishedAt: null, leaseOwner: "dead-process", leaseUntil: new Date(Date.now() - 1) });
+    const resumed = await runToCompletion(id);
+    expect(reviewPageFidelity).not.toHaveBeenCalled();
+    expect(resumed.status).toBe("awaiting_final_review");
   });
 });
 

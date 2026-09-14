@@ -11,6 +11,7 @@
 
 import { z } from "zod";
 import { meteredChat, isSpendLimitError } from "../../aiCall";
+import { aiConfig } from "../../aiConfig";
 import type { SpendMeter } from "../../aiSpend";
 import {
   MigrationPlanSchema,
@@ -200,17 +201,23 @@ export async function refinePlanWithModel(base: MigrationPlan, sources: PlanSour
         { role: "user" as const, content: `Language: ${plan.language}. Site: ${plan.siteName}.\nManifest (one page per line):\n${manifestFor(batch)}` },
       ];
       // A well-formed but useless answer is not an error the metered call can
-      // see, so the fallback provider is asked explicitly before giving up.
+      // see, so the fallback model is asked explicitly before giving up — but
+      // only when there is one; a role without a fallback is not billed twice
+      // for the same question.
       let parsed: ReturnType<typeof MappingResponseSchema.safeParse> | undefined;
-      for (const forceFallback of [false, true]) {
+      let cutOff = false;
+      const attempts = aiConfig("migrationPlan").fallbackProvider ? [false, true] : [false];
+      for (const forceFallback of attempts) {
         const completion = await meteredChat("migrationPlan", { messages, response_format: { type: "json_object" } }, meter, { forceFallback });
-        const raw = completion.choices[0]?.message?.content;
+        const choice = completion.choices[0];
+        cutOff = choice?.finish_reason === "length";
+        const raw = choice?.message?.content;
         let json: unknown = null;
         try { json = raw ? JSON.parse(raw) : null; } catch { json = null; }
         parsed = MappingResponseSchema.safeParse(json);
         if (parsed.success) break;
       }
-      if (!parsed?.success) { warning = "The mapping model returned an unusable answer; the deterministic plan was kept."; continue; }
+      if (!parsed?.success) { warning = cutOff ? "The mapping model ran out of room before finishing its answer; the deterministic plan was kept." : "The mapping model returned an unusable answer; the deterministic plan was kept."; continue; }
       usedModel = true;
       for (const decided of parsed.data.pages) {
         const page = plan.pages.find((p) => p.sourcePageId === decided.sourcePageId);
@@ -243,7 +250,9 @@ export async function refinePlanWithModel(base: MigrationPlan, sources: PlanSour
       if (parsed.data.notes) plan.notes.push(...parsed.data.notes.slice(0, 20));
     } catch (error) {
       warning = isSpendLimitError(error) ? "The plan step reached its cost limit; the deterministic plan was kept." : `The mapping model was unavailable (${(error as Error)?.message?.slice(0, 120)}); the deterministic plan was kept.`;
-      break;
+      // Out of money means out for every batch; anything else is worth
+      // trying on the next batch of pages.
+      if (isSpendLimitError(error)) break;
     }
   }
   return { plan, usedModel, warning };

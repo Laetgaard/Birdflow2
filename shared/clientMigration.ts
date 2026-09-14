@@ -136,6 +136,8 @@ export const SECTION_ROLES = [
   "video",
   "comparison-table",
   "rich-text",
+  /** A band that is only an ornament between two sections. */
+  "divider",
 ] as const;
 export type SectionRole = (typeof SECTION_ROLES)[number];
 export const SectionRoleSchema = z.enum(SECTION_ROLES);
@@ -153,6 +155,24 @@ export const extractedImageSchema = z.object({
   isBackground: z.boolean().optional(),
   /** Inline <svg> markup, capped; never rendered without validation. */
   svgMarkup: z.string().max(50_000).optional(),
+  /** Document-space position, so a picture can be told from a backdrop and placed on the right side. */
+  x: z.number().optional(),
+  y: z.number().optional(),
+  position: z.string().max(20).optional(),
+  objectFit: z.string().max(20).optional(),
+  /** Why it was (or was not) read as the section's backdrop; kept so the decision can be explained. */
+  coversSection: z.boolean().optional(),
+  behindText: z.boolean().optional(),
+  /** A divider, ornament or icon: decoration between the words, not a picture of the business. */
+  decorative: z.boolean().optional(),
+  role: z.enum(["ornament", "icon", "content"]).optional(),
+  /** Where a decorative image sat in the flow of the section's text. */
+  anchor: z.object({
+    afterHeading: z.string().max(500).optional(),
+    beforeParagraph: z.string().max(1500).optional(),
+    domIndex: z.number().int().nonnegative(),
+    position: z.enum(["start", "inline", "end"]).optional(),
+  }).optional(),
 });
 export type ExtractedImage = z.infer<typeof extractedImageSchema>;
 
@@ -221,6 +241,10 @@ export const extractedSectionSchema = z.object({
   confidence: z.number().min(0).max(1),
   /** The page segmented into nothing and this stands in for its whole body. */
   fallback: z.boolean().optional(),
+  /** Rects of the section's headings and paragraphs — what decides whether an image is behind the text. */
+  textRects: z.array(z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() })).max(12).optional(),
+  /** A translucent scrim the source laid over its backdrop, so the rebuild can lay the same one. */
+  overlay: z.object({ color: z.string().max(60), alpha: z.number().min(0).max(1) }).optional(),
 });
 export type ExtractedSection = z.infer<typeof extractedSectionSchema>;
 
@@ -400,6 +424,7 @@ export const ROLE_TARGET_COMPATIBILITY: Record<SectionRole, Array<string>> = {
   video: ["component:video-embed", "custom"],
   "comparison-table": ["component:comparison-table", "section:pricing-section", "custom"],
   "rich-text": ["component:rich-text", "component:text-image", "custom"],
+  divider: ["component:divider", "skip"],
 };
 
 export function targetKey(target: MigrationTarget): string {

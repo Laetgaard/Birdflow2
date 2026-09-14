@@ -230,10 +230,13 @@ export function createImageRuntime() {
   /** The five hero layouts, as data both renderers apply. `video-bg` (retired) draws as centered. */
   function heroLayoutStyles(layout: string | undefined): HeroLayout {
     switch (layout) {
+      // 'split' is the plan-level name a migration used before the mapper
+      // learned the real ones; it meant a photo beside the text.
+      case 'split':
       case 'split-left':
       case 'split-right':
         return {
-          layout,
+          layout: layout === 'split' ? 'split-right' : layout,
           split: true,
           imageOnLeft: layout === 'split-left',
           content: { maxWidth: '100%', margin: '0', textAlign: 'left' },
