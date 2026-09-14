@@ -412,12 +412,37 @@ describe("site chrome from the plan", () => {
     expect(header.props.showCart).toBe(false);
   });
 
+  it("keeps a logo-only header logo-only, and wears the original's colours", () => {
+    const header = buildHeaderComponent({
+      brandText: undefined,
+      showBrandText: false,
+      logoPath: "/objects/uploads/logo.webp",
+      nav: [{ label: "Forside", href: "/" }],
+      style: { backgroundColor: "#14141e", textColor: "#ffffff", sticky: true, transparent: true },
+    });
+    // The company name typed into the admin form must not appear beside a
+    // logo the client never captioned.
+    expect(header.props.title).toBe("");
+    expect(header.styles).toMatchObject({ backgroundColor: "#14141e", scrolledBackgroundColor: "#14141e", textColor: "#ffffff", scrollBehavior: "sticky", isTransparent: true, overlayMode: true });
+  });
+
+  it("leaves a header without a captured style exactly as it was", () => {
+    const header = buildHeaderComponent({ brandText: "Klinik Ro", logoPath: "/objects/uploads/logo.webp", nav: [] });
+    expect(header.props.title).toBe("Klinik Ro");
+    expect(header.styles.scrollBehavior).toBe("static");
+    expect(header.styles.isTransparent).toBe(false);
+  });
+
   it("builds the footer with columns, contact text and social links", () => {
     const footer = buildFooterComponent({ copyright: "© 2025 Klinik Ro", contactText: "hej@klinikro.dk", columns: [{ heading: "Klinikken", links: [{ text: "Om mig", href: "/om" }] }], social: [{ network: "instagram", href: "https://instagram.com/klinikro" }] });
     expect(footer.id).toBe("mig-footer");
     expect(footer.props.title).toBe("© 2025 Klinik Ro");
     expect(footer.props.description).toBe("hej@klinikro.dk");
     expect((footer.props.columns as any[])[0].links[0]).toMatchObject({ title: "Om mig", description: "/om" });
+    // The names both renderers actually read, or the client's own footer
+    // links are written and never drawn.
+    expect((footer.props.footerColumns as any[])[0]).toMatchObject({ heading: "Klinikken", links: [{ label: "Om mig", href: "/om" }] });
+    expect(footer.props.copyright).toBe("© 2025 Klinik Ro");
     expect((footer.props.socialLinks as any[])[0]).toMatchObject({ platform: "instagram", url: "https://instagram.com/klinikro" });
   });
 });

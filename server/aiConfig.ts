@@ -310,8 +310,11 @@ export const AI_CONFIG: Record<AiRole, AiRoleConfig> = {
   migrationFidelity: {
     provider: "openai",
     model: OPENAI_REASONING_MODEL,
-    // Four images (two viewports, original and rebuild) plus a short list.
-    maxCompletionTokens: 2048,
+    // Four images (two viewports, original and rebuild) plus a short list —
+    // but reasoning tokens are drawn from the same allowance, and at 2048
+    // the model spent them all thinking and returned nothing at all.
+    maxCompletionTokens: 6144,
+    reasoningEffort: "low",
     maxRunCostUsd: 1.5,
     fallbackProvider: "openai",
     fallbackModel: OPENAI_FALLBACK_MODEL,
@@ -346,19 +349,27 @@ export function aiConfig(role: AiRole): AiRoleConfig {
  *   does not accept this field on the OpenAI-compatible endpoint.
  * - max_completion_tokens is sent to both providers.
  */
-export function chatParamsFor(role: AiRole, provider: AiProvider = aiConfig(role).provider): {
+/** Models that accept `reasoning_effort`: OpenAI's reasoning families only. */
+export function acceptsReasoningEffort(provider: AiProvider, model: string): boolean {
+  return provider === "openai" && /^(gpt-5|o\d)/i.test(model);
+}
+
+export function chatParamsFor(role: AiRole, provider: AiProvider = aiConfig(role).provider, model?: string): {
   model: string;
   max_completion_tokens: number;
   reasoning_effort?: ReasoningEffort;
 } {
   const config = aiConfig(role);
+  const effectiveModel = model ?? config.model;
   return {
-    model: config.model,
+    model: effectiveModel,
     max_completion_tokens: config.maxCompletionTokens,
-    // Only emit reasoning_effort to OpenAI — Kimi does not accept it. Judged
-    // by the provider the call actually goes to, so a fallback to Kimi never
-    // ships it a parameter that would turn the fallback into a 400.
-    ...(config.reasoningEffort && provider === "openai"
+    // Judged by the MODEL the call actually goes to, not by the provider.
+    // Gating on the provider alone shipped `reasoning_effort` to gpt-4o on
+    // an openai→openai fallback, and every such retry died as a 400 —
+    // which is how a plan that merely needed a second try was reported as
+    // "the mapping model was unavailable".
+    ...(config.reasoningEffort && acceptsReasoningEffort(provider, effectiveModel)
       ? { reasoning_effort: config.reasoningEffort }
       : {}),
   };

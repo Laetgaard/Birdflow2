@@ -128,7 +128,7 @@ export const MAX_VISUAL_ITERATIONS = 2;
 
 // The Chromium lookup used to live here; every headless capture now shares
 // server/browser/chromium.ts. Re-exported so existing importers keep working.
-import { findChromiumPath } from "./browser/chromium";
+import { findChromiumPath, HEADLESS_CHROMIUM_ARGS } from "./browser/chromium";
 export { findChromiumPath };
 
 /* ─────────────────────────────────────────────────────────────
@@ -280,24 +280,30 @@ const IMAGE_WAIT_TIMEOUT_MS = 8000;
  */
 export type ReviewBrowser = Awaited<ReturnType<typeof puppeteer.launch>>;
 
-/** One Chromium for a whole run of screenshots; the caller closes it. */
+/**
+ * One Chromium for a whole run of screenshots; the caller closes it.
+ *
+ * The flags are the ones every headless capture in this codebase shares, so
+ * a browser that starts for the crawler starts here too. Puppeteer's default
+ * 30-second launch timeout is doubled and a single retry added: a launch
+ * that loses the race for the websocket endpoint on a loaded machine used to
+ * cost a page its whole verification.
+ */
 export async function openReviewBrowser(): Promise<ReviewBrowser> {
-  return puppeteer.launch({
-    headless: true,
+  const options = {
+    headless: true as const,
     executablePath: findChromiumPath(),
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--no-first-run",
-      "--no-zygote",
-      "--disable-web-security",
-      "--disable-features=VizDisplayCompositor",
-      // Disable network to avoid font fetch delays (fonts are loaded via URL
-      // but we accept the fallback stack — faster and offline-safe)
-    ],
-  });
+    timeout: 60_000,
+    protocolTimeout: 120_000,
+    args: [...HEADLESS_CHROMIUM_ARGS, "--disable-web-security", "--disable-features=VizDisplayCompositor"],
+  };
+  try {
+    return await puppeteer.launch(options);
+  } catch (error) {
+    console.warn("[VisualReview] Chromium did not start; retrying once:", error instanceof Error ? error.message : String(error));
+    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    return puppeteer.launch(options);
+  }
 }
 
 export async function capturePageScreenshots(

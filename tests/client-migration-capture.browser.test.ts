@@ -235,3 +235,117 @@ describe.skipIf(!executablePath)("extracting a rendered page", () => {
     expect(extraction.icons[0].href).toBe("https://klinikro.dk/favicon.png");
   });
 });
+
+/**
+ * The shapes real WordPress themes emit.
+ *
+ * The first real migration read every sub-page as exactly two sections and
+ * never found a header at all. Both failures were structural: a sticky
+ * header was excluded before it could be read, and the walk would only enter
+ * a lone child that covered 90 % of its parent's area — which `#page > main`
+ * (the parent's rect still holds the header and footer) and every centred
+ * 1200px wrapper never do.
+ */
+describe.skipIf(!executablePath)("the page shapes WordPress themes emit", () => {
+  let browser: Browser;
+
+  beforeAll(async () => {
+    browser = await puppeteer.launch({ executablePath, headless: true, args: HEADLESS_CHROMIUM_ARGS });
+  }, 60_000);
+
+  afterAll(async () => {
+    await browser?.close();
+  });
+
+  async function read(html: string): Promise<PageExtraction> {
+    const page = await browser.newPage();
+    try {
+      await page.setViewport(VIEWPORT);
+      await page.setContent(html, { waitUntil: "load" });
+      const raw = await page.evaluate(extractPageInBrowser, { maxSections: 24, viewportWidth: VIEWPORT.width, viewportHeight: VIEWPORT.height });
+      return finalizeExtraction(raw, 0, VIEWPORT, { detected: false, dismissed: false }, []);
+    } finally {
+      await page.close();
+    }
+  }
+
+  const band = (n: number, extra = "") => `<section class="band" style="${extra}"><div class="inner"><h2>Overskrift ${n}</h2><p>Et afsnit med rigtigt indhold på side ${n}, langt nok til at tælle som tekst.</p></div></section>`;
+
+  const shell = (body: string, css = "") => `<!doctype html><html lang="da"><head><base href="https://sensuvitality.com/"><title>Side</title><style>
+    body { margin: 0; font-family: Georgia, serif; }
+    header { position: sticky; top: 0; height: 80px; display: flex; align-items: center; justify-content: space-between; padding: 0 40px; background: rgb(255, 255, 255); }
+    footer { background: rgb(20, 20, 30); color: #fff; padding: 64px 40px; }
+    .inner { max-width: 1200px; margin: 0 auto; }
+    .band { padding: 72px 0; }
+    ${css}
+  </style></head><body>${body}</body></html>`;
+
+  it("reads a classic theme's page as its sections, not as one block", async () => {
+    const extraction = await read(shell(`
+      <div id="page">
+        <header><a href="/"><strong>Sensuvitality</strong></a><nav><a href="/">Forside</a><a href="/book">Book</a><a href="/om">Om</a></nav></header>
+        <main><article><div class="entry-content">${band(1)}${band(2)}${band(3)}${band(4)}</div></article></main>
+        <footer><p>© 2025</p></footer>
+      </div>`));
+
+    expect(extraction.sections.map((s) => s.headings[0]?.text)).toEqual(["Overskrift 1", "Overskrift 2", "Overskrift 3", "Overskrift 4"]);
+    expect(extraction.chrome.header?.sticky).toBe(true);
+    expect(extraction.chrome.header?.nav.map((n) => n.text)).toEqual(["Sensuvitality", "Forside", "Book", "Om"]);
+  });
+
+  it("reads a Divi-style page, whose wrappers match no standard selector", async () => {
+    const extraction = await read(shell(`
+      <div id="page-container">
+        <header id="main-header" style="position: fixed; width: 100%;"><a href="/"><strong>Sensuvitality</strong></a><nav><a href="/">Forside</a><a href="/book">Book</a></nav></header>
+        <div id="et-main-area"><div id="main-content"><article>
+          <div class="et_pb_section" style="background: rgb(250, 245, 240)"><div class="et_pb_row"><h2>Rødder</h2><p>Et afsnit om kroppens eget sprog og den ro, der følger med.</p></div></div>
+          <div class="et_pb_section" style="background: rgb(240, 235, 245)"><div class="et_pb_row"><h2>Metoden</h2><p>Endnu et afsnit, på en anden baggrund end det forrige.</p></div></div>
+          <div class="et_pb_section" style="background: rgb(235, 245, 240)"><div class="et_pb_row"><h2>Forløbet</h2><p>Og et tredje afsnit, der afslutter siden med en klar opsummering.</p></div></div>
+        </article></div></div>
+      </div>`, ".et_pb_section { padding: 80px 0 } .et_pb_row { max-width: 1080px; margin: 0 auto }"));
+
+    expect(extraction.sections.map((s) => s.headings[0]?.text)).toEqual(["Rødder", "Metoden", "Forløbet"]);
+    // Each band keeps its own colour, which is what the rebuild paints.
+    expect(extraction.sections.map((s) => s.bgColor)).toEqual(["rgb(250, 245, 240)", "rgb(240, 235, 245)", "rgb(235, 245, 240)"]);
+    expect(extraction.chrome.header?.sticky).toBe(true);
+  });
+
+  it("walks into a centred container instead of stopping at its width", async () => {
+    const extraction = await read(shell(`
+      <header><a href="/"><strong>Sensuvitality</strong></a><nav><a href="/">Forside</a><a href="/book">Book</a></nav></header>
+      <main><div class="container">${band(1)}${band(2)}${band(3)}</div></main>`,
+      ".container { max-width: 1200px; margin: 0 auto }"));
+
+    expect(extraction.sections).toHaveLength(3);
+  });
+
+  it("keeps a heading-less band that has a colour of its own", async () => {
+    const extraction = await read(shell(`
+      <header><a href="/"><strong>Sensuvitality</strong></a><nav><a href="/">Forside</a><a href="/book">Book</a></nav></header>
+      <main>${band(1)}
+        <div class="cta" style="background: rgb(60, 30, 30); color: #fff; height: 150px; display: flex; align-items: center; justify-content: center"><a href="/book">Book din session</a></div>
+        ${band(2)}
+      </main>`));
+
+    expect(extraction.sections).toHaveLength(3);
+    expect(extraction.sections[1].ctas.map((c) => c.text)).toContain("Book din session");
+  });
+
+  it("reads the menu a burger hides, and keeps a logo-only brand logo-only", async () => {
+    const extraction = await read(shell(`
+      <header>
+        <a href="/" class="brand"><img src="data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="40"><rect width="100%" height="100%" fill="#6b2d2d"/></svg>')}" width="120" height="40" alt="Sensuvitality"></a>
+        <button aria-controls="mobile-menu" aria-expanded="false">Menu</button>
+      </header>
+      <nav id="mobile-menu" style="display: none"><a href="/">Forside</a><a href="/book">Book Your Session</a><a href="/om">Who is Eabeauti</a></nav>
+      <main>${band(1)}${band(2)}</main>`));
+
+    const header = extraction.chrome.header!;
+    expect(header.menuHidden).toBe(true);
+    expect(header.nav.map((n) => n.text)).toEqual(["Forside", "Book Your Session", "Who is Eabeauti"]);
+    expect(header.brandShown).toBe("logo");
+    expect(header.brandText).toBeUndefined();
+    expect(header.logo?.src).toMatch(/^data:image\/svg\+xml/);
+    expect(header.bgColor).toBe("rgb(255, 255, 255)");
+  });
+});

@@ -4010,6 +4010,19 @@ function HeaderSection({ props, styles, pages, navItems: providedNavItems }: { p
             </nav>
           )}
 
+          {/* The header's own button, the one most sites keep at the right. */}
+          {!isMobile && props.buttonText && (
+            <HoverButtonComponent
+              backgroundColor={hoverColor}
+              hoverBackgroundColor={hoverColor}
+              textColor={getContrastColor(hoverColor)}
+              href={props.buttonLink || '#'}
+              style={{ padding: '10px 20px', fontSize: '15px', fontWeight: 600, borderRadius: '10px' }}
+            >
+              {props.buttonText}
+            </HoverButtonComponent>
+          )}
+
           {/* Cart Button */}
           {showCart && (
             <button
@@ -4104,6 +4117,18 @@ function HeaderSection({ props, styles, pages, navItems: providedNavItems }: { p
               {item.title}
             </NavLinkItem>
           ))}
+          {props.buttonText && (
+            <HoverButtonComponent
+              backgroundColor={hoverColor}
+              hoverBackgroundColor={hoverColor}
+              textColor={getContrastColor(hoverColor)}
+              href={props.buttonLink || '#'}
+              onClick={() => setMobileMenuOpen(false)}
+              style={{ padding: '12px 20px', fontSize: '15px', fontWeight: 600, borderRadius: '10px', textAlign: 'center' }}
+            >
+              {props.buttonText}
+            </HoverButtonComponent>
+          )}
         </nav>
       )}
     </header>
@@ -5823,7 +5848,15 @@ function CustomComponentSection({ props, styles }: { props: ComponentProps; styl
   if (hover.length) css += '\\n' + hover.join('');
 
   return (
-    <section style={{ backgroundColor: (styles.backgroundColor as string) || 'transparent', padding: (styles.padding as string) || '0px' }}>
+    <section style={{
+      backgroundColor: (styles.backgroundColor as string) || 'transparent',
+      ...(styles.backgroundImage ? {
+        backgroundImage: String(styles.backgroundImage).indexOf('url(') === 0 ? String(styles.backgroundImage) : 'url(' + String(styles.backgroundImage) + ')',
+        backgroundSize: (styles.backgroundSize as string) || 'cover',
+        backgroundPosition: (styles.backgroundPosition as string) || 'center',
+      } : {}),
+      padding: (styles.padding as string) || '0px',
+    }}>
       {css ? <style dangerouslySetInnerHTML={{ __html: css }} /> : null}
       <CustomNode node={tree} />
     </section>

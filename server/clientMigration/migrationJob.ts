@@ -325,14 +325,25 @@ async function phaseCapture(rt: Runtime): Promise<void> {
         if (bot && page.ordinal === 0) throw new PhaseFailure("blocked_by_bot_protection", "The start page is behind bot protection and cannot be captured.");
       }
     }
-    // A page that read as empty is usually lazy-loaded rather than blank.
-    // One thorough re-read before giving up, so its content is not lost.
+    // A page that read as empty is usually lazy-loaded rather than blank, and
+    // a page of real text that segmented into one or two blocks was read
+    // through a wrapper the walk could not open. Both get one thorough
+    // re-read before the plan has to live with the reading.
     for (const page of await store.listPages(rt.job.id)) {
       await checkControl(rt);
-      const sections = (page.extraction as { sections?: unknown[] } | null)?.sections;
-      if (page.captureStatus !== "captured" || (sections?.length ?? 0) > 0) continue;
+      const extraction = page.extraction as { sections?: Array<{ textLength?: number; fallback?: boolean }> } | null;
+      const sections = extraction?.sections ?? [];
+      const textLength = sections.reduce((n, section) => n + (section.textLength ?? 0), 0);
+      const thin = sections.length === 0 || sections.some((section) => section.fallback) || (sections.length <= 2 && textLength > 1500);
+      if (page.captureStatus !== "captured" || !thin) continue;
       try {
         const result = await capturePage(session, { jobId: rt.job.id, pageId: page.id, pageOrdinal: page.ordinal, url: page.sourceUrl, keepHtml: true, thorough: true });
+        // The second reading replaces the first only when it saw more. A
+        // relaxed pass that finds less must not cost the page what it had.
+        if (sections.length && result.extraction.sections.length <= sections.length) {
+          await warn(rt, "capture", "page_thin", `This page reads as ${sections.length} section(s); a thorough re-read found no more.`, page.sourceUrl);
+          continue;
+        }
         await store.updatePage(page.id, {
           screenshots: result.screenshots as unknown as Record<string, unknown>,
           renderedHtmlPath: result.renderedHtmlPath ?? null,
@@ -408,7 +419,13 @@ async function phasePlan(rt: Runtime): Promise<void> {
   let plan: MigrationPlan;
   let warnings: string[];
   try {
-    ({ plan, warnings } = await producePlan({ sources, assets, siteName: rt.job.company, language: rt.job.language as "da" | "en", pixelClose: true, meter: rt.meter, useModel }));
+    const discovery = rt.job.discovery as { menu?: Array<{ label: string; url: string; order: number }>; pages?: Array<{ url: string; title?: string; fromNav?: boolean }> } | null;
+    ({ plan, warnings } = await producePlan({
+      sources, assets, siteName: rt.job.company, language: rt.job.language as "da" | "en", pixelClose: true, meter: rt.meter, useModel,
+      // The menu the site itself published, and the pages the crawl reached
+      // through a navigation: what a header hidden behind a burger costs us.
+      navHints: { menu: discovery?.menu, pages: discovery?.pages },
+    }));
   } catch (error: any) {
     if (error instanceof JobControl || error instanceof PhaseFailure) throw error;
     throw new PhaseFailure("plan_invalid", String(error?.message ?? error).slice(0, 500));
@@ -476,7 +493,7 @@ async function phaseBuild(rt: Runtime): Promise<void> {
  * What became of one page's verification. Every value is a fact about this
  * run — "skipped_budget" means money was actually refused, nothing else.
  */
-type VerifyStatus = "done" | "scoring_failed" | "failed" | VerifySkipReason;
+type VerifyStatus = "done" | "scoring_failed" | "failed" | "browser_unavailable" | VerifySkipReason;
 
 async function phaseVerify(rt: Runtime): Promise<void> {
   const plan = MigrationPlanSchema.parse(rt.job.plan);
@@ -510,7 +527,11 @@ async function phaseVerify(rt: Runtime): Promise<void> {
   if (!health.ok) await warn(rt, "verify", "renderer_unavailable", `Publisher renderer unavailable, so no rebuild screenshots could be taken: ${health.error.slice(0, 200)}`);
 
   // One browser for the whole phase, opened by the first page that needs it.
+  // A Chromium that will not start is a fact about the machine, not about
+  // this page: it is said once and then every page records it and keeps the
+  // score it already earned, instead of each waiting out the same timeout.
   let browser: ReviewBrowser | null = null;
+  let browserFailed = false;
 
   try {
     for (const pagePlan of ordered) {
@@ -558,10 +579,19 @@ async function phaseVerify(rt: Runtime): Promise<void> {
         let skipReason: VerifySkipReason | undefined;
 
         const screenshots = (row.screenshots as any) ?? {};
-        while (health.ok && iterations < MAX_FIDELITY_ITERATIONS && roomFor(rt, "verify") >= assumedCallCostUsd("migrationFidelity")) {
+        while (health.ok && !browserFailed && iterations < MAX_FIDELITY_ITERATIONS && roomFor(rt, "verify") >= assumedCallCostUsd("migrationFidelity")) {
           iterations++;
           const before = rt.meter.spentUsd;
-          if (!browser) browser = await openReviewBrowser();
+          if (!browser) {
+            try {
+              browser = await openReviewBrowser();
+            } catch (error) {
+              browserFailed = true;
+              iterations--;
+              await warn(rt, "verify", "browser_unavailable", `Chromium could not be started for the comparison screenshots: ${String((error as Error)?.message ?? error).slice(0, 200)}`);
+              break;
+            }
+          }
           const review = await reviewPageFidelity({ state, pageId: page.id, pagePlan, sourceScreenshots: { desktop: screenshots.desktop?.storagePath, mobile: screenshots.mobile?.storagePath }, language: rt.job.language as "da" | "en", meter: rt.meter, store: { jobId: rt.job.id, pageRowId: row.id }, browser });
           // Keep the rebuild's screenshots on the page row so the admin's compare
           // view can show both sides without re-rendering anything.
@@ -617,7 +647,7 @@ async function phaseVerify(rt: Runtime): Promise<void> {
           }
         }
 
-        const status: VerifyStatus = reviewed ? "done" : skipReason ?? (health.ok ? "skipped_budget" : "renderer_unavailable");
+        const status: VerifyStatus = reviewed ? "done" : skipReason ?? (browserFailed ? "browser_unavailable" : health.ok ? "skipped_budget" : "renderer_unavailable");
         // Only a genuine refusal of money says "budget"; the other reasons
         // already warned for themselves inside the loop.
         if (status === "skipped_budget" && iterations === 0) await warn(rt, "verify", "skipped_budget", `Vision comparison skipped for ${pagePlan.targetName}: verify budget used up.`, row.sourceUrl);

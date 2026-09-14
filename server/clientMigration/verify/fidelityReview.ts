@@ -12,6 +12,7 @@
 import { z } from "zod";
 import sharp from "sharp";
 import { meteredChat, isSpendLimitError } from "../../aiCall";
+import { aiConfig } from "../../aiConfig";
 import type { SpendMeter } from "../../aiSpend";
 import { capturePageScreenshots, buildComponentContext, type VisualScreenshot, type VisualIssue, type ReviewBrowser } from "../../visualReview";
 import type { BuilderStateData } from "@shared/schema";
@@ -30,7 +31,13 @@ const FidelityIssueSchema = z.object({
   suggestedAction: z.string().min(5).max(300),
   confidence: z.enum(["high", "medium", "low"]).default("medium"),
 });
-const ResponseSchema = z.object({ issues: z.array(FidelityIssueSchema).max(10).default([]) }).strict();
+/**
+ * Tolerant on purpose. A `.strict()` schema turned a perfectly good answer
+ * that carried one extra key — a summary, a count — into "the comparison
+ * model returned an unusable answer", and eleven issues into the same. What
+ * matters is the issues; anything else is ignored and the list is trimmed.
+ */
+const ResponseSchema = z.object({ issues: z.array(FidelityIssueSchema).default([]) }).passthrough();
 
 export type FidelityIssue = VisualIssue;
 
@@ -102,14 +109,29 @@ export async function reviewPageFidelity(args: {
   content.push({ type: "text", text: `Planned sections in order: ${args.pagePlan.sections.map((s) => `${s.sourceSectionId}:${s.role}`).join(", ")}\n\nRebuild structure:\n${buildComponentContext(args.state, args.pageId)}\n\nList the fidelity differences.` });
 
   try {
-    const response = await meteredChat("migrationFidelity", {
-      messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: content as any }],
-      response_format: { type: "json_object" },
-    }, args.meter);
-    const raw = response.choices[0]?.message?.content;
-    const parsed = ResponseSchema.safeParse(raw ? JSON.parse(raw) : null);
-    if (!parsed.success) return { issues: [], ran: false, reason: "model_unavailable", skippedReason: "The comparison model returned an unusable answer.", rebuiltPaths };
-    const issues: VisualIssue[] = parsed.data.issues.map((issue, index) => ({
+    // Two chances at most: the reasoning model first, then the cheaper
+    // vision model. A comparison that came back empty because the thinking
+    // ate the token budget is not a reason to leave the page unverified.
+    let parsed: ReturnType<typeof ResponseSchema.safeParse> | undefined;
+    let detail = "The comparison model returned an unusable answer.";
+    const attempts = aiConfig("migrationFidelity").fallbackProvider ? [false, true] : [false];
+    for (const forceFallback of attempts) {
+      const response = await meteredChat("migrationFidelity", {
+        messages: [{ role: "system", content: SYSTEM_PROMPT }, { role: "user", content: content as any }],
+        response_format: { type: "json_object" },
+      }, args.meter, { forceFallback });
+      const choice = response.choices[0];
+      const raw = choice?.message?.content;
+      let json: unknown = null;
+      try { json = raw ? JSON.parse(raw) : null; } catch { json = null; }
+      parsed = ResponseSchema.safeParse(json);
+      if (parsed.success) break;
+      detail = choice?.finish_reason === "length"
+        ? "The comparison model ran out of room before finishing its answer."
+        : "The comparison model returned an unusable answer.";
+    }
+    if (!parsed?.success) return { issues: [], ran: false, reason: "model_unavailable", skippedReason: detail, rebuiltPaths };
+    const issues: VisualIssue[] = parsed.data.issues.slice(0, 10).map((issue, index) => ({
       ...issue,
       id: `fid-${args.pageId}-${index + 1}`,
       pageId: args.pageId,

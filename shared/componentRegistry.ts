@@ -868,6 +868,8 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'imageAlt', label: 'Billedbeskrivelse (alt-tekst)', type: 'text', group: 'content' },
       { key: 'showCart', label: 'Show Shopping Cart', type: 'select', group: 'content', options: ['true', 'false'] },
       { key: 'items', label: 'Nav Items', type: 'items', group: 'content' },
+      { key: 'buttonText', label: 'Knap-tekst', type: 'text', group: 'content' },
+      { key: 'buttonLink', label: 'Knap-link', type: 'text', group: 'content', placeholder: '/booking' },
       { key: 'overlayMode', label: 'Overlay on Content', type: 'select', group: 'style', options: ['true', 'false'] },
       { key: 'isTransparent', label: 'Transparent Header', type: 'select', group: 'style', options: ['true', 'false'] },
       { key: 'scrollBehavior', label: 'Scroll Behavior', type: 'select', group: 'style', options: ['static', 'sticky', 'show-on-scroll-up'] },

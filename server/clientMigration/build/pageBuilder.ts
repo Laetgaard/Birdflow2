@@ -19,11 +19,11 @@ import type OpenAI from "openai";
 import type { BuilderStateData, BuilderPage } from "@shared/schema";
 import type { BuilderMutation } from "@shared/aiBuilderSchema";
 import { applyMutation, validateMutation } from "../../aiBuilder";
-import { checkMutationClaims } from "../../claimRules";
+import { checkMutationClaims, normalizeForEvidence } from "../../claimRules";
 import { runAgentLoop } from "../../aiAgent";
 import type { AgentContext } from "../../aiAgentTools";
 import { assumedCallCostUsd, type SpendMeter } from "../../aiSpend";
-import { makeFidelityGuard } from "./fidelityGuard";
+import { makeFidelityGuard, imagePathsIn } from "./fidelityGuard";
 import { applyBusinessContext } from "./businessFacts";
 import { migrationToolCatalogue } from "./migrationToolCatalogue";
 import { backgroundPath, buildPlacementMutation, defaultTargetFor, ornaments, sectionEvidence, MIGRATION_ID_PREFIX } from "../plan/sectionMapper";
@@ -152,8 +152,9 @@ const SYSTEM_PROMPT = [
   "You are BirdFlow's migration agent. You rebuild ONE section of a customer's existing website inside BirdFlow by CALLING TOOLS; you never output website JSON as text.",
   "Fidelity is the only goal: the same words, the same images, the same layout, readable on a phone. Text and image paths are supplied to you; anything not supplied must not appear.",
   "Tools: `create_custom_component` builds the section from primitive boxes/text/images/buttons (use it for a faithful layout); `add_section` or `add_component` place a standard block when one reproduces the original exactly; `update_custom_component` refines what you built; `remove_component` removes the standard section you are replacing; `get_page` and `get_component` let you look; `finish` ends the run.",
-  "Layout rules the builder enforces: use flex or grid with flexible widths; never `position: absolute`; never fixed pixel widths on the outer box; images by their supplied paths only, with alt text.",
-  "Decoration: a divider, flourish or icon is an `image` node with its supplied path at its own pixel width (small decorative images SHOULD use their exact width and height), or a `box` with an explicit height and a background colour or border. A `box` with no children and no background, border or height renders as NOTHING on the published site — never leave one. Text over a photo: put the photo as a full-width `image` node (or the box's backgroundImage) with the text in a box on top.",
+  "Layout rules the builder enforces: use flex or grid with flexible widths; never fixed pixel widths on the outer box; images by their supplied paths only, with alt text. `position: absolute` is allowed for ONE case only — a scrim laid over a background photo — and only inside a box that has `position: relative`.",
+  "Decoration: a divider, flourish or icon is an `image` node with its supplied path at its own pixel width (small decorative images SHOULD use their exact width and height), or a `box` with an explicit height and a background colour or border. A `box` with no children and no background, border or height renders as NOTHING on the published site — never leave one.",
+  "TEXT OVER A PHOTO — the section brief calls that photo the backdrop, and it is the one thing you must never drop. Put it on the section\'s outer box: `backgroundImage: \"url(<the backdrop path>)\"`, `backgroundSize: \"cover\"`, `backgroundPosition: \"center\"`, `position: \"relative\"`, and a `minHeight` near the original height. The text goes in a child box. When the brief gives an `overlay`, add ONE more child box before the text with `position: \"absolute\"`, `inset: \"0\"`, the overlay colour as `backgroundColor`, and the text box above it with `position: \"relative\"`. Never rebuild such a section without the backdrop: a build that loses it is rejected and thrown away.",
   "Work like this: build the section with one tool call, remove the standard section it replaces, then call finish. Do not read the whole site first.",
 ].join("\n");
 
@@ -165,7 +166,9 @@ export function customSectionBrief(section: ExtractedSection, brief: string, ima
   const content = {
     headings: section.headings, paragraphs: section.paragraphs.slice(0, 12), lists: section.lists.slice(0, 3), quotes: section.quotes.slice(0, 6),
     ctas: section.ctas, items: section.items.slice(0, 12).map((item) => ({ title: item.title, text: item.text?.slice(0, 400), price: item.price, personName: item.personName, role: item.role, image: item.imageSrc && imagePaths.includes(item.imageSrc) ? item.imageSrc : undefined })),
-    images: imagePaths.map(geometry),
+    // The backdrop is listed with the pictures, not hidden in a scalar: it is
+    // the image a rebuild most often loses, and the model needs its size.
+    images: [...(background ? [{ ...geometry(background), role: "backdrop" as const, note: "the photo the text sits on — put it on the outer box as backgroundImage" }] : []), ...imagePaths.map(geometry)],
     // Decoration with the words it sat between, so it can go back there.
     ornaments: ornamentPaths.map((src) => { const img = section.images.find((i) => i.src === src); return { ...geometry(src), decorative: true, role: img?.role ?? "ornament", afterHeading: img?.anchor?.afterHeading, beforeParagraph: img?.anchor?.beforeParagraph?.slice(0, 120), position: img?.anchor?.position }; }),
     backgroundImage: background,
@@ -175,9 +178,42 @@ export function customSectionBrief(section: ExtractedSection, brief: string, ima
   return [
     `Rebuild this section of the customer's website as faithfully as you can. ${brief}`,
     `A standard version of it already sits on page "${floor.pageId}" as component "${floor.componentId}" at position ${floor.position}. Build the faithful version with create_custom_component at position ${floor.position}, then remove_component "${floor.componentId}". If the standard version already matches the original, change nothing and call finish.`,
-    `Use ONLY the text below, verbatim, in ${language === "en" ? "English" : "Danish"} as given. Use ONLY the image paths listed${background ? ", and the background image path as the section background behind the text" : ""}${ornamentPaths.length ? ", and place each ornament as an image node at its own width exactly where it sat (after its heading, before its paragraph)" : ""}. Never invent copy, testimonials, prices or images. Give every box flexible widths so it works on a phone.`,
+    `Use ONLY the text below, verbatim, in ${language === "en" ? "English" : "Danish"} as given. Use ONLY the image paths listed${background ? `. The backdrop "${background}" MUST end up on the section's outer box as backgroundImage with cover/center — the section is text on that photo` : ""}${ornamentPaths.length ? ", and place each ornament as an image node at its own width exactly where it sat (after its heading, before its paragraph)" : ""}. Never invent copy, testimonials, prices or images. Give every box flexible widths so it works on a phone.`,
     `Section content and layout (JSON):\n${JSON.stringify(content).slice(0, 12_000)}`,
   ].join("\n\n");
+}
+
+/**
+ * What an upgraded section must still carry to be worth keeping.
+ *
+ * The agent's rebuild replaces the floor — the deterministic section that
+ * had the photo behind the headline and every imported picture. Accepting
+ * "it added a component" was enough to lose all of them: the home hero came
+ * back as two boxes of text and one ornament, and the floor was deleted.
+ * Ornaments are a nice-to-have; the backdrop, the pictures and the headline
+ * are the section.
+ */
+export function missingFromUpgrade(args: { components: Array<{ props?: unknown; styles?: unknown }>; backdrop?: string; imagePaths: string[]; heading?: string }): string[] {
+  const seen = new Set<string>();
+  let copy = "";
+  const walk = (value: unknown, depth: number) => {
+    if (depth > 14) return;
+    if (typeof value === "string") {
+      copy += ` ${value}`;
+      if (value.startsWith("/objects/")) seen.add(value);
+      for (const path of imagePathsIn(value)) seen.add(path);
+      return;
+    }
+    if (Array.isArray(value)) { for (const item of value) walk(item, depth + 1); return; }
+    if (value && typeof value === "object") for (const item of Object.values(value as Record<string, unknown>)) walk(item, depth + 1);
+  };
+  for (const component of args.components) { walk(component.props, 0); walk(component.styles, 0); }
+  const missing: string[] = [];
+  if (args.backdrop && !seen.has(args.backdrop)) missing.push(`the background photo ${args.backdrop}`);
+  for (const path of args.imagePaths) if (!seen.has(path)) missing.push(`the image ${path}`);
+  const heading = args.heading ? normalizeForEvidence(args.heading).trim() : "";
+  if (heading && !normalizeForEvidence(copy).includes(heading)) missing.push(`the heading "${args.heading}"`);
+  return missing;
 }
 
 export async function buildPage(input: PageBuildInput): Promise<PageBuildResult> {
@@ -241,72 +277,107 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
       notes.push(`${key}: kept the standard section because the page's agent budget was used up.`);
       continue;
     }
-    attempts++;
-    const maxSteps = Math.min(MAX_AGENT_STEPS, Math.floor(room / callCost));
     const crop = await sectionCropDataUrl(input, section);
     const imagePaths = section.images.filter((img) => !img.isBackground && !img.decorative).map((img) => img.src).filter((src) => input.allowedImagePaths.has(src));
     const ornamentPaths = ornaments(section, input.allowedImagePaths).map((img) => img.src);
     const background = backgroundPath(section, input.allowedImagePaths);
-    const idsBefore = new Set(pageState().components.map((c) => c.id));
-    const agentCtx: AgentContext = {
-      websiteId: "migration",
-      state,
-      applied: [],
-      notes: [],
-      createdImages: [],
-      imageCache: new Map(Array.from({ length: 8 }, (_, i) => [`blocked-${i}`, ""])),
-      spendMeter: input.meter,
-      approvedLargeChanges: true,
-      guard,
-    };
     const floorPosition = position - 1;
-    const userMessage = customSectionBrief(section, target.brief, imagePaths, background, input.language, { componentId: floorId, position: floorPosition, pageId: page.id }, ornamentPaths);
-    // The crop goes in as an image the model can see, never as text.
-    const userContent: OpenAI.Chat.ChatCompletionContentPart[] = [
-      { type: "text", text: userMessage + (crop ? "\n\nThe screenshot of the original section is attached." : "") },
-      ...(crop ? [{ type: "image_url" as const, image_url: { url: crop, detail: "high" as const } }] : []),
-    ];
+    const baseMessage = customSectionBrief(section, target.brief, imagePaths, background, input.language, { componentId: floorId, position: floorPosition, pageId: page.id }, ornamentPaths);
     let upgradedId: string | undefined;
-    try {
-      const result = await runAgentLoop({
-        tools,
-        systemPrompt: SYSTEM_PROMPT,
-        userMessage,
-        userContent,
-        ctx: agentCtx,
-        maxSteps,
-        role: "migrationBuild",
-        spendMeter: input.meter,
-        finalTurn: { toolName: "finish", reminder: "Call finish now.", satisfied: () => agentCtx.applied.length > 0 },
-        maxToolErrors: 6,
-      });
-      state = agentCtx.state;
-      const after = pageState();
-      const added = after.components.filter((c) => !idsBefore.has(c.id));
-      if (added.length) {
-        // Stamp our id convention so a rebuild-after-crash can clear it.
-        added.forEach((component, n) => { component.id = `${MIGRATION_ID_PREFIX}-${input.pageOrdinal}-${index}-c${n}`; });
-        upgradedId = added[0].id;
-        // The floor has been replaced; if the agent forgot to remove it, do it here.
-        if (after.components.some((c) => c.id === floorId)) {
-          const removed = place(state, { action: "remove_component", pageId: page.id, componentId: floorId } as BuilderMutation);
-          if (!removed.error) state = removed.state;
-        }
-      } else if (agentCtx.applied.length) {
-        // The agent improved the floor in place rather than replacing it.
-        upgradedId = floorId;
-      } else {
-        lastError = `the agent made no change (${result.status === "finished" ? result.stopReason : result.status})`;
+    let rejected: string[] = [];
+
+    // Two passes at most: the first as briefed, the second only when the
+    // first lost something the section cannot do without, and told exactly
+    // what. The floor is restored between them, so a rejected rebuild costs
+    // the page nothing but the call.
+    for (let pass = 0; pass < 2 && !upgradedId; pass++) {
+      if (pass > 0 && input.agentBudgetUsd - progress.agentSpendUsd < MIN_AGENT_STEPS * callCost) {
+        notes.push(`${key}: no budget left to correct the rebuild; the standard section stays.`);
+        break;
       }
-      notes.push(...agentCtx.notes.slice(0, 5));
-    } catch (error: any) {
-      lastError = error?.message ?? String(error);
+      attempts++;
+      const passBefore = input.meter.spentUsd;
+      const maxSteps = Math.min(MAX_AGENT_STEPS, Math.max(MIN_AGENT_STEPS, Math.floor((input.agentBudgetUsd - progress.agentSpendUsd) / callCost)));
+      // The state as it stands with the floor in place: what a rejected
+      // rebuild is rolled back to.
+      const snapshot = structuredClone(state);
+      const idsBefore = new Set(pageState().components.map((c) => c.id));
+      const agentCtx: AgentContext = {
+        websiteId: "migration",
+        state,
+        applied: [],
+        notes: [],
+        createdImages: [],
+        imageCache: new Map(Array.from({ length: 8 }, (_, i) => [`blocked-${i}`, ""])),
+        spendMeter: input.meter,
+        approvedLargeChanges: true,
+        guard,
+      };
+      const userMessage = rejected.length
+        ? `Your previous rebuild was REJECTED and undone because it lost: ${rejected.join(", ")}. Build it again, keeping everything listed below. ${background ? `Put the backdrop on the outer box: backgroundImage: "url(${background})", backgroundSize: "cover", backgroundPosition: "center", position: "relative". ` : ""}\n\n${baseMessage}`
+        : baseMessage;
+      // The crop goes in as an image the model can see, never as text.
+      const userContent: OpenAI.Chat.ChatCompletionContentPart[] = [
+        { type: "text", text: userMessage + (crop ? "\n\nThe screenshot of the original section is attached." : "") },
+        ...(crop ? [{ type: "image_url" as const, image_url: { url: crop, detail: "high" as const } }] : []),
+      ];
+      try {
+        const result = await runAgentLoop({
+          tools,
+          systemPrompt: SYSTEM_PROMPT,
+          userMessage,
+          userContent,
+          ctx: agentCtx,
+          maxSteps,
+          role: "migrationBuild",
+          spendMeter: input.meter,
+          finalTurn: { toolName: "finish", reminder: "Call finish now.", satisfied: () => agentCtx.applied.length > 0 },
+          maxToolErrors: 6,
+        });
+        state = agentCtx.state;
+        const after = pageState();
+        const added = after.components.filter((c) => !idsBefore.has(c.id));
+        if (added.length) {
+          // Nothing the section is made of may be missing from the rebuild.
+          const missing = missingFromUpgrade({ components: added, backdrop: background, imagePaths, heading: section.headings[0]?.text });
+          if (missing.length) {
+            state = snapshot;
+            rejected = missing;
+            lastError = `the rebuild lost ${missing.join(", ")}`;
+            log(`[${key}] rebuild rejected: ${lastError}`);
+            continue;
+          }
+          // Stamp our id convention so a rebuild-after-crash can clear it.
+          added.forEach((component, n) => { component.id = `${MIGRATION_ID_PREFIX}-${input.pageOrdinal}-${index}-c${n}`; });
+          upgradedId = added[0].id;
+          // The floor has been replaced; if the agent forgot to remove it, do it here.
+          if (pageState().components.some((c) => c.id === floorId)) {
+            const removed = place(state, { action: "remove_component", pageId: page.id, componentId: floorId } as BuilderMutation);
+            if (!removed.error) state = removed.state;
+          }
+        } else if (agentCtx.applied.length) {
+          // The agent improved the floor in place rather than replacing it.
+          upgradedId = floorId;
+        } else {
+          lastError = `the agent made no change (${result.status === "finished" ? result.stopReason : result.status})`;
+        }
+        notes.push(...agentCtx.notes.slice(0, 5));
+      } catch (error: any) {
+        state = snapshot;
+        lastError = error?.message ?? String(error);
+      } finally {
+        progress.agentSpendUsd += Math.max(0, input.meter.spentUsd - passBefore);
+      }
+      if (!upgradedId && !rejected.length) break; // nothing to correct: a retry would repeat itself
     }
-    progress.agentSpendUsd += Math.max(0, input.meter.spentUsd - before);
 
     if (upgradedId) {
       position = pageState().components.findIndex((c) => c.id === upgradedId) + 1 || pageState().components.length;
       progress.sections[key] = { status: "upgraded", componentId: upgradedId, attempts };
+    } else if (rejected.length) {
+      position = pageState().components.findIndex((c) => c.id === floorId) + 1 || pageState().components.length;
+      progress.sections[key] = { status: "upgrade_rejected", componentId: floorId, attempts, note: lastError };
+      notes.push(`${key}: the rebuild was rejected (${lastError}); the standard section with its images stays.`);
     } else {
       progress.sections[key] = { status: "upgrade_failed", componentId: floorId, attempts, note: lastError };
       notes.push(`${key}: the agent could not rebuild it (${lastError}); the standard section stays.`);

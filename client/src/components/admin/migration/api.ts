@@ -84,6 +84,7 @@ export const VERIFY_STATUS_LABELS: Record<string, string> = {
   done: "udført",
   skipped_budget: "sprunget over (budget)",
   renderer_unavailable: "kunne ikke gengive siden",
+  browser_unavailable: "browseren kunne ikke starte",
   screenshot_failed: "screenshot fejlede",
   no_source_screenshot: "intet original-screenshot",
   model_unavailable: "modellen svarede ikke",

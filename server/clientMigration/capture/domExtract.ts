@@ -84,6 +84,10 @@ export function guessRole(section: Omit<ExtractedSection, "role" | "confidence" 
 
   if (index === 0 && (h1 || bigHeading) && (backdrop || tallImage || section.bbox.h >= viewportHeight * 0.6)) return { role: "hero", confidence: 0.9 };
   if (index === 0 && h1) return { role: "hero", confidence: 0.7 };
+  // A first band whose words sit on a photo is a hero even when the theme
+  // wrote them as a paragraph or a small heading — the standard hero is the
+  // only block that puts text on a picture for free.
+  if (index === 0 && backdrop && (headings.length > 0 || (section.headingSize ?? 0) >= 28 || (section.textLength ?? 0) > 20)) return { role: "hero", confidence: 0.8 };
   // A headline over a full-bleed backdrop is a hero wherever it sits on the page.
   if (backdrop && (h1 || bigHeading) && images.length === 0 && section.bbox.h >= viewportHeight * 0.4) return { role: "hero", confidence: 0.8 };
   if (items.length >= 3 && priceItems >= Math.max(3, Math.ceil(items.length * 0.8))) return { role: "pricing", confidence: 0.9 };

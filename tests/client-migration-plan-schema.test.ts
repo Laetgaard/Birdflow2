@@ -66,6 +66,86 @@ describe("the deterministic plan", () => {
   });
 });
 
+/**
+ * The menu the client actually has.
+ *
+ * A theme that makes its header sticky, or hides its menu behind a burger,
+ * used to leave the plan with no navigation at all: one "Forside" link, and
+ * every other page hidden. The header is still the first source; what the
+ * site's own CMS and the crawl know is the fallback.
+ */
+describe("navigation when the header could not be read", () => {
+  function headerless() {
+    const list = sources();
+    list[0].extraction.chrome = { ...list[0].extraction.chrome, header: undefined };
+    return list;
+  }
+
+  it("falls back to the CMS menu, in the owner's order", () => {
+    const plan = deterministicPlan({
+      sources: headerless(), assets: assets(), siteName: "Klinik Ro", language: "da", pixelClose: false,
+      navHints: { menu: [{ label: "Ydelser", url: "https://klinikro.dk/ydelser", order: 1 }, { label: "Kontakt", url: "https://klinikro.dk/kontakt", order: 2 }] },
+    });
+    expect(plan.chrome.header.nav.map((n) => [n.label, n.targetSlug])).toEqual([["Forside", ""], ["Ydelser", "ydelser"]]);
+    expect(plan.pages[1].inNavigation).toBe(true);
+    expect(plan.pages[1].navLabel).toBe("Ydelser");
+  });
+
+  it("warns by name about a menu item whose page was not migrated", () => {
+    const warnings: string[] = [];
+    deterministicPlan({
+      sources: headerless(), assets: assets(), siteName: "Klinik Ro", language: "da", pixelClose: false,
+      navHints: { menu: [{ label: "Ydelser", url: "https://klinikro.dk/ydelser", order: 1 }, { label: "Kontakt", url: "https://klinikro.dk/kontakt", order: 2 }] },
+      onWarning: (message) => warnings.push(message),
+    });
+    expect(warnings.some((w) => w.startsWith("nav_link_dropped:") && w.includes("Kontakt"))).toBe(true);
+  });
+
+  it("falls back to the pages the crawl reached through a navigation", () => {
+    const plan = deterministicPlan({
+      sources: headerless(), assets: assets(), siteName: "Klinik Ro", language: "da", pixelClose: false,
+      navHints: { pages: [
+        { url: "https://klinikro.dk/", title: "Klinik Ro", fromNav: true },
+        { url: "https://klinikro.dk/ydelser", title: "Ydelser | Klinik Ro", fromNav: true },
+      ] },
+    });
+    expect(plan.chrome.header.nav.map((n) => n.targetSlug)).toEqual(["", "ydelser"]);
+    expect(plan.pages[1].navLabel).toBe("Ydelser");
+  });
+
+  it("still has a home link when nothing at all could be read", () => {
+    const plan = deterministicPlan({ sources: headerless(), assets: assets(), siteName: "Klinik Ro", language: "da", pixelClose: false });
+    expect(plan.chrome.header.nav).toEqual([{ label: "Forside", targetSlug: "" }]);
+    expect(MigrationPlanSchema.safeParse(plan).success).toBe(true);
+  });
+});
+
+describe("the header the client had", () => {
+  it("carries the original's brand, colours and behaviour into the plan", () => {
+    const list = sources();
+    list[0].extraction.chrome.header = {
+      ...list[0].extraction.chrome.header!,
+      brandShown: "logo",
+      bgColor: "rgb(20, 20, 30)",
+      textColor: "rgb(255, 255, 255)",
+      sticky: true,
+      transparent: true,
+    };
+    const plan = deterministicPlan({ sources: list, assets: assets(), siteName: "Klinik Ro", language: "da", pixelClose: false });
+    expect(plan.chrome.header.showBrandText).toBe(false);
+    expect(plan.chrome.header.brandText).toBeUndefined();
+    expect(plan.chrome.header.style).toEqual({ backgroundColor: "#14141e", textColor: "#ffffff", sticky: true, transparent: true });
+    expect(MigrationPlanSchema.safeParse(plan).success).toBe(true);
+  });
+
+  it("parses a plan written before the header fields existed", () => {
+    const plan = basePlan() as Record<string, any>;
+    delete plan.chrome.header.showBrandText;
+    delete plan.chrome.header.style;
+    expect(MigrationPlanSchema.safeParse(plan).success).toBe(true);
+  });
+});
+
 describe("validateMigrationPlan", () => {
   it("rejects a section that was never extracted", () => {
     const plan = basePlan();

@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { MIGRATION_ACTIVE_STATUSES, MIGRATION_PHASES } from "../shared/clientMigration";
 import { PLATFORM_PLANS } from "../shared/schema";
-import { AI_ROLES, aiConfig } from "../server/aiConfig";
+import { AI_ROLES, aiConfig, chatParamsFor } from "../server/aiConfig";
 import { VERIFY_STATUS_LABELS } from "../client/src/components/admin/migration/api";
 import { CLIENT_MIGRATION_DDL } from "../server/clientMigration/migrationDbSchema";
 import { EXCLUDED_MIGRATION_TOOLS } from "../server/clientMigration/build/migrationToolCatalogue";
@@ -222,12 +222,24 @@ describe("the AI roles and the invite", () => {
     expect(read("server/aiConfig.ts").slice(read("server/aiConfig.ts").indexOf("migrationPlan:"))).not.toContain('provider: "kimi"');
   });
 
-  it("never sends one provider's parameters to another", () => {
-    // reasoning_effort is an OpenAI parameter; a fallback used to inherit the
-    // primary's parameters wholesale and ship it to the other provider.
-    const src = read("server/aiConfig.ts");
-    expect(src).toContain("export function chatParamsFor(role: AiRole, provider");
-    expect(read("server/aiCall.ts")).toContain("chatParamsFor(role, config.fallbackProvider)");
+  it("never sends a parameter to a model that does not take it", () => {
+    // reasoning_effort belongs to the reasoning models. Gating it on the
+    // PROVIDER let an openai→openai fallback ship it to gpt-4o, and every
+    // such retry died as "400 Unrecognized request argument supplied".
+    for (const role of ["migrationPlan", "migrationBuild", "migrationFidelity"] as const) {
+      const config = aiConfig(role);
+      if (!config.fallbackModel) continue;
+      const fallback = chatParamsFor(role, config.fallbackProvider ?? config.provider, config.fallbackModel);
+      expect(fallback.model, role).toBe(config.fallbackModel);
+      if (!/^(gpt-5|o\d)/i.test(config.fallbackModel)) expect(fallback.reasoning_effort, role).toBeUndefined();
+    }
+    // And the primary still gets it when it is a reasoning model.
+    expect(chatParamsFor("migrationPlan").reasoning_effort).toBe("low");
+    expect(read("server/aiCall.ts")).toContain("chatParamsFor(role, config.fallbackProvider, config.fallbackModel)");
+  });
+
+  it("keeps the primary provider's error when the fallback fails too", () => {
+    expect(read("server/aiCall.ts")).toContain("(primary ${config.provider}/${request.model}:");
   });
 
   it("has the invitation template in both languages and sends it through the email service", () => {
@@ -296,5 +308,44 @@ describe("verification can never kill a job", () => {
     }
     // And the server says so at boot rather than leaving blank screenshots.
     expect(read("server/index.ts")).toContain("publishedRendererHealth()");
+  });
+});
+
+describe("the customer's own header and their whole pages", () => {
+  it("does not throw away a sticky header before it has been read", () => {
+    const src = read("server/clientMigration/capture/domExtract.browser.ts");
+    // Almost every theme makes its header sticky; excluding every sticky
+    // element left the migration with no menu, no logo and no brand at all.
+    expect(src).toContain("isHeaderLike");
+    expect(src).toMatch(/isOverlay\(el\) && !isHeaderLike\(el\)/);
+  });
+
+  it("reads a menu that is hidden behind a burger", () => {
+    const src = read("server/clientMigration/capture/domExtract.browser.ts");
+    expect(src).toContain("aria-controls");
+    expect(src).toContain("rawLinkList");
+    expect(src).toContain("menuHidden");
+  });
+
+  it("opens a wrapper with one child instead of pushing the whole page as one section", () => {
+    const src = read("server/clientMigration/capture/domExtract.browser.ts");
+    const segment = src.slice(src.indexOf("const segment = (el: Element"), src.indexOf("for (const child of significantChildren(root))"));
+    // The 0.9-area gate is what made `body > #page > main` one section.
+    expect(segment).toContain("kids.length === 1 && depth < 16");
+    expect(segment).not.toContain("bigKids");
+  });
+
+  it("gives a page of real text that read as two blocks a second look", () => {
+    const src = read("server/clientMigration/migrationJob.ts");
+    expect(src).toContain("sections.length <= 2 && textLength > 1500");
+    expect(src).toContain("thorough: true");
+  });
+
+  it("builds the header from the menu the site actually has", () => {
+    const plan = read("server/clientMigration/plan/planAgent.ts");
+    expect(plan).toContain("nav_link_dropped");
+    expect(plan).toContain("navHints");
+    const discovery = read("server/clientMigration/capture/discovery.ts");
+    expect(discovery).toContain("readWordPressMenus");
   });
 });

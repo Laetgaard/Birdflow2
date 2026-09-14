@@ -156,7 +156,8 @@ describe("custom sections: the floor first, then the agent's upgrade", () => {
       // The floor is already on the page when the agent starts.
       const page = ctx.state.pages.find((p: any) => p.id === "home");
       expect(page.components.some((c: any) => c.id === "mig-0-2-0" && c.type === "testimonials")).toBe(true);
-      page.components.splice(2, 0, { id: "agent-made", type: "custom", props: { customTree: { type: "box", children: [] } }, styles: {} });
+      // A rebuild that keeps what the section is made of: its headline.
+      page.components.splice(2, 0, { id: "agent-made", type: "custom", props: { customTree: { type: "box", children: [{ type: "text", content: "Det siger klienterne" }] } }, styles: {} });
       ctx.applied.push({ action: "add_custom_component" });
       return { status: "finished", stopReason: "finished" };
     });
@@ -212,6 +213,79 @@ describe("custom sections: the floor first, then the agent's upgrade", () => {
     expect(result.progress.sections["p0-s2"]).toMatchObject({ status: "upgrade_failed", componentId: "mig-0-2-0" });
     expect(result.notes.join(" ")).toContain("the agent made no change");
     expect(result.page.components.map((c) => c.type)).toEqual(["hero", "services", "testimonials", "pricing-table", "faq", "contact-form"]);
+  });
+
+  /**
+   * The rebuild that lost the photo.
+   *
+   * On the first real migration the home hero came back as two boxes of text
+   * and one ornament: the agent could not put the backdrop behind the words,
+   * so it left it out — and the floor, the only component that had the photo,
+   * was deleted the moment anything was added in its place.
+   */
+  describe("a rebuild that loses the section is undone", () => {
+    const heroInput = () => {
+      const base = input();
+      // The hero's photo sits behind its words, as on a real site.
+      base.extraction.sections[0].images[0].isBackground = true;
+      base.pagePlan.sections[0].target = { kind: "custom", brief: "Headline over a full-bleed photo" };
+      return base;
+    };
+
+    it("throws away a rebuild without the backdrop, tells the agent what was missing, and keeps the second one", async () => {
+      const built: string[] = [];
+      runAgentLoop.mockImplementation(async ({ ctx, userMessage }: any) => {
+        built.push(userMessage);
+        const page = ctx.state.pages.find((p: any) => p.id === "home");
+        const withBackdrop = built.length > 1;
+        page.components.splice(0, 0, {
+          id: `agent-${built.length}`,
+          type: "custom",
+          props: { customTree: { type: "box", children: [{ type: "text", content: "Ro i hverdagen" }] } },
+          styles: withBackdrop ? { backgroundImage: "url(/objects/uploads/hero.webp)" } : {},
+        });
+        ctx.applied.push({ action: "add_custom_component" });
+        return { status: "finished", stopReason: "finished" };
+      });
+
+      const result = await buildPage(heroInput());
+      expect(runAgentLoop).toHaveBeenCalledTimes(2);
+      // The second brief says exactly what the first one lost.
+      expect(built[1]).toContain("REJECTED");
+      expect(built[1]).toContain("/objects/uploads/hero.webp");
+      expect(result.progress.sections["p0-s0"]).toMatchObject({ status: "upgraded" });
+      expect(JSON.stringify(result.page.components[0])).toContain("/objects/uploads/hero.webp");
+      // Only the accepted rebuild is on the page; the rejected one is gone.
+      expect(result.page.components.filter((c) => c.type === "custom")).toHaveLength(1);
+    });
+
+    it("keeps the standard section with its photo when both rebuilds lose it", async () => {
+      runAgentLoop.mockImplementation(async ({ ctx }: any) => {
+        const page = ctx.state.pages.find((p: any) => p.id === "home");
+        page.components.splice(0, 0, { id: `agent-${page.components.length}`, type: "custom", props: { customTree: { type: "box", children: [{ type: "text", content: "Ro i hverdagen" }] } }, styles: {} });
+        ctx.applied.push({ action: "add_custom_component" });
+        return { status: "finished", stopReason: "finished" };
+      });
+
+      const result = await buildPage(heroInput());
+      expect(runAgentLoop).toHaveBeenCalledTimes(2);
+      expect(result.progress.sections["p0-s0"]).toMatchObject({ status: "upgrade_rejected", componentId: "mig-0-0-0" });
+      const floor = result.page.components.find((c) => c.id === "mig-0-0-0");
+      expect(floor?.type).toBe("hero");
+      expect((floor?.props as any).imageUrl).toBe("/objects/uploads/hero.webp");
+      expect(result.page.components.some((c) => c.type === "custom")).toBe(false);
+      expect(result.notes.join(" ")).toContain("the rebuild was rejected");
+    });
+
+    it("tells the agent the backdrop is the section, and lists it with its size", async () => {
+      runAgentLoop.mockImplementation(async () => ({ status: "finished", stopReason: "finished" }));
+      const base = heroInput();
+      await buildPage(base);
+      const brief: string = runAgentLoop.mock.calls[0][0].userMessage;
+      expect(brief).toContain("backdrop");
+      expect(brief).toContain("/objects/uploads/hero.webp");
+      expect(brief).toMatch(/outer box/i);
+    });
   });
 
   it("counts an in-place improvement of the floor as an upgrade", async () => {

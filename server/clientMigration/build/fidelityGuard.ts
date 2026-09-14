@@ -38,6 +38,28 @@ function strings(value: unknown, key: string, depth = 0, out: Array<{ key: strin
   return out;
 }
 
+/**
+ * A CSS image value carries the same path an `src` does, wrapped.
+ *
+ * `backgroundImage: "url(/objects/uploads/hero.webp)"` is how a box gets a
+ * photo behind its words — the one way the agent can rebuild an overlay hero.
+ * Read as prose it is a 40-character "sentence" nobody's website ever said,
+ * so the guard used to refuse every such rebuild and tell the model its
+ * *sentence* was invented. The path is what matters; the wrapper is syntax.
+ */
+export function imagePathsIn(text: string): string[] {
+  const out: string[] = [];
+  const re = /url\(\s*['"]?([^'")]+)['"]?\s*\)/gi;
+  for (let m = re.exec(text); m; m = re.exec(text)) out.push(m[1].trim());
+  return out;
+}
+
+/** A CSS value that only names colours, gradients, keywords or data URIs. */
+function isCssImageValue(key: string, text: string): boolean {
+  if (!IMAGE_KEY_RE.test(key) || !/url\(/i.test(text)) return false;
+  return true;
+}
+
 function looksLikeImage(key: string, text: string): boolean {
   if (IMAGE_KEY_RE.test(key)) return /^(https?:\/\/|\/objects\/|data:|ai:\/\/|blob:)/i.test(text) || FORBIDDEN_IMAGE_RE.test(text);
   return /^(https?:\/\/\S+\.(?:jpe?g|png|webp|gif|svg)(?:\?\S*)?|\/objects\/\S+)$/i.test(text) || FORBIDDEN_IMAGE_RE.test(text);
@@ -49,6 +71,10 @@ function isTechnical(key: string, text: string): boolean {
   if (!v) return true;
   if (/^(https?:\/\/|\/|#|mailto:|tel:)/i.test(v)) return true;
   if (/^#[0-9a-f]{3,8}$/i.test(v) || /^rgba?\(/i.test(v) || /^\d+(\.\d+)?(px|%|rem|em|vh|vw)?$/i.test(v)) return true;
+  // CSS values, not copy: a gradient, a custom property, a keyword. A scrim
+  // over a photo is written as one of these and says nothing to a reader.
+  if (/^(none|inherit|initial|unset|transparent|currentColor)$/i.test(v)) return true;
+  if (/^(linear|radial|conic|repeating-linear|repeating-radial)-gradient\(/i.test(v) || /^var\(--/i.test(v)) return true;
   if (/^[a-z0-9_-]+$/i.test(v) && v.length <= 24) return true; // ids, icon names, enums
   return false;
 }
@@ -90,6 +116,19 @@ export function makeFidelityGuard(options: FidelityGuardOptions): MutationGuard 
     }
 
     for (const { key, text } of strings(mutation, "root")) {
+      // A background written as CSS: check the paths inside it, then move on.
+      // `none` and a pure gradient carry no path and are simply styling.
+      if (isCssImageValue(key, text)) {
+        for (const path of imagePathsIn(text)) {
+          if (FORBIDDEN_IMAGE_RE.test(path)) {
+            return { ok: false, reason: `Billedet "${path.slice(0, 60)}" er ikke fra kundens hjemmeside. Brug kun de importerede billeder (/objects/uploads/…) — eller udelad billedet.` };
+          }
+          if (/^(https?:\/\/|\/objects\/)/i.test(path) && !options.allowedImagePaths.has(path)) {
+            return { ok: false, reason: `Billedet "${path.slice(0, 80)}" er ikke importeret fra kundens hjemmeside. Brug kun de stier, opgaven nævner.` };
+          }
+        }
+        continue;
+      }
       if (looksLikeImage(key, text)) {
         if (FORBIDDEN_IMAGE_RE.test(text)) {
           return { ok: false, reason: `Billedet "${text.slice(0, 60)}" er ikke fra kundens hjemmeside. Brug kun de importerede billeder (/objects/uploads/…) — eller udelad billedet.` };

@@ -252,7 +252,18 @@ export const extractedChromeSchema = z.object({
   header: z.object({
     logo: extractedImageSchema.optional(),
     brandText: z.string().max(120).optional(),
+    /** Whether the original showed a logo, a word, or both — a logo-only header must stay logo-only. */
+    brandShown: z.enum(["logo", "text", "both"]).optional(),
     nav: z.array(z.object({ text: z.string().max(80), href: z.string().max(2000) })).max(20),
+    /** The menu was read from a burger/off-canvas menu rather than from the visible bar. */
+    menuHidden: z.boolean().optional(),
+    bgColor: z.string().max(60).optional(),
+    textColor: z.string().max(60).optional(),
+    sticky: z.boolean().optional(),
+    /** The first band runs under the header: the original drew it over the photo. */
+    transparent: z.boolean().optional(),
+    height: z.number().optional(),
+    logoHeight: z.number().optional(),
     cta: extractedCtaSchema.optional(),
   }).optional(),
   footer: z.object({
@@ -272,6 +283,8 @@ export const pageExtractionSchema = z.object({
   version: z.literal(1),
   url: z.string().max(2000),
   title: z.string().max(500).optional(),
+  /** The name the site gives itself (og:site_name), for the header's brand text. */
+  siteName: z.string().max(120).optional(),
   description: z.string().max(1000).optional(),
   lang: z.string().max(20).optional(),
   ogImage: z.string().max(2000).optional(),
@@ -386,8 +399,17 @@ export const MigrationPlanSchema = z.object({
     header: z.object({
       logoMediaId: z.string().optional(),
       brandText: z.string().max(120).optional(),
+      /** False when the original showed only a logo: the rebuild shows only the logo too. */
+      showBrandText: z.boolean().optional(),
       nav: z.array(z.object({ label: z.string().max(40), targetSlug: z.string().max(60) })).max(12),
       cta: z.object({ text: z.string().max(40), href: z.string().max(2000) }).optional(),
+      /** The original header's own look, so the rebuilt one is not a white bar by default. */
+      style: z.object({
+        backgroundColor: z.string().max(40).optional(),
+        textColor: z.string().max(40).optional(),
+        sticky: z.boolean().optional(),
+        transparent: z.boolean().optional(),
+      }).optional(),
     }),
     footer: z.object({
       columns: z.array(z.object({
@@ -645,11 +667,13 @@ export type MigrationFidelity = {
 
 /**
  * What became of each planned section. `placed` is the deterministic floor;
- * `upgraded` means the agent replaced or refined it; `upgrade_failed` and
- * `upgrade_skipped` mean the floor stays. (`agent` is the older name for
- * `upgraded`, still found on rows built before the floor existed.)
+ * `upgraded` means the agent replaced or refined it; `upgrade_failed`,
+ * `upgrade_rejected` (the rebuild lost the section's photo, pictures or
+ * headline and was undone) and `upgrade_skipped` mean the floor stays.
+ * (`agent` is the older name for `upgraded`, still found on rows built
+ * before the floor existed.)
  */
-export type MigrationSectionBuildStatus = "placed" | "upgraded" | "upgrade_failed" | "upgrade_skipped" | "agent" | "failed" | "skipped" | "noted";
+export type MigrationSectionBuildStatus = "placed" | "upgraded" | "upgrade_failed" | "upgrade_rejected" | "upgrade_skipped" | "agent" | "failed" | "skipped" | "noted";
 export type MigrationPageBuildProgress = {
   sections: Record<string, { status: MigrationSectionBuildStatus; componentId?: string; attempts: number; note?: string }>;
   agentSpendUsd: number;

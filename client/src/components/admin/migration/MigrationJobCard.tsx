@@ -202,6 +202,10 @@ export function MigrationJobCard({ jobId, getAuthHeaders, onClose }: Props) {
               const score = page.verify?.score?.score ?? job.fidelity?.pages?.[page.id]?.score;
               const sections = Object.values(page.buildProgress?.sections ?? {});
               const failed = sections.filter((s) => s.status === "failed").length;
+              // A rebuild the system undid because it lost the section's photo
+              // or headline: the standard section is there, but the admin
+              // should know the agent's version was refused.
+              const rejected = sections.filter((s) => s.status === "upgrade_rejected").length;
               const spend = page.buildProgress?.agentSpendUsd ?? 0;
               return (
                 <li key={page.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
@@ -210,7 +214,7 @@ export function MigrationJobCard({ jobId, getAuthHeaders, onClose }: Props) {
                       <span className="truncate font-medium">{page.title || page.sourceUrl}</span>
                       {page.needsAttention && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">Kræver opmærksomhed</Badge>}
                     </div>
-                    <div className="text-xs text-muted-foreground">{page.captureStatus === "failed" ? `Kunne ikke gemmes: ${page.captureError}` : `${page.sections.length} sektioner · byg: ${page.buildStatus}${failed ? ` (${failed} fejlede)` : ""} · kontrol: ${VERIFY_STATUS_LABELS[page.verifyStatus] ?? page.verifyStatus}${spend ? ` · $${spend.toFixed(2)}` : ""}`}</div>
+                    <div className="text-xs text-muted-foreground">{page.captureStatus === "failed" ? `Kunne ikke gemmes: ${page.captureError}` : `${page.sections.length} sektioner · byg: ${page.buildStatus}${failed ? ` (${failed} fejlede)` : ""}${rejected ? ` (${rejected} afvist)` : ""} · kontrol: ${VERIFY_STATUS_LABELS[page.verifyStatus] ?? page.verifyStatus}${spend ? ` · $${spend.toFixed(2)}` : ""}`}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     {score !== undefined && <Badge variant={score >= 0.8 ? "secondary" : "outline"}>{Math.round(score * 100)} %</Badge>}

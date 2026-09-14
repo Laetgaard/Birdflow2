@@ -53,7 +53,13 @@ export function scorePageFidelity(args: { extraction: PageExtraction; plan: Migr
   const pageImagePaths = new Set<string>();
   const walk = (value: unknown, depth: number) => {
     if (depth > 24) return;
-    if (typeof value === "string") { if (value.startsWith("/objects/")) pageImagePaths.add(value); return; }
+    if (typeof value === "string") {
+      if (value.startsWith("/objects/")) pageImagePaths.add(value);
+      // A photo behind text is a CSS value, not a bare path: count it too,
+      // or a faithful overlay hero scores zero on images.
+      else if (/url\(/i.test(value)) for (const path of value.match(/\/objects\/[^'")\s]+/g) ?? []) pageImagePaths.add(path);
+      return;
+    }
     if (Array.isArray(value)) { for (const item of value) walk(item, depth + 1); }
     else if (value && typeof value === "object") { for (const item of Object.values(value as Record<string, unknown>)) walk(item, depth + 1); }
   };

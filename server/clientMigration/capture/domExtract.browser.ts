@@ -49,11 +49,34 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     const style = cs(el);
     return style.position === "fixed" || style.position === "sticky";
   };
+  /**
+   * The site's own header, wherever it sits.
+   *
+   * Almost every modern theme makes its header sticky or fixed, and the
+   * overlay rule below threw out every fixed element AND its descendants
+   * before the header was ever looked for. The result was a site with no
+   * captured header at all: no menu, no logo, no brand — the rebuilt site
+   * got a one-item "Forside" menu and the company name from the admin form.
+   */
+  const HEADER_SELECTOR = "header, [role=banner], #masthead, #main-header, .site-header, .elementor-location-header, [class*='site-header'], [class*='navbar'], [id*='header']";
+  const isHeaderLike = (el: Element) => {
+    if (!el.matches(HEADER_SELECTOR)) return false;
+    if (el.closest("main, article, footer")) return false;
+    const r = rectOf(el);
+    return r.y < 260 && r.h < 320 && r.w >= vw * 0.5;
+  };
 
   // 1. exclusions
   for (const el of Array.from(doc.body.querySelectorAll("*"))) {
     if (excluded.has(el)) continue;
-    if (isExcludedTag(el) || isHidden(el) || isOverlay(el) || el.getAttribute("role") === "dialog" || CONSENT_RE.test(idClass(el)) || /\bmodal\b/i.test(idClass(el))) {
+    if (isExcludedTag(el) || isHidden(el) || el.getAttribute("role") === "dialog" || CONSENT_RE.test(idClass(el)) || /\bmodal\b/i.test(idClass(el))) {
+      excluded.add(el);
+      for (const child of Array.from(el.querySelectorAll("*"))) excluded.add(child);
+      continue;
+    }
+    // A sticky banner is content-blocking furniture — unless it is the site's
+    // header, which is exactly what the migration needs to read.
+    if (isOverlay(el) && !isHeaderLike(el) && !Array.from(el.children).some((child) => isHeaderLike(child))) {
       excluded.add(el);
       for (const child of Array.from(el.querySelectorAll("*"))) excluded.add(child);
     }
@@ -95,7 +118,11 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     return null;
   };
   const docHeight = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
-  const headerEl = pick(["header", "[role=banner]", "nav"], (el) => { const r = rectOf(el); return r.y < 260 && r.h < 320 && r.w >= vw * 0.5; });
+  const headerEl = pick([HEADER_SELECTOR, "nav"], (el) => {
+    if (el.closest("main, article, footer")) return false;
+    const r = rectOf(el);
+    return r.y < 260 && r.h < 320 && r.w >= vw * 0.5;
+  });
   const footerEl = (() => {
     const candidates = Array.from(doc.querySelectorAll("footer, [role=contentinfo]")).filter((el) => !isEx(el));
     if (candidates.length) return candidates[candidates.length - 1];
@@ -188,16 +215,95 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     return undefined;
   };
 
-  const header = headerEl ? {
-    logo: logoIn(headerEl),
-    brandText: (() => { const a = headerEl.querySelector("a[href='/'], a[href='./']"); const t = a ? text(a) : ""; return t && t.length <= 60 ? t : undefined; })(),
-    nav: linkList(headerEl, 20).filter((link) => !/^(mailto:|tel:)/i.test(link.href)),
-    cta: (() => {
-      const buttons = Array.from(headerEl.querySelectorAll("a[href], button")).filter((el) => !isEx(el) && isButtonLike(el) && text(el));
-      const best = buttons.sort((a, b) => saturation(cs(b).backgroundColor) - saturation(cs(a).backgroundColor))[0];
-      return best ? { text: text(best).slice(0, 120), href: abs(best.getAttribute("href")), primary: true } : undefined;
-    })(),
-  } : undefined;
+  /**
+   * Links from a menu that is not on screen.
+   *
+   * A hamburger menu, an off-canvas drawer, a `display:none` desktop
+   * fallback: the site's real navigation, invisible at capture time and
+   * therefore excluded everywhere else. `innerText` is empty on a hidden
+   * element, so the label has to come from `textContent`.
+   */
+  const rawLinkList = (root: Element, cap: number) => {
+    const out: Array<{ text: string; href: string }> = [];
+    const seen = new Set<string>();
+    for (const a of Array.from(root.querySelectorAll("a[href]"))) {
+      const href = abs(a.getAttribute("href"));
+      const label = ((a.textContent || "").replace(/\s+/g, " ").trim()).slice(0, 80);
+      if (!href || !label || seen.has(href + label)) continue;
+      seen.add(href + label);
+      out.push({ text: label, href });
+      if (out.length >= cap) break;
+    }
+    return out;
+  };
+  const homeHref = new URL("/", doc.baseURI).toString();
+  const isHomeLink = (a: Element) => { const href = a.getAttribute("href") || ""; return href === "/" || href === "./" || abs(href) === homeHref; };
+
+  const header = headerEl ? (() => {
+    const logo = logoIn(headerEl);
+    const brandLink = Array.from(headerEl.querySelectorAll("a[href]")).find(isHomeLink);
+    const brandOwnText = brandLink ? ((brandLink.textContent || "").replace(/\s+/g, " ").trim()) : "";
+    const brandHasLogo = !!brandLink && !!brandLink.querySelector("img, svg");
+    const visible = linkList(headerEl, 20).filter((link) => !/^(mailto:|tel:)/i.test(link.href));
+    // Anything that is not the home link counts as a menu item; a header with
+    // one link is a logo, not a menu, and its real menu is behind a burger.
+    const menuish = visible.filter((link) => abs(link.href) !== homeHref);
+    let nav = visible;
+    let menuHidden = false;
+    if (menuish.length < 2) {
+      const roots: Element[] = [];
+      for (const el of Array.from(headerEl.querySelectorAll("nav, [role=navigation], .menu, ul[id*='menu'], ul[class*='menu']"))) roots.push(el);
+      for (const button of Array.from(doc.querySelectorAll("button[aria-controls], a[aria-controls], [data-target]"))) {
+        const id = button.getAttribute("aria-controls") || (button.getAttribute("data-target") || "").replace(/^#/, "");
+        const target = id ? doc.getElementById(id) : null;
+        if (target) roots.push(target);
+      }
+      for (const el of Array.from(doc.querySelectorAll("#mobile-menu, .mobile-menu, .et_mobile_menu, .elementor-nav-menu--dropdown, .off-canvas, .menu-mobile, [class*='mobile-nav'], [class*='offcanvas']"))) roots.push(el);
+      for (const root of roots) {
+        const links = rawLinkList(root, 20).filter((link) => !/^(mailto:|tel:)/i.test(link.href) && !/^javascript:/i.test(link.href));
+        if (links.filter((link) => abs(link.href) !== homeHref).length >= 2) { nav = links; menuHidden = true; break; }
+      }
+    }
+    const headerRect = rectOf(headerEl);
+    const bgColor = (() => {
+      const own = color(cs(headerEl).backgroundColor);
+      if (own) return own;
+      for (const child of Array.from(headerEl.querySelectorAll("*")).slice(0, 40)) {
+        if (rectOf(child).w < vw * 0.9) continue;
+        const bg = color(cs(child).backgroundColor);
+        if (bg) return bg;
+      }
+      return undefined;
+    })();
+    const sticky = (() => {
+      let el: Element | null = headerEl;
+      for (let i = 0; el && i < 3; i++, el = el.parentElement) {
+        const position = cs(el).position;
+        if (position === "fixed" || position === "sticky") return true;
+      }
+      return false;
+    })();
+    return {
+      logo,
+      brandText: brandOwnText && brandOwnText.length <= 60 ? brandOwnText : undefined,
+      /** What the original actually showed: a logo, a word, or both. */
+      brandShown: (brandHasLogo || logo ? (brandOwnText ? "both" : "logo") : "text") as "logo" | "text" | "both",
+      nav,
+      menuHidden: menuHidden || undefined,
+      bgColor,
+      textColor: (() => { const link = headerEl.querySelector("a[href]"); return link ? color(cs(link).color) : undefined; })(),
+      sticky: sticky || undefined,
+      height: Math.round(headerRect.h) || undefined,
+      logoHeight: (() => { const img = brandLink?.querySelector("img, svg") ?? headerEl.querySelector("img, svg"); const h = img ? Math.round(rectOf(img).h) : 0; return h > 0 ? h : undefined; })(),
+      cta: (() => {
+        const buttons = Array.from(headerEl.querySelectorAll("a[href], button")).filter((el) => !isEx(el) && isButtonLike(el) && text(el));
+        const best = buttons.sort((a, b) => saturation(cs(b).backgroundColor) - saturation(cs(a).backgroundColor))[0];
+        return best ? { text: text(best).slice(0, 120), href: abs(best.getAttribute("href")), primary: true } : undefined;
+      })(),
+      /** Filled in after segmentation: whether the first band runs under it. */
+      transparent: undefined as boolean | undefined,
+    };
+  })() : undefined;
 
   const footer = footerEl ? (() => {
     const columns: Array<{ heading?: string; links: Array<{ text: string; href: string }>; text?: string }> = [];
@@ -219,8 +325,21 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
   })() : undefined;
 
   // 3. segmentation
-  const bodyText = text(doc.body).length || 1;
-  const mainCandidate = pick(["main", "[role=main]", "#content", "#main", ".content", ".site-content"], (el) => text(el).length >= bodyText * 0.5);
+  //
+  // The content root is measured against the page's CONTENT text, not its
+  // whole body. Measured against the body — header and footer included — a
+  // short sub-page with a fat WordPress footer never reached half, so `main`
+  // was rejected and the root fell back to `<body>`: one giant section for
+  // the entire page. The selector list also has to know the wrappers the
+  // common builders emit, or their pages segment as one block.
+  const chromeText = [headerEl, footerEl].reduce((n, el) => n + (el ? text(el).length : 0), 0);
+  const contentText = Math.max(1, text(doc.body).length - chromeText);
+  const chromeHeight = [headerEl, footerEl].reduce((n, el) => n + (el ? rectOf(el).h : 0), 0);
+  const contentHeight = Math.max(1, docHeight - chromeHeight);
+  const mainCandidate = pick(
+    ["main", "[role=main]", "article", "#main-content", "#et-main-area", "#content", "#main", "#primary", ".site-main", ".site-content", ".entry-content", ".elementor[data-elementor-type]", "#page-container", ".content"],
+    (el) => !inChrome(el) && !el.closest("header, footer") && (text(el).length >= contentText * 0.5 || rectOf(el).h >= contentHeight * 0.5)
+  );
   const root = mainCandidate ?? doc.body;
   const significantChildren = (el: Element) => Array.from(el.children).filter((child) => !isEx(child) && !inChrome(child) && rectOf(child).h > 0);
   const hasHeading = (el: Element) => !!el.querySelector("h1,h2,h3,h4");
@@ -231,32 +350,75 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
   const minLeafW = vw * (opts.relaxed ? 0.4 : 0.6);
   const minWalkH = opts.relaxed ? 24 : 40;
   const minSectionH = opts.relaxed ? 40 : 80;
+  /** The classes the page builders give their own top-level bands. */
+  const BUILDER_SECTION_RE = /\b(et_pb_section|elementor-top-section|elementor-section|e-con-boxed|wp-block-cover|wp-block-group|vc_row|brxe-section|fl-row)\b/;
+  const distinctBackground = (el: Element) => {
+    if (bgImageUrl(el)) return true;
+    const own = color(cs(el).backgroundColor);
+    if (!own) return false;
+    return !el.parentElement || cs(el.parentElement).backgroundColor !== cs(el).backgroundColor;
+  };
+  const paddedBand = (el: Element) => {
+    const style = cs(el);
+    return parseFloat(style.paddingTop || "0") + parseFloat(style.paddingBottom || "0") >= 40;
+  };
   const leafWorthy = (el: Element) => {
     const r = rectOf(el);
     if (r.h < minLeafH || r.w < minLeafW) return false;
-    return /^(SECTION|ARTICLE|ASIDE)$/.test(el.tagName) || el.getAttribute("role") === "region" || hasHeading(el) || (ownBackground(el) && (!el.parentElement || cs(el.parentElement).backgroundColor !== cs(el).backgroundColor));
+    const cls = typeof el.className === "string" ? el.className : "";
+    return /^(SECTION|ARTICLE|ASIDE)$/.test(el.tagName) || el.getAttribute("role") === "region" || BUILDER_SECTION_RE.test(cls) || hasHeading(el) || distinctBackground(el);
   };
   const sections: Element[] = [];
+  const pushed = new Set<Element>();
   const strayOrnaments: Element[] = [];
-  const segment = (el: Element, depth: number) => {
+  /**
+   * Walk down to the real bands.
+   *
+   * Two rules used to stop the walk dead on ordinary WordPress markup. A
+   * single child was only entered when it covered 90 % of the parent's AREA
+   * — but the parent's rect includes the header and footer it does not hold,
+   * and a centred 1200px wrapper in a 1440 viewport is 83 % wide — and a
+   * container with one child could never be split. `body > #page > main`
+   * therefore pushed the whole page as one section. A single significant
+   * child is now always entered; what a leaf gives back is the innermost
+   * BAND it sat in (its own background, or real vertical padding), so a
+   * section keeps its colour and rhythm instead of reporting the inner
+   * text wrapper.
+   */
+  const segment = (el: Element, depth: number, band?: Element) => {
     if (isEx(el) || inChrome(el)) return;
     const r = rectOf(el);
     if (r.h < minWalkH) {
-      // Too short to be a section — but a divider band is exactly that
-      // short. Keep it and hand it to the section it precedes.
+      // Too short to be a section on its own — but if it is the single line
+      // inside a coloured band (a "Book now" strip is exactly that), the
+      // band is the section, and dropping it loses the strip entirely.
+      if (band && band !== el && (leafWorthy(band) || rectOf(band).h >= minSectionH)) {
+        if (!pushed.has(band)) { pushed.add(band); sections.push(band); }
+        return;
+      }
+      // A divider band is this short too. Keep it and hand it to the section
+      // it precedes.
       if (r.h > 0 && text(el).length === 0 && (el.matches(ORNAMENT_SELECTOR) || el.querySelector("img, svg, hr"))) strayOrnaments.push(el);
       return;
     }
+    const here = distinctBackground(el) || paddedBand(el) ? el : band;
     const kids = significantChildren(el);
-    const area = r.w * r.h;
-    const bigKids = kids.filter((child) => { const cr = rectOf(child); return cr.w * cr.h >= area * 0.9; });
-    if (kids.length === 1 && bigKids.length === 1 && depth < 12) return segment(kids[0], depth + 1);
+    if (kids.length === 1 && depth < 16) return segment(kids[0], depth + 1, here);
     const leafKids = kids.filter(leafWorthy);
-    if ((r.h > vh * 1.5 || leafKids.length >= 2) && kids.length > 1 && depth < 8) {
-      for (const child of kids) segment(child, depth + 1);
+    if ((r.h > vh * 1.5 || leafKids.length >= 2) && kids.length > 1 && depth < 10) {
+      // Each child is its own band from here; the parent's is not theirs.
+      for (const child of kids) segment(child, depth + 1, undefined);
       return;
     }
-    if (leafWorthy(el) || r.h >= minSectionH) sections.push(el);
+    // What gets kept is the band, not the inner wrapper the walk ended on:
+    // a themed band is `<section style="padding:72px 0"><div class="inner">`,
+    // and the inner div is both too short to count as a section and stripped
+    // of the colour and rhythm the band carries.
+    const keep = here && here !== el ? here : el;
+    const kr = rectOf(keep);
+    if (leafWorthy(keep) || kr.h >= minSectionH) {
+      if (!pushed.has(keep)) { pushed.add(keep); sections.push(keep); }
+    }
   };
   for (const child of significantChildren(root)) segment(child, 0);
   if (!sections.length && root !== doc.body) for (const child of significantChildren(doc.body)) segment(child, 0);
@@ -264,11 +426,16 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
   // 4. merge pass on plain elements; sections are built after
   const raw = sections.map((el) => ({ el, r: rectOf(el), heading: hasHeading(el), t: text(el) })).filter((s) => s.t.length > 0 || s.el.querySelector("img, svg, iframe, video"));
   const merged: Array<{ el: Element; extras: Element[] }> = [];
+  // A band with its own background, or one carrying a picture, a video or a
+  // form, is a section of its own however short and however heading-less:
+  // swallowing it is how an image band or a coloured call-to-action strip
+  // disappeared into the block above it.
+  const standsAlone = (el: Element) => distinctBackground(el) || !!el.querySelector("img, svg, video, iframe, form");
   for (const entry of raw) {
     const prev = merged[merged.length - 1];
-    if (prev && !entry.heading && entry.r.h < 200) { prev.extras.push(entry.el); continue; }
+    if (prev && !entry.heading && entry.r.h < 200 && !standsAlone(entry.el)) { prev.extras.push(entry.el); continue; }
     const prevText = prev ? text(prev.el) : "";
-    if (prev && entry.t && prevText.includes(entry.t)) { prev.extras.push(entry.el); continue; }
+    if (prev && entry.t && entry.t.length < 300 && prevText.includes(entry.t) && !standsAlone(entry.el)) { prev.extras.push(entry.el); continue; }
     merged.push({ el: entry.el, extras: [] });
   }
   // A page that segments into nothing (a thin page, a splash/redirect page, or
@@ -371,7 +538,16 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     const paragraphs = scope.flatMap((s) => blockText(s)).filter((p, i, arr) => arr.indexOf(p) === i).slice(0, 25);
     const lists = q<HTMLElement>("ul, ol").filter((l) => !l.closest("nav")).map((l) => Array.from(l.querySelectorAll(":scope > li")).map((li) => text(li).slice(0, 300)).filter(Boolean).slice(0, 30)).filter((l) => l.length).slice(0, 6);
     const quotes = q<HTMLElement>("blockquote, q").map((b) => ({ text: text(b).slice(0, 1500), cite: b.querySelector("cite, footer") ? text(b.querySelector("cite, footer")!).slice(0, 200) : undefined })).filter((x) => x.text).slice(0, 10);
-    const ctaEls = q<HTMLElement>("a[href], button").filter((c) => isButtonLike(c) && text(c) && text(c).length <= 120);
+    // A link is a call to action when it is styled as a button — or when it
+    // is the only thing a band says. A coloured "Book your session" strip
+    // whose link the theme styles with nothing but colour otherwise came
+    // through as an empty band and was planned away as decoration.
+    const ctaEls = q<HTMLElement>("a[href], button").filter((c) => {
+      const label = text(c);
+      if (!label || label.length > 120) return false;
+      if (isButtonLike(c)) return true;
+      return !c.closest("p, li, nav, h1, h2, h3, h4, h5, h6") && label.length === text(scope[0] ?? c).length;
+    });
     const ctas = ctaEls.map((c) => ({ text: text(c).slice(0, 120), href: abs(c.getAttribute("href")), primary: false })).slice(0, 10);
     if (ctaEls.length) { let bestIdx = 0; let bestSat = -1; ctaEls.slice(0, 10).forEach((c, i) => { const s = saturation(cs(c).backgroundColor); if (s > bestSat) { bestSat = s; bestIdx = i; } }); if (ctas[bestIdx]) ctas[bestIdx].primary = true; }
     const images: any[] = [];
@@ -504,9 +680,20 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
   const icons = Array.from(doc.querySelectorAll("link[rel*='icon' i]")).map((l) => ({ rel: (l.getAttribute("rel") || "").slice(0, 60), href: abs(l.getAttribute("href")) || "", sizes: l.getAttribute("sizes") || undefined })).filter((i) => i.href).slice(0, 10);
   const meta = (name: string) => (doc.querySelector(`meta[name='${name}'], meta[property='${name}']`)?.getAttribute("content") || "").trim() || undefined;
 
+  // A header the first band runs under is drawn over the photo, not above it.
+  // Known only once the sections are in hand, so it is filled in here.
+  if (header && headerEl) {
+    const headerRect = rectOf(headerEl);
+    const firstTop = extracted.length ? extracted[0].bbox.y : Number.POSITIVE_INFINITY;
+    const translucent = !header.bgColor || alphaOf(cs(headerEl).backgroundColor) < 0.1;
+    header.transparent = translucent && firstTop < headerRect.y + headerRect.h - 1 ? true : undefined;
+  }
+
   return {
     url: doc.location.href,
     title: (doc.title || "").slice(0, 500) || undefined,
+    /** What the site calls itself — never the name typed into the admin form. */
+    siteName: (meta("og:site_name") || "").slice(0, 120) || undefined,
     description: meta("description") || meta("og:description"),
     lang: (doc.documentElement.lang || "").slice(0, 20) || undefined,
     ogImage: abs(meta("og:image") || null),

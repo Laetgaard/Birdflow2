@@ -1514,28 +1514,47 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
                 isPreview={isPreview}
               />
             ) : (
-              <span style={{ fontSize: '20px', fontWeight: 700 }}>{props.title}</span>
+              // A site whose header is only a logo keeps only its logo: an
+              // empty title must render as nothing, not as an empty word slot.
+              !!props.title && <span style={{ fontSize: '20px', fontWeight: 700 }}>{props.title}</span>
             )}
           </div>
         
         {!isMobile && (
-          <nav style={{ display: 'flex', gap: '32px', alignItems: 'center' }} onClick={handleNavClick}>
-            {navItems.map(item => {
-              const isActive = isPreview && currentPath === item.href;
-              return (
-                <NavLink 
-                  key={item.id} 
-                  href={item.href} 
-                  textColor={styles.textColor || '#1a1a1a'}
-                  hoverColor={hoverColor}
-                  isPreview={isPreview}
-                  isActive={isActive}
-                >
-                  {item.title}
-                </NavLink>
-              );
-            })}
-          </nav>
+          <div style={{ display: 'flex', gap: '24px', alignItems: 'center' }}>
+            <nav style={{ display: 'flex', gap: '32px', alignItems: 'center' }} onClick={handleNavClick}>
+              {navItems.map(item => {
+                const isActive = isPreview && currentPath === item.href;
+                return (
+                  <NavLink 
+                    key={item.id} 
+                    href={item.href} 
+                    textColor={styles.textColor || '#1a1a1a'}
+                    hoverColor={hoverColor}
+                    isPreview={isPreview}
+                    isActive={isActive}
+                  >
+                    {item.title}
+                  </NavLink>
+                );
+              })}
+            </nav>
+            {/* The button most sites keep in their header — "Book a session",
+                "Get in touch". Migrated headers carried it in their props and
+                nothing drew it. */}
+            {!!props.buttonText && (
+              <HoverButton
+                backgroundColor={hoverColor}
+                hoverBackgroundColor={hoverColor}
+                textColor={getContrastColor(hoverColor)}
+                href={props.buttonLink as string | undefined}
+                isPreview={isPreview}
+                style={{ padding: '10px 20px', fontSize: '15px', fontWeight: 600, borderRadius: '10px' }}
+              >
+                {props.buttonText}
+              </HoverButton>
+            )}
+          </div>
         )}
 
         {isMobile && (
@@ -1588,6 +1607,19 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
               </NavLink>
             );
           })}
+          {!!props.buttonText && (
+            <HoverButton
+              backgroundColor={hoverColor}
+              hoverBackgroundColor={hoverColor}
+              textColor={getContrastColor(hoverColor)}
+              href={props.buttonLink as string | undefined}
+              isPreview={isPreview}
+              onClick={handleMobileNavClick}
+              style={{ padding: '12px 20px', fontSize: '15px', fontWeight: 600, borderRadius: '10px', marginTop: '4px', textAlign: 'center' }}
+            >
+              {props.buttonText}
+            </HoverButton>
+          )}
         </nav>
       )}
     </header>

@@ -385,7 +385,7 @@ function sectionStyles(section: ExtractedSection): Record<string, string> {
   return styles;
 }
 
-function hexOf(rgb: string | undefined): string | undefined {
+export function hexOf(rgb: string | undefined): string | undefined {
   const m = rgb?.match(/rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?/i);
   if (!m) return rgb && /^#[0-9a-f]{3,8}$/i.test(rgb) ? rgb : undefined;
   if (m[4] !== undefined && Number(m[4]) < 0.2) return undefined;
@@ -412,20 +412,40 @@ function component(ctx: BuildContext, id: string, type: ComponentType, props: Re
 
 /* ─────────────────────────── chrome ─────────────────────────── */
 
-export function buildHeaderComponent(args: { brandText?: string; logoPath?: string; nav: Array<{ label: string; href: string }>; cta?: { text: string; href: string } }): { id: string; type: "header"; props: Record<string, unknown>; styles: Record<string, unknown> } {
+export function buildHeaderComponent(args: {
+  brandText?: string;
+  logoPath?: string;
+  nav: Array<{ label: string; href: string }>;
+  cta?: { text: string; href: string };
+  /** False when the original showed only its logo: no word beside it. */
+  showBrandText?: boolean;
+  /** The original header's own look. */
+  style?: { backgroundColor?: string; textColor?: string; sticky?: boolean; transparent?: boolean };
+}): { id: string; type: "header"; props: Record<string, unknown>; styles: Record<string, unknown> } {
   const definition = componentRegistry.header;
+  // A logo-only header stays logo-only. Writing the company name beside a
+  // logo the client never captioned is how every migrated site ended up
+  // saying whatever the admin typed into the form.
+  const title = args.showBrandText === false && args.logoPath ? "" : args.brandText ?? "";
+  const style = args.style ?? {};
   return {
     id: `${MIGRATION_ID_PREFIX}-header`,
     type: "header",
     props: {
       ...definition.defaultProps,
-      title: args.brandText ?? "",
+      title,
       imageUrl: args.logoPath ?? "",
       showCart: false,
       items: args.nav.slice(0, 12).map((link, n) => ({ id: `${MIGRATION_ID_PREFIX}-nav-${n}`, title: link.label, description: link.href })),
       ...(args.cta ? { buttonText: args.cta.text, buttonLink: args.cta.href } : {}),
     },
-    styles: { ...definition.defaultStyles },
+    styles: {
+      ...definition.defaultStyles,
+      ...(style.backgroundColor ? { backgroundColor: style.backgroundColor, scrolledBackgroundColor: style.backgroundColor } : {}),
+      ...(style.textColor ? { textColor: style.textColor } : {}),
+      ...(style.sticky ? { scrollBehavior: "sticky" } : {}),
+      ...(style.transparent ? { isTransparent: true, overlayMode: true } : {}),
+    },
   };
 }
 
@@ -438,6 +458,10 @@ export function buildFooterComponent(args: { copyright?: string; contactText?: s
       ...definition.defaultProps,
       title: args.copyright ?? definition.defaultProps.title,
       description: args.contactText ?? "",
+      // Both renderers read `footerColumns` and `copyright`; `columns` and
+      // `title` alone meant the client's own footer links never appeared.
+      copyright: args.copyright ?? "",
+      footerColumns: args.columns.slice(0, 4).map((column) => ({ heading: column.heading ?? "", links: column.links.slice(0, 12).map((link) => ({ label: link.text, href: link.href })) })),
       columns: args.columns.slice(0, 4).map((column, n) => ({ id: `${MIGRATION_ID_PREFIX}-fcol-${n}`, title: column.heading ?? "", links: column.links.slice(0, 12).map((link, m) => ({ id: `${MIGRATION_ID_PREFIX}-flink-${n}-${m}`, title: link.text, description: link.href })) })),
       socialLinks: args.social.slice(0, 8).map((social, n) => ({ id: `${MIGRATION_ID_PREFIX}-social-${n}`, platform: social.network, url: social.href })),
     },

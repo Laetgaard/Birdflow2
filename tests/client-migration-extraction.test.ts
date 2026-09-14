@@ -123,6 +123,14 @@ describe("roles that depend on a backdrop or an ornament", () => {
     expect(guess({ id: "p0-s4", headings: [{ level: 2, text: "Find ro" }], images: [backdrop], textLength: 200, bbox: { x: 0, y: 3000, w: 1440, h: 200 } }, 4).role).not.toBe("text-image");
   });
 
+  it("calls the first band a hero when its words sit on a photo, however the theme wrote them", () => {
+    const backdrop = { src: "hero.jpg", isBackground: true, displayWidth: 1440, displayHeight: 800 };
+    // A theme that uses a paragraph instead of a heading still built a hero.
+    expect(guess({ id: "p0-s0", images: [backdrop], paragraphs: ["You weren't born to survive."], textLength: 40, bbox: { x: 0, y: 0, w: 1440, h: 420 } }, 0)).toEqual({ role: "hero", confidence: 0.8 });
+    // And one that uses an h2 at a normal size.
+    expect(guess({ id: "p0-s0", headings: [{ level: 2, text: "Find ro" }], images: [backdrop], textLength: 30, bbox: { x: 0, y: 0, w: 1440, h: 400 } }, 0)).toEqual({ role: "hero", confidence: 0.8 });
+  });
+
   it("calls a band that holds only an ornament a divider", () => {
     expect(guess({ id: "p0-s2", images: [{ src: "rule.svg", decorative: true, role: "ornament", displayWidth: 120, displayHeight: 24 }], textLength: 0, bbox: { x: 0, y: 900, w: 1440, h: 60 } }, 2)).toEqual({ role: "divider", confidence: 0.8 });
   });

@@ -19,6 +19,41 @@ const ctx = {} as any;
 
 const add = (props: Record<string, unknown>, type = "hero") => ({ action: "add_component", pageId: "home", component: { id: "x", type, props, styles: {} } }) as any;
 
+/**
+ * A photo behind text is a CSS value, not a sentence.
+ *
+ * `backgroundImage: "url(/objects/uploads/hero.webp)"` is the only way the
+ * agent can rebuild an overlay hero. Read as prose it is a 40-character
+ * line no website ever said, so the guard refused every such rebuild — and
+ * told the model its *sentence* was invented, which it could not act on.
+ */
+describe("CSS image values", () => {
+  const path = Array.from(allowedPaths())[1];
+
+  it("accepts a background whose path the job imported", () => {
+    const verdict = guard({ action: "add_custom_component", pageId: "home", name: "Hero", tree: { id: "r", type: "box", styles: { backgroundImage: `url(${path})`, backgroundSize: "cover" }, children: [] } } as any, ctx);
+    expect(verdict.ok).toBe(true);
+  });
+
+  it("refuses a background the job never imported, as an image and not as a sentence", () => {
+    const verdict = guard({ action: "add_custom_component", pageId: "home", name: "Hero", tree: { id: "r", type: "box", styles: { backgroundImage: "url(/objects/uploads/not-imported.webp)" }, children: [] } } as any, ctx);
+    expect(verdict.ok).toBe(false);
+    expect((verdict as any).reason).toContain("ikke importeret");
+    expect((verdict as any).reason).not.toContain("Sætningen");
+  });
+
+  it("refuses a stock photo in a background", () => {
+    const verdict = guard({ action: "add_custom_component", pageId: "home", name: "Hero", tree: { id: "r", type: "box", styles: { backgroundImage: "url(https://images.unsplash.com/photo-1.jpg)" }, children: [] } } as any, ctx);
+    expect(verdict.ok).toBe(false);
+    expect((verdict as any).reason).toContain("ikke fra kundens hjemmeside");
+  });
+
+  it("lets a scrim gradient and the keywords around it through", () => {
+    expect(guard(add({ backgroundImage: "linear-gradient(180deg, rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.55))" }), ctx).ok).toBe(true);
+    expect(guard(add({ backgroundImage: "none", backgroundColor: "transparent" }), ctx).ok).toBe(true);
+  });
+});
+
 describe("text fidelity", () => {
   it("accepts copy taken verbatim from the source page", () => {
     expect(guard(add({ title: "Ro i hverdagen", description: HERO_TEXT }), ctx)).toEqual({ ok: true, notes: [] });

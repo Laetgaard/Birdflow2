@@ -812,6 +812,16 @@ function CustomComponentRenderer({
   // svgTokens is optional when the renderer is called without a token map.
   const wrapperStyle: React.CSSProperties = {
     backgroundColor: sectionStyles.backgroundColor || "transparent",
+    // A custom section can carry a photo the same way a standard one does.
+    // Without this the only vehicle was a node style, and a rebuild that put
+    // the backdrop on the section went blank.
+    ...(sectionStyles.backgroundImage
+      ? {
+          backgroundImage: String(sectionStyles.backgroundImage).startsWith("url(") ? String(sectionStyles.backgroundImage) : `url(${sectionStyles.backgroundImage})`,
+          backgroundSize: (sectionStyles.backgroundSize as string) || "cover",
+          backgroundPosition: (sectionStyles.backgroundPosition as string) || "center",
+        }
+      : {}),
     padding: sectionStyles.padding || "0px",
     fontFamily: (svgTokens?.['font.body'] as string | undefined) || globalStyles?.fontFamily,
     color: globalStyles?.textColor,

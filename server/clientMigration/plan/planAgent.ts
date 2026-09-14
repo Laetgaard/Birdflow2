@@ -25,7 +25,7 @@ import {
   type MigrationSectionPlan,
   type PageExtraction,
 } from "@shared/clientMigration";
-import { defaultTargetFor, isTargetAllowed } from "./sectionMapper";
+import { defaultTargetFor, hexOf, isTargetAllowed } from "./sectionMapper";
 
 export type PlanSource = {
   pageId: string;
@@ -71,7 +71,22 @@ export function emptySources(sources: PlanSource[]): PlanSource[] {
   return sources.filter((source) => source.extraction.sections.length === 0);
 }
 
-export function deterministicPlan(args: { sources: PlanSource[]; assets: MigrationAssetRecord[]; siteName: string; language: "da" | "en"; pixelClose: boolean }): MigrationPlan {
+/** What discovery learned about the site's own menu, for a header the capture could not read. */
+export type NavHints = {
+  /** The CMS's menu, in the owner's order. */
+  menu?: Array<{ label: string; url: string; order: number }>;
+  /** Pages the crawl found linked from a navigation, in discovery order. */
+  pages?: Array<{ url: string; title?: string; fromNav?: boolean }>;
+};
+
+/** The page title without the site name the theme appends to every page. */
+function titleLabel(title: string | undefined, siteName: string): string | undefined {
+  const head = (title ?? "").split(/\s[|–—-]\s/)[0].trim();
+  if (!head || head.toLowerCase() === siteName.toLowerCase()) return undefined;
+  return head.slice(0, 40);
+}
+
+export function deterministicPlan(args: { sources: PlanSource[]; assets: MigrationAssetRecord[]; siteName: string; language: "da" | "en"; pixelClose: boolean; navHints?: NavHints; onWarning?: (message: string) => void }): MigrationPlan {
   const used = new Set<string>();
   // Every planned page needs at least one section, and every planned section id
   // must be one the extraction actually produced. A page that yielded nothing
@@ -85,7 +100,27 @@ export function deterministicPlan(args: { sources: PlanSource[]; assets: Migrati
   // trusted while it still names an asset the job has.
   const mediaFor = (src: string | undefined, persisted: string | undefined): string | undefined =>
     (src ? mediaByPath.get(src) : undefined) ?? (persisted && knownMedia.has(persisted) ? persisted : undefined);
-  const navLinks = home.extraction.chrome.header?.nav ?? [];
+  /**
+   * The menu, from the best source that has one.
+   *
+   * The captured header first: it is what a visitor sees. When the theme
+   * hides its menu (a burger on desktop, a header the capture could not
+   * read), the CMS's own menu is next, and the crawl's navigation links
+   * last. Before this chain a site whose header could not be read got a
+   * one-item menu — "Forside" — and every other page was hidden.
+   */
+  const headerNav = home.extraction.chrome.header?.nav ?? [];
+  const nonHome = (links: Array<{ href: string }>) => links.filter((link) => !sameUrl(link.href, home.url)).length;
+  const navLinks: Array<{ text: string; href: string }> = (() => {
+    if (nonHome(headerNav) >= 2) return headerNav;
+    const menu = (args.navHints?.menu ?? []).map((item) => ({ text: item.label.slice(0, 40), href: item.url }));
+    if (nonHome(menu) >= 2) return menu;
+    const crawled = (args.navHints?.pages ?? []).filter((page) => page.fromNav)
+      .map((page) => ({ text: titleLabel(page.title, args.siteName) ?? "", href: page.url }))
+      .filter((link) => !!link.text);
+    if (nonHome(crawled) >= 2) return crawled;
+    return headerNav;
+  })();
   const slugByUrl = new Map<string, string>();
 
   const pages: MigrationPagePlan[] = sources.map((source, index) => {
@@ -120,15 +155,40 @@ export function deterministicPlan(args: { sources: PlanSource[]; assets: Migrati
   const header = home.extraction.chrome.header;
   const footer = home.extraction.chrome.footer;
   const logoMediaId = header?.logo?.mediaId ?? args.assets.find((asset) => asset.usedBy.includes("chrome-header"))?.mediaId;
-  const nav = (header?.nav ?? []).map((link) => ({ label: link.text.slice(0, 40), targetSlug: Array.from(slugByUrl.entries()).find(([url]) => sameUrl(url, link.href))?.[1] })).filter((n): n is { label: string; targetSlug: string } => n.targetSlug !== undefined).slice(0, 12);
+  const nav: Array<{ label: string; targetSlug: string }> = [];
+  for (const link of navLinks) {
+    const targetSlug = Array.from(slugByUrl.entries()).find(([url]) => sameUrl(url, link.href))?.[1];
+    // A menu item whose page was never migrated cannot be linked. Saying so
+    // is the difference between a menu that is short and one that is wrong.
+    if (targetSlug === undefined) { args.onWarning?.(`nav_link_dropped: "${link.text.slice(0, 40)}" (${link.href}) is in the site's menu but its page was not migrated.`); continue; }
+    if (nav.some((n) => n.targetSlug === targetSlug)) continue;
+    nav.push({ label: link.text.slice(0, 40), targetSlug });
+    if (nav.length >= 12) break;
+  }
   if (!nav.some((n) => n.targetSlug === "")) nav.unshift({ label: args.language === "en" ? "Home" : "Forside", targetSlug: "" });
+  // The brand as the original wore it: its own word, or nothing but the logo.
+  const capturedSiteName = header?.brandText ?? home.extraction.siteName ?? titleLabel(home.extraction.title, "") ?? undefined;
+  const showBrandText = header?.brandShown ? header.brandShown !== "logo" : undefined;
+  const headerStyle = header ? {
+    backgroundColor: hexOf(header.bgColor),
+    textColor: hexOf(header.textColor),
+    sticky: header.sticky,
+    transparent: header.transparent,
+  } : undefined;
 
   const plan: MigrationPlan = {
     version: 1,
     siteName: args.siteName,
     language: args.language,
     chrome: {
-      header: { logoMediaId, brandText: header?.brandText, nav, cta: header?.cta?.href ? { text: header.cta.text.slice(0, 40), href: header.cta.href } : undefined },
+      header: {
+        logoMediaId,
+        brandText: (showBrandText === false ? undefined : capturedSiteName)?.slice(0, 120),
+        showBrandText,
+        nav,
+        cta: header?.cta?.href ? { text: header.cta.text.slice(0, 40), href: header.cta.href } : undefined,
+        style: headerStyle && Object.values(headerStyle).some((v) => v !== undefined) ? headerStyle : undefined,
+      },
       footer: {
         columns: (footer?.columns ?? []).slice(0, 4).map((c) => ({ heading: c.heading?.slice(0, 60), links: c.links.slice(0, 12).map((l) => ({ text: l.text.slice(0, 60), href: l.href })) })),
         contactText: footer?.contactText?.slice(0, 400),
@@ -267,6 +327,8 @@ export async function producePlan(args: {
   pixelClose: boolean;
   meter: SpendMeter;
   useModel: boolean;
+  /** What discovery learned about the menu, for a header the capture could not read. */
+  navHints?: NavHints;
 }): Promise<{ plan: MigrationPlan; warnings: string[] }> {
   const warnings: string[] = [];
   for (const source of emptySources(args.sources)) {
@@ -289,7 +351,7 @@ export async function producePlan(args: {
     return repaired;
   };
 
-  const base = settle(deterministicPlan(args), "The deterministic plan");
+  const base = settle(deterministicPlan({ ...args, onWarning: (message) => warnings.push(message) }), "The deterministic plan");
   if (!base) throw new Error("The plan could not be made valid against what was extracted.");
   if (!args.useModel) return { plan: MigrationPlanSchema.parse(base), warnings };
 

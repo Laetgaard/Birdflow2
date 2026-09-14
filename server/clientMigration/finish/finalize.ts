@@ -22,10 +22,15 @@ export function applyChromeAndNavigation(state: BuilderStateData, plan: Migratio
   const slugToPath = (slug: string) => (slug ? `/${slug}` : "/");
   const logoPath = plan.chrome.header.logoMediaId ? assets.find((a) => a.mediaId === plan.chrome.header.logoMediaId)?.storagePath : next.brandGuide?.logoUrl;
   const header = buildHeaderComponent({
-    brandText: plan.chrome.header.brandText ?? plan.siteName,
+    // The form's company name is the website's name, not necessarily the
+    // word the client puts beside their logo — and when the original showed
+    // no word at all, neither does the rebuild.
+    brandText: plan.chrome.header.showBrandText === false ? undefined : plan.chrome.header.brandText ?? plan.siteName,
+    showBrandText: plan.chrome.header.showBrandText,
     logoPath,
     nav: plan.chrome.header.nav.map((link) => ({ label: link.label, href: slugToPath(link.targetSlug) })),
     cta: plan.chrome.header.cta,
+    style: plan.chrome.header.style,
   });
   const footer = buildFooterComponent({
     copyright: plan.chrome.footer.copyright,

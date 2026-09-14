@@ -179,7 +179,14 @@ export function guardResponsive(root: PrimitiveNode, label: string): ResponsiveR
         // clipping. Auto-repair to relative unless the designer already set a
         // mobile override.
         const mobilePos = (node.mobileStyles ?? {}).position;
-        if (!mobilePos) {
+        // A layer pinned to all four edges is the one absolute box that is
+        // safe at every width: the scrim over a background photo. Making it
+        // relative on mobile would drop the scrim and leave white text on a
+        // bright picture.
+        const fullBleedLayer =
+          String(styles.inset ?? "").trim().split(/\s+/).every((v) => v === "0" || v === "0px") && String(styles.inset ?? "").trim() !== ""
+          || ["top", "right", "bottom", "left"].every((edge) => ["0", "0px"].includes(String((styles as Record<string, unknown>)[edge] ?? "").trim()));
+        if (!mobilePos && !fullBleedLayer) {
           node.mobileStyles = {
             ...(node.mobileStyles ?? {}),
             position: "relative",
