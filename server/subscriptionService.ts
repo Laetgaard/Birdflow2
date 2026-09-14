@@ -472,6 +472,21 @@ export function isSubscriptionActive(status: string | null | undefined): boolean
   return ['active', 'trialing'].includes(status);
 }
 
+/**
+ * Whether a profile's plan may be used right now: a live Stripe subscription,
+ * or a plan an administrator granted by hand that has not reached its end
+ * date. Every plan gate asks this one question.
+ */
+export function isPlanUsable(profile: { subscriptionStatus?: string | null; currentPeriodEnd?: Date | null } | undefined | null): boolean {
+  const status = profile?.subscriptionStatus;
+  if (isSubscriptionActive(status)) return true;
+  if (status === 'manual') {
+    const end = profile?.currentPeriodEnd;
+    return !end || end.getTime() > Date.now();
+  }
+  return false;
+}
+
 export function getSubscriptionStatusInfo(
   status: string | null | undefined,
   trialEnd: Date | null | undefined,
@@ -485,7 +500,7 @@ export function getSubscriptionStatusInfo(
   statusColor: 'green' | 'yellow' | 'red' | 'gray';
 } {
   const now = new Date();
-  const isActive = isSubscriptionActive(status);
+  const isActive = isPlanUsable({ subscriptionStatus: status, currentPeriodEnd });
   const isTrialing = status === 'trialing';
   
   let trialDaysLeft = 0;
@@ -518,6 +533,13 @@ export function getSubscriptionStatusInfo(
       statusLabel = 'Canceled';
       statusColor = 'gray';
       break;
+    case 'manual': {
+      // Granted by BirdFlow, not by Stripe. Active until its end date.
+      const lapsed = !!currentPeriodEnd && currentPeriodEnd.getTime() <= now.getTime();
+      statusLabel = lapsed ? 'Administreret af BirdFlow (udløbet)' : 'Administreret af BirdFlow';
+      statusColor = lapsed ? 'red' : daysUntilRenewal <= 7 && currentPeriodEnd ? 'yellow' : 'green';
+      break;
+    }
     case 'unpaid':
       statusLabel = 'Unpaid';
       statusColor = 'red';
@@ -810,10 +832,17 @@ export async function checkWebsiteLimit(userId: string): Promise<PlanLimitCheckR
   }
   
   const subscriptionStatus = profile?.subscriptionStatus;
-  if (planSlug !== 'free' && subscriptionStatus !== 'active' && subscriptionStatus !== 'trialing') {
+  // A plan an administrator granted by hand (a migrated client, a comped
+  // account) is honoured until its end date; after that it is inactive like
+  // any lapsed subscription, and the customer subscribes like anyone else.
+  const manualActive = subscriptionStatus === 'manual'
+    && (!profile?.currentPeriodEnd || profile.currentPeriodEnd.getTime() > Date.now());
+  if (planSlug !== 'free' && subscriptionStatus !== 'active' && subscriptionStatus !== 'trialing' && !manualActive) {
     return { 
       allowed: false, 
-      reason: 'Dit abonnement er ikke aktivt. Forny venligst dit abonnement for at oprette hjemmesider.',
+      reason: subscriptionStatus === 'manual'
+        ? 'Din prøveperiode er udløbet. Vælg et abonnement for at fortsætte.'
+        : 'Dit abonnement er ikke aktivt. Forny venligst dit abonnement for at oprette hjemmesider.',
       planSlug
     };
   }
@@ -857,7 +886,7 @@ export async function checkPageLimit(userId: string, websiteId: string): Promise
   }
   
   const subscriptionStatus = profile?.subscriptionStatus;
-  if (planSlug !== 'free' && subscriptionStatus !== 'active' && subscriptionStatus !== 'trialing') {
+  if (planSlug !== 'free' && !isPlanUsable(profile)) {
     return { 
       allowed: false, 
       reason: 'Dit abonnement er ikke aktivt.',
@@ -893,7 +922,7 @@ export async function checkFeatureAccess(userId: string, feature: 'bookingSystem
   }
   
   const subscriptionStatus = profile?.subscriptionStatus;
-  if (planSlug !== 'free' && subscriptionStatus !== 'active' && subscriptionStatus !== 'trialing') {
+  if (planSlug !== 'free' && !isPlanUsable(profile)) {
     return { 
       allowed: false, 
       reason: 'Dit abonnement er ikke aktivt.',

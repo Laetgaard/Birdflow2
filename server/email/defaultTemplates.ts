@@ -74,6 +74,13 @@ const DANISH_TEMPLATES: DefaultEmailTemplates = {
       "Hej {{customerName}}. Vi har arbejdet videre på {{websiteName}} efter vores møde. Log ind og se den opdaterede version — godkender du den, går vi videre til betaling.",
     buttonText: "Se din hjemmeside",
   },
+  migration_invite: {
+    subject: "Din hjemmeside er flyttet til BirdFlow",
+    heading: "Din hjemmeside er klar hos BirdFlow",
+    bodyText:
+      "Hej {{customerName}}. Vi har genskabt {{websiteName}} fra {{sourceHost}} i BirdFlows hjemmesidebygger, så du selv kan redigere den. Vælg din adgangskode via knappen — linket virker i en time.",
+    buttonText: "Vælg adgangskode og log ind",
+  },
   website_published: {
     subject: "Din hjemmeside er live!",
     heading: "Tillykke! Din hjemmeside er publiceret",
@@ -136,6 +143,13 @@ const ENGLISH_TEMPLATES: DefaultEmailTemplates = {
     bodyText:
       "Hi {{customerName}}. We have kept working on {{websiteName}} since our meeting. Sign in to see the updated version — approve it and we'll move on to payment.",
     buttonText: "View your website",
+  },
+  migration_invite: {
+    subject: "Your website has moved to BirdFlow",
+    heading: "Your website is ready at BirdFlow",
+    bodyText:
+      "Hi {{customerName}}. We have rebuilt {{websiteName}} from {{sourceHost}} in BirdFlow's website builder so you can edit it yourself. Choose your password using the button — the link is valid for one hour.",
+    buttonText: "Choose a password and sign in",
   },
   website_published: {
     subject: "Your website is now live!",

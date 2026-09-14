@@ -363,6 +363,8 @@ export interface IStorage {
 
   // Profile onboarding methods
   completeOnboarding(userId: string): Promise<Profile | undefined>;
+  setManualPlan(userId: string, input: { planSlug: string; currentPeriodEnd: Date | null }): Promise<Profile | undefined>;
+  setOnboardingStates(userId: string, states: { generationState?: string; decisionState?: string }): Promise<void>;
 
   // Onboarding walkthrough sessions
   getOnboardingSession(userId: string): Promise<OnboardingSession | undefined>;
@@ -2379,6 +2381,33 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Profile onboarding methods
+  /**
+   * Grant a plan without Stripe. Only an administrator's server-side code
+   * calls this; it is deliberately not reachable from any profile endpoint.
+   * `manual` tells the billing code that no subscription backs the plan, and
+   * the end date is what stops a comped account staying comped by accident.
+   */
+  async setManualPlan(userId: string, input: { planSlug: string; currentPeriodEnd: Date | null }): Promise<Profile | undefined> {
+    const result = await db.update(profiles)
+      .set({
+        planSlug: input.planSlug as any,
+        subscriptionStatus: "manual",
+        subscriptionStartedAt: new Date(),
+        currentPeriodEnd: input.currentPeriodEnd,
+      })
+      .where(eq(profiles.id, userId))
+      .returning();
+    return result[0];
+  }
+
+  /** Server-side state stamp for a session an administrator drives on the customer's behalf. */
+  async setOnboardingStates(userId: string, states: { generationState?: string; decisionState?: string }): Promise<void> {
+    const patch: Record<string, unknown> = { updatedAt: new Date() };
+    if (states.generationState) patch.generationState = states.generationState;
+    if (states.decisionState) patch.decisionState = states.decisionState;
+    await db.update(onboardingSessions).set(patch).where(eq(onboardingSessions.userId, userId));
+  }
+
   async completeOnboarding(userId: string): Promise<Profile | undefined> {
     const result = await db.update(profiles)
       .set({ onboardingCompleted: true })

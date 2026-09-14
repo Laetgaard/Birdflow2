@@ -23,7 +23,6 @@
 
 import { z } from "zod";
 import { randomUUID } from "crypto";
-import { existsSync } from "fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import puppeteer from "puppeteer";
@@ -126,27 +125,10 @@ export const MAX_VISUAL_ITERATIONS = 2;
    Chromium detection
    ───────────────────────────────────────────────────────────── */
 
-/**
- * Known stable Chromium paths in the Replit Nix environment.
- * The PUPPETEER_EXECUTABLE_PATH env var always wins.
- */
-const KNOWN_CHROMIUM_PATHS = [
-  "/nix/store/zi4f80l169xlmivz8vja8wlphq74qqk0-chromium-125.0.6422.141/bin/chromium",
-  // Playwright-managed Chromium (present when the playwright-browsers package is installed)
-  "/nix/store/0n9rl5l9syy808xi9bk4f6dhnfrvhkww-playwright-browsers-chromium/chrome-linux/chrome",
-];
-
-export function findChromiumPath(): string | undefined {
-  if (process.env.PUPPETEER_EXECUTABLE_PATH) return process.env.PUPPETEER_EXECUTABLE_PATH;
-  for (const p of KNOWN_CHROMIUM_PATHS) {
-    try {
-      if (existsSync(p)) return p;
-    } catch {
-      /* continue */
-    }
-  }
-  return undefined;
-}
+// The Chromium lookup used to live here; every headless capture now shares
+// server/browser/chromium.ts. Re-exported so existing importers keep working.
+import { findChromiumPath } from "./browser/chromium";
+export { findChromiumPath };
 
 /* ─────────────────────────────────────────────────────────────
    Publisher renderer cache

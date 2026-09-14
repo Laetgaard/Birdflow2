@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { PlatformCalendarTab } from "@/components/admin/PlatformCalendarTab";
+import { MigrationTab } from "@/components/admin/migration/MigrationTab";
 import {
   Table,
   TableBody,
@@ -1634,7 +1635,14 @@ export default function AdminPage() {
             <TabsTrigger value="bookings" data-testid="tab-bookings">
               Bookinger
             </TabsTrigger>
+            <TabsTrigger value="migration" data-testid="tab-migration">
+              Ny kunde / Migration
+            </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="migration">
+            <MigrationTab getAuthHeaders={getAuthHeaders} />
+          </TabsContent>
 
           <TabsContent value="overview">
             {statsLoading ? (
