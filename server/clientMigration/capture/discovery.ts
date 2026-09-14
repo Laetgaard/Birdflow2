@@ -132,8 +132,22 @@ async function renderedLinks(page: Page): Promise<{ nav: string[]; all: string[]
 }
 
 export async function discoverPages(session: BrowserSession, startUrl: string, options: { maxPages: number; respectRobots: boolean }): Promise<DiscoveryResult> {
-  const origin = session.canonicalOrigin;
   const warnings: string[] = [];
+  const probe = await session.newPage();
+  // Settle the origin before anything depends on it. A site that redirects
+  // apex→www (or http→https) serves every later link from the origin it
+  // redirected to, so robots, the sitemap and link normalisation must all use
+  // that one — otherwise every link reads as off-origin and the crawl finds
+  // nothing but the start page.
+  try {
+    await probe.goto(session.canonicalOrigin, { waitUntil: "domcontentloaded", timeout: 20_000 });
+  } catch (error: any) {
+    warnings.push(`discover_failed:${session.canonicalOrigin}:${error?.message ?? error}`);
+  } finally {
+    await probe.close().catch(() => undefined);
+  }
+  const origin = session.resolvedOrigin;
+  if (origin !== session.canonicalOrigin) warnings.push(`canonical_origin:the site serves ${origin}`);
   const robots = options.respectRobots ? await readRobots(origin) : { fetched: false, disallow: [] };
   const sitemapUrls = new Set((await readSitemap(origin)).map((url) => normalizePageUrl(url, origin)).filter((v): v is string => !!v));
 

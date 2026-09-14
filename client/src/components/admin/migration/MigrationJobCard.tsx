@@ -10,8 +10,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Pause, Play, RefreshCw, Send, XCircle } from "lucide-react";
-import { ROLE_TARGET_COMPATIBILITY, type MigrationPlan, type MigrationTarget } from "@shared/clientMigration";
-import { api, PHASES, PHASE_LABELS, STATUS_LABELS, type Headers, type MigrationJobDetail, type MigrationPageView } from "./api";
+import { MAX_MIGRATION_CEILING_USD, recommendedCeilingUsd, ROLE_TARGET_COMPATIBILITY, type MigrationPlan, type MigrationTarget } from "@shared/clientMigration";
+import { api, ERROR_LABELS, PHASES, PHASE_LABELS, STATUS_LABELS, type Headers, type MigrationJobDetail, type MigrationPageView } from "./api";
 
 type Props = { jobId: string; getAuthHeaders: Headers; onClose: () => void };
 
@@ -61,7 +61,7 @@ export function MigrationJobCard({ jobId, getAuthHeaders, onClose }: Props) {
   const act = async (action: string, body?: unknown) => {
     setBusy(action);
     try {
-      const result = await api<any>(getAuthHeaders, `/api/admin/migrations/${jobId}/${action}`, { method: action === "plan" ? "PUT" : "POST", body: body ? JSON.stringify(body) : undefined });
+      const result = await api<any>(getAuthHeaders, `/api/admin/migrations/${jobId}/${action}`, { method: action === "plan" ? "PUT" : action === "limits" ? "PATCH" : "POST", body: body ? JSON.stringify(body) : undefined });
       if (result?.inviteLink) setInviteLink(result.inviteLink);
       if (action === "approve" || action === "resend-invite") {
         toast({ title: result.emailSent ? "Invitation sendt til kunden" : result.emailSkipped === "development" ? "Ingen e-mail sendt (udviklingsmiljø) — linket står herunder" : "E-mailen kunne ikke sendes — send linket manuelt" });
@@ -77,6 +77,15 @@ export function MigrationJobCard({ jobId, getAuthHeaders, onClose }: Props) {
 
   const phaseIndex = job ? PHASES.indexOf(job.phase) : -1;
   const pageById = useMemo(() => new Map(pages.map((p) => [p.id, p])), [pages]);
+  // Where the money went, not just how much: the build is the expensive part,
+  // and a job that never reaches it should visibly not have spent anything.
+  const spendBreakdown = useMemo(() => {
+    const by = job?.spendByRole ?? {};
+    const parts: Array<[string, number]> = [["Plan", by.migrationPlan ?? 0], ["Byg", by.migrationBuild ?? 0], ["Kontrol", by.migrationFidelity ?? 0]];
+    return parts.filter(([, amount]) => amount > 0).map(([label, amount]) => `${label} $${amount.toFixed(2)}`).join(" · ") || "endnu intet forbrug";
+  }, [job?.spendByRole]);
+  const isLive = job?.status === "running" || job?.status === "queued";
+  const activePage = pages.find((page) => page.buildStatus === "building") ?? pages.find((page) => page.captureStatus === "pending");
 
   if (!job) return <Card><CardContent className="p-6"><Loader2 className="h-5 w-5 animate-spin" /></CardContent></Card>;
 
@@ -114,12 +123,29 @@ export function MigrationJobCard({ jobId, getAuthHeaders, onClose }: Props) {
 
         <div className="grid gap-3 sm:grid-cols-4 text-sm">
           <Stat label="Sider" value={`${job.pagesBuilt} / ${job.pageCount}`} />
-          <Stat label="AI-forbrug" value={`$${job.spentUsd.toFixed(2)} / $${job.ceilingUsd.toFixed(0)}`} />
+          <Stat label="AI-forbrug" value={`$${job.spentUsd.toFixed(2)} / $${job.ceilingUsd.toFixed(0)}`} sub={spendBreakdown} />
           <Stat label="Troskab" value={job.fidelity?.overall !== undefined ? `${Math.round(job.fidelity.overall * 100)} %` : "—"} />
           <Stat label="Billeder" value={String(job.assets?.length ?? 0)} />
         </div>
 
-        {job.error && <p className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800" data-testid="migration-error"><AlertTriangle className="mr-1 inline h-4 w-4" />{job.errorCode ? `${job.errorCode}: ` : ""}{job.error}</p>}
+        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          {isLive && <span className="flex items-center gap-1 text-blue-700"><Loader2 className="h-3 w-3 animate-spin" />{PHASE_LABELS[job.phase]}{activePage ? ` · ${activePage.title || activePage.sourceUrl}` : ""}</span>}
+          <span>Loft ${job.ceilingUsd.toFixed(0)}</span>
+          <Button size="sm" variant="ghost" className="h-6 px-2" disabled={!!busy || job.ceilingUsd >= MAX_MIGRATION_CEILING_USD} onClick={() => act("limits", { ceilingUsd: Math.min(MAX_MIGRATION_CEILING_USD, Math.round(job.ceilingUsd + 10)) })}>Hæv loftet med $10</Button>
+          <span>· anbefalet for {job.limits.maxPages} sider: ${recommendedCeilingUsd(job.limits.maxPages)}</span>
+        </div>
+
+        {job.error && (
+          <div className="space-y-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-800" data-testid="migration-error">
+            <p><AlertTriangle className="mr-1 inline h-4 w-4" />{job.errorCode ? `${ERROR_LABELS[job.errorCode] ?? job.errorCode}: ` : ""}{job.error}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs">Kør om fra:</span>
+              {PHASES.map((phase) => (
+                <Button key={phase} size="sm" variant="outline" className="h-7" disabled={!!busy} onClick={() => act("resume-at", { phase })}>{PHASE_LABELS[phase]}</Button>
+              ))}
+            </div>
+          </div>
+        )}
 
         {job.brand?.guide?.colors && (
           <div className="flex flex-wrap items-center gap-2 text-xs">
@@ -176,15 +202,21 @@ export function MigrationJobCard({ jobId, getAuthHeaders, onClose }: Props) {
               const score = page.verify?.score?.score ?? job.fidelity?.pages?.[page.id]?.score;
               const sections = Object.values(page.buildProgress?.sections ?? {});
               const failed = sections.filter((s) => s.status === "failed").length;
+              const spend = page.buildProgress?.agentSpendUsd ?? 0;
               return (
                 <li key={page.id} className="flex flex-wrap items-center justify-between gap-2 px-3 py-2">
                   <div className="min-w-0">
-                    <div className="truncate font-medium">{page.title || page.sourceUrl}</div>
-                    <div className="text-xs text-muted-foreground">{page.captureStatus === "failed" ? `Kunne ikke gemmes: ${page.captureError}` : `${page.sections.length} sektioner · byg: ${page.buildStatus}${failed ? ` (${failed} fejlede)` : ""} · kontrol: ${page.verifyStatus}`}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="truncate font-medium">{page.title || page.sourceUrl}</span>
+                      {page.needsAttention && <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-800">Kræver opmærksomhed</Badge>}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{page.captureStatus === "failed" ? `Kunne ikke gemmes: ${page.captureError}` : `${page.sections.length} sektioner · byg: ${page.buildStatus}${failed ? ` (${failed} fejlede)` : ""} · kontrol: ${page.verifyStatus}${spend ? ` · $${spend.toFixed(2)}` : ""}`}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     {score !== undefined && <Badge variant={score >= 0.8 ? "secondary" : "outline"}>{Math.round(score * 100)} %</Badge>}
                     {page.hasScreenshots && <Button size="sm" variant="ghost" onClick={() => setCompare(compare?.pageId === page.id ? null : { pageId: page.id, viewport: "desktop" })}>Sammenlign</Button>}
+                    <Button size="sm" variant="ghost" disabled={!!busy} title="Læs og byg siden igen" onClick={() => act(`pages/${page.id}/retry`)}>Kør om</Button>
+                    <Button size="sm" variant="ghost" className="text-muted-foreground" disabled={!!busy || pages.length <= 1} title="Udelad siden fra migreringen" onClick={() => act(`pages/${page.id}/exclude`)}>Udelad</Button>
                   </div>
                 </li>
               );
@@ -204,7 +236,13 @@ export function MigrationJobCard({ jobId, getAuthHeaders, onClose }: Props) {
               {page.verify?.score && <p className="text-xs text-muted-foreground">Tekst {Math.round(page.verify.score.textCoverage * 100)} % · overskrifter {Math.round(page.verify.score.headingCoverage * 100)} % · knapper {Math.round(page.verify.score.ctaCoverage * 100)} % · billeder {Math.round(page.verify.score.imageCoverage * 100)} % · rækkefølge {Math.round(page.verify.score.orderScore * 100)} %</p>}
               <div className="grid gap-3 md:grid-cols-2">
                 <figure><figcaption className="text-xs text-muted-foreground">Original</figcaption><img alt="Original" className="w-full rounded border" src={`/api/admin/migrations/${job.id}/pages/${page.id}/screenshot?viewport=${compare.viewport}`} /></figure>
-                <figure><figcaption className="text-xs text-muted-foreground">Genskabt (åbn i builder for at se live)</figcaption><Button variant="outline" className="w-full" onClick={() => setLocation(`/builder/${job.websiteId}?adminEdit=1`)}>Åbn siden i builder</Button></figure>
+                <figure className="space-y-2">
+                  <figcaption className="text-xs text-muted-foreground">Genskabt</figcaption>
+                  {page.hasRebuildScreenshot
+                    ? <img alt="Genskabt" className="w-full rounded border" src={`/api/admin/migrations/${job.id}/pages/${page.id}/screenshot?viewport=${compare.viewport === "mobile" ? "rebuildMobile" : "rebuild"}`} />
+                    : <p className="rounded border border-dashed p-3 text-xs text-muted-foreground">Billedet af den genskabte side laves under kontrollen. Åbn siden i builderen for at se den live.</p>}
+                  <Button variant="outline" className="w-full" onClick={() => setLocation(`/builder/${job.websiteId}?adminEdit=1`)}>Åbn siden i builder</Button>
+                </figure>
               </div>
               {!!page.verify?.issues?.length && <ul className="space-y-1 text-xs">{page.verify.issues.map((issue) => <li key={issue.id}><Badge variant="outline" className="mr-1">{issue.severity}</Badge>{issue.description} <span className="text-muted-foreground">→ {issue.suggestedAction}</span></li>)}</ul>}
             </section>
@@ -236,6 +274,12 @@ export function MigrationJobCard({ jobId, getAuthHeaders, onClose }: Props) {
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
-  return <div className="rounded-md border p-2"><div className="text-xs text-muted-foreground">{label}</div><div className="font-semibold">{value}</div></div>;
+function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
+  return (
+    <div className="rounded-md border p-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="font-semibold">{value}</div>
+      {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
+    </div>
+  );
 }

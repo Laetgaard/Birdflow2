@@ -28,7 +28,12 @@ export function defaultTargetFor(section: ExtractedSection, pixelClose: boolean)
   const images = section.images.length;
   const strongVisual = !!section.bgImage || (images >= 2 && section.textLength > 40 && (section.columns ?? 0) >= 2 && section.role !== "features" && section.role !== "services");
   const custom = (brief: string): MigrationTarget => ({ kind: "custom", brief });
-  if (pixelClose && (section.confidence < 0.7 || strongVisual) && section.role !== "hero" && section.role !== "contact") {
+  // Roles the deterministic placements below reproduce well. Sending these to
+  // the rebuild agent costs money for a worse result than the free path, and
+  // spends the budget that the genuinely unusual sections need.
+  const WELL_SERVED: SectionRole[] = ["hero", "contact", "faq", "pricing", "team", "stats", "cta", "timeline", "comparison-table", "logo-cloud"];
+  const needsAgent = section.confidence < 0.5 || (strongVisual && section.confidence < 0.75);
+  if (pixelClose && needsAgent && !WELL_SERVED.includes(section.role)) {
     return custom(`Rebuild faithfully: ${section.role} with ${items} items, ${images} images, ${section.headings.map((h) => h.text).join(" / ").slice(0, 120)}`);
   }
   switch (section.role) {

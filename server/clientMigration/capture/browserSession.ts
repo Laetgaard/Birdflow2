@@ -8,8 +8,10 @@
  *  - every request is intercepted; its hostname is resolved through the same
  *    DNS-checking guard the crawler uses (`assertPublicUrl`), with a per-job
  *    cache, and anything private, loopback, link-local or CGNAT is aborted;
- *  - a top-level navigation off the canonical origin is aborted, so a
- *    redirect can never take the capture somewhere else;
+ *  - a top-level navigation off the site is aborted, so a redirect can never
+ *    take the capture somewhere else; a redirect within the same registrable
+ *    domain (apex↔www, http→https) is followed, and the origin it lands on
+ *    becomes the one the rest of the job compares against;
  *  - only the resource types a page needs are allowed cross-origin;
  *  - downloads are denied and byte budgets are enforced per page and per job.
  *
@@ -35,6 +37,8 @@ const CROSS_ORIGIN_RESOURCE_TYPES = new Set(["script", "stylesheet", "font", "im
 export type BrowserSession = {
   browser: Browser;
   canonicalOrigin: string;
+  /** The origin the site actually serves, once a same-site redirect has settled it. */
+  resolvedOrigin: string;
   jobBytes: number;
   warnings: string[];
   newPage(): Promise<Page>;
@@ -45,6 +49,22 @@ export type BrowserSession = {
 export function sameSite(hostA: string, hostB: string): boolean {
   const tail = (host: string) => host.toLowerCase().split(".").slice(-2).join(".");
   return tail(hostA) === tail(hostB);
+}
+
+/**
+ * What to do with a top-level navigation.
+ *
+ * Sites routinely redirect apex↔www or http→https, and those are the same
+ * site: refusing them loses the page outright, which is how whole sections of
+ * a customer's site used to go missing with only an ERR_BLOCKED_BY_CLIENT to
+ * show for it. A redirect that leaves the site is still refused — it must
+ * never be able to carry the capture somewhere else.
+ */
+export function navigationVerdict(target: URL, canonical: URL, resolvedOrigin: string): "allow" | "adopt" | "refuse" {
+  if (target.origin === resolvedOrigin) return "allow";
+  if (!sameSite(target.hostname, canonical.hostname)) return "refuse";
+  if (target.protocol !== "https:" && target.protocol !== canonical.protocol) return "refuse";
+  return "adopt";
 }
 
 export async function openBrowserSession(canonicalOrigin: string): Promise<BrowserSession> {
@@ -59,6 +79,7 @@ export async function openBrowserSession(canonicalOrigin: string): Promise<Brows
   const session: BrowserSession = {
     browser,
     canonicalOrigin: origin.origin,
+    resolvedOrigin: origin.origin,
     jobBytes: 0,
     warnings,
     async newPage() {
@@ -83,11 +104,23 @@ export async function openBrowserSession(canonicalOrigin: string): Promise<Brows
               return request.abort("blockedbyclient");
             }
             const isMainNavigation = request.isNavigationRequest() && request.frame() === page.mainFrame();
-            if (isMainNavigation && url.origin !== origin.origin) {
-              warnings.push(`off_origin_navigation:${url.origin}`);
-              return request.abort("blockedbyclient");
+            // Sites routinely redirect between apex and www, or http to https.
+            // Those are the same site, and refusing them loses the page — so
+            // they are followed, and the origin the site actually serves is
+            // remembered for the rest of the job. Anything genuinely off-site
+            // is still refused: a redirect must never carry the capture away.
+            if (isMainNavigation) {
+              const verdict = navigationVerdict(url, origin, session.resolvedOrigin);
+              if (verdict === "refuse") {
+                warnings.push(`off_origin_navigation:${url.origin}`);
+                return request.abort("blockedbyclient");
+              }
+              if (verdict === "adopt") {
+                warnings.push(`redirect_followed:${url.origin}`);
+                session.resolvedOrigin = url.origin;
+              }
             }
-            if (url.origin !== origin.origin && !CROSS_ORIGIN_RESOURCE_TYPES.has(request.resourceType())) {
+            if (url.origin !== session.resolvedOrigin && url.origin !== origin.origin && !CROSS_ORIGIN_RESOURCE_TYPES.has(request.resourceType())) {
               return request.abort("blockedbyclient");
             }
             let allowed = hostVerdicts.get(url.hostname);

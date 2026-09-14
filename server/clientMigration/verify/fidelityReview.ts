@@ -16,7 +16,7 @@ import type { SpendMeter } from "../../aiSpend";
 import { capturePageScreenshots, buildComponentContext, type VisualScreenshot, type VisualIssue } from "../../visualReview";
 import type { BuilderStateData } from "@shared/schema";
 import type { MigrationPagePlan } from "@shared/clientMigration";
-import { readMigrationFile } from "../capture/pageCapture";
+import { readMigrationFile, storeMigrationFile } from "../capture/pageCapture";
 
 export const FIDELITY_CATEGORIES = ["fidelity_missing", "fidelity_order", "fidelity_image", "fidelity_brand", "fidelity_layout"] as const;
 
@@ -50,12 +50,15 @@ export async function reviewPageFidelity(args: {
   sourceScreenshots: { desktop?: string; mobile?: string };
   language: "da" | "en";
   meter: SpendMeter;
+  /** Where to keep the rebuild's own screenshots, so the admin can compare them. */
+  store?: { jobId: string; pageRowId: string };
 }): Promise<{ issues: VisualIssue[]; ran: boolean; skippedReason?: string; rebuiltPaths?: { desktop?: string; mobile?: string } }> {
   const cache = new Map<string, VisualScreenshot>();
   const { refs, warnings } = await capturePageScreenshots(args.state, args.pageId, ["desktop", "mobile"], cache, { fullPage: true, lang: args.language });
   if (!refs.length) return { issues: [], ran: false, skippedReason: warnings[0] ?? "No rebuilt screenshot could be captured." };
 
   const content: Array<{ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail: "high" | "low" } }> = [];
+  const rebuiltPaths: { desktop?: string; mobile?: string } = {};
   for (const viewport of ["desktop", "mobile"] as const) {
     const sourcePath = args.sourceScreenshots[viewport];
     const rebuilt = refs.find((r) => r.viewport === viewport);
@@ -70,10 +73,20 @@ export async function reviewPageFidelity(args: {
     }
     const shot = cache.get(rebuilt.id);
     if (!shot) continue;
+    const rebuiltJpeg = Buffer.from(shot.base64Jpeg, "base64");
+    // Keep the rebuild next to the original, so the admin can judge fidelity
+    // side by side instead of opening the builder for every page.
+    if (args.store) {
+      try {
+        rebuiltPaths[viewport] = await storeMigrationFile(args.store.jobId, args.store.pageRowId, `rebuild-${viewport}.jpg`, rebuiltJpeg, "image/jpeg");
+      } catch {
+        /* the comparison matters more than the snapshot of it */
+      }
+    }
     content.push({ type: "text", text: `REBUILD (${viewport}):` });
-    content.push({ type: "image_url", image_url: { url: await resize(Buffer.from(shot.base64Jpeg, "base64"), viewport === "desktop" ? 1024 : 512), detail } });
+    content.push({ type: "image_url", image_url: { url: await resize(rebuiltJpeg, viewport === "desktop" ? 1024 : 512), detail } });
   }
-  if (!content.length) return { issues: [], ran: false, skippedReason: "No source screenshot available for comparison." };
+  if (!content.length) return { issues: [], ran: false, skippedReason: "No source screenshot available for comparison.", rebuiltPaths };
   content.push({ type: "text", text: `Planned sections in order: ${args.pagePlan.sections.map((s) => `${s.sourceSectionId}:${s.role}`).join(", ")}\n\nRebuild structure:\n${buildComponentContext(args.state, args.pageId)}\n\nList the fidelity differences.` });
 
   try {
@@ -83,7 +96,7 @@ export async function reviewPageFidelity(args: {
     }, args.meter);
     const raw = response.choices[0]?.message?.content;
     const parsed = ResponseSchema.safeParse(raw ? JSON.parse(raw) : null);
-    if (!parsed.success) return { issues: [], ran: false, skippedReason: "The comparison model returned an unusable answer." };
+    if (!parsed.success) return { issues: [], ran: false, skippedReason: "The comparison model returned an unusable answer.", rebuiltPaths };
     const issues: VisualIssue[] = parsed.data.issues.map((issue, index) => ({
       ...issue,
       id: `fid-${args.pageId}-${index + 1}`,
@@ -94,8 +107,8 @@ export async function reviewPageFidelity(args: {
       category: issue.category === "fidelity_layout" ? "layout" : issue.category === "fidelity_image" ? "imagery" : issue.category === "fidelity_brand" ? "consistency" : "hierarchy",
       description: `[${issue.category}] ${issue.description}`,
     }));
-    return { issues, ran: true };
+    return { issues, ran: true, rebuiltPaths };
   } catch (error) {
-    return { issues: [], ran: false, skippedReason: isSpendLimitError(error) ? "spend_limit" : `comparison failed: ${(error as Error)?.message?.slice(0, 120)}` };
+    return { issues: [], ran: false, skippedReason: isSpendLimitError(error) ? "spend_limit" : `comparison failed: ${(error as Error)?.message?.slice(0, 120)}`, rebuiltPaths };
   }
 }

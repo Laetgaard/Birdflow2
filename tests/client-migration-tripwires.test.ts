@@ -29,6 +29,15 @@ describe("every migration route is an admin route", () => {
     expect(read("server/routes.ts")).toMatch(/registerClientMigrationRoutes\(app,\s*\{\s*requireAuth,\s*requireAdmin\s*\}\)/);
   });
 
+  it("exposes the per-page recovery controls, so one bad page cannot strand a job", () => {
+    const src = read("server/clientMigration/routes.ts");
+    expect(src).toContain("/pages/:pageId/${action}");
+    expect(src).toContain("requestPageRetry");
+    expect(src).toContain("requestPageExclude");
+    expect(src).toContain('app.post("/api/admin/migrations/:id/resume-at"');
+    for (const action of ["retry", "exclude"]) expect(src, action).toContain(`"${action}"`);
+  });
+
   it("checks the source URL is public before anything is created", () => {
     const src = read("server/clientMigration/routes.ts");
     const create = src.slice(src.indexOf('app.post("/api/admin/migrations"'), src.indexOf('app.get("/api/admin/migrations"'));

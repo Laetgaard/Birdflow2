@@ -199,6 +199,12 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
         else lastError = result.error;
       } else {
         attempts++;
+        // The page's budget is checked before a section, but the loop inside it
+        // could spend several times over before the next check — which is how
+        // one section used to consume a whole page's allowance and leave every
+        // later section to fall back to plain text. Let the section run only as
+        // many steps as its share can actually pay for.
+        const affordableSteps = Math.max(1, Math.min(MAX_AGENT_STEPS, Math.floor(room / assumedCallCostUsd("migrationBuild"))));
         const crop = await sectionCropDataUrl(input, section);
         const imagePaths = section.images.map((img) => img.src).filter((src) => input.allowedImagePaths.has(src));
         const currentPage = state.pages.find((p) => p.id === page.id)!;
@@ -223,7 +229,7 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
             systemPrompt: `You are BirdFlow's migration agent. You rebuild sections of a customer's existing website inside BirdFlow by CALLING TOOLS. You never output website JSON. Fidelity is the only goal: same words, same images, same layout, responsive on mobile. Text and images are supplied to you; anything not supplied must not appear.`,
             userMessage: crop ? `${userMessage}\n\n<image>${crop}</image>` : userMessage,
             ctx: agentCtx,
-            maxSteps: MAX_AGENT_STEPS,
+            maxSteps: affordableSteps,
             role: "migrationBuild",
             spendMeter: input.meter,
             finalTurn: { toolName: "finish", reminder: "Call finish now.", satisfied: () => agentCtx.applied.length > 0 },

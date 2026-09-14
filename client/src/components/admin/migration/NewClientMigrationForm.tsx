@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Sparkles } from "lucide-react";
-import { DEFAULT_MIGRATION_CEILING_USD, DEFAULT_MIGRATION_PAGES, MAX_MIGRATION_CEILING_USD, MAX_MIGRATION_PAGES } from "@shared/clientMigration";
+import { DEFAULT_MIGRATION_PAGES, MAX_MIGRATION_CEILING_USD, MAX_MIGRATION_PAGES, recommendedCeilingUsd } from "@shared/clientMigration";
 import { api, type Headers } from "./api";
 
 type Props = { getAuthHeaders: Headers; onCreated: (jobId: string) => void };
@@ -21,10 +21,14 @@ export function NewClientMigrationForm({ getAuthHeaders, onCreated }: Props) {
   const [form, setForm] = useState({
     email: "", fullName: "", phone: "", company: "", sourceUrl: "", language: "da" as "da" | "en",
     planSlug: "starter" as "basic" | "starter" | "professional", planMonths: 12, notes: "",
-    consentAttested: false, consentNote: "", respectRobots: true,
-    maxPages: DEFAULT_MIGRATION_PAGES, ceilingUsd: DEFAULT_MIGRATION_CEILING_USD,
+    consentAttested: false, consentNote: "", respectRobots: true, requirePlanReview: false,
+    maxPages: DEFAULT_MIGRATION_PAGES, ceilingUsd: recommendedCeilingUsd(DEFAULT_MIGRATION_PAGES),
+    // True once the admin types a ceiling by hand; until then it follows the
+    // page count, so the two numbers cannot drift apart unnoticed.
+    ceilingEdited: false,
   });
   const set = <K extends keyof typeof form>(key: K, value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }));
+  const setMaxPages = (pages: number) => setForm((f) => ({ ...f, maxPages: pages, ceilingUsd: f.ceilingEdited ? f.ceilingUsd : recommendedCeilingUsd(pages) }));
   const ready = form.email && form.fullName && form.company && form.sourceUrl && form.consentAttested;
 
   const submit = async () => {
@@ -37,6 +41,7 @@ export function NewClientMigrationForm({ getAuthHeaders, onCreated }: Props) {
           email: form.email, fullName: form.fullName, phone: form.phone || undefined, company: form.company, sourceUrl: form.sourceUrl,
           language: form.language, planSlug: form.planSlug, planMonths: form.planMonths, notes: form.notes || undefined,
           consentAttested: true, consentNote: form.consentNote || undefined, respectRobots: form.respectRobots,
+          requirePlanReview: form.requirePlanReview,
           limits: { maxPages: form.maxPages, ceilingUsd: form.ceilingUsd },
           existingUserId: existingUserId ?? undefined,
         }),
@@ -92,10 +97,18 @@ export function NewClientMigrationForm({ getAuthHeaders, onCreated }: Props) {
         <details className="md:col-span-2 text-sm">
           <summary className="cursor-pointer text-muted-foreground">Avanceret: grænser</summary>
           <div className="mt-2 grid gap-3 sm:grid-cols-3">
-            <div className="space-y-1"><Label htmlFor="mig-pages">Maks. sider</Label><Input id="mig-pages" type="number" min={1} max={MAX_MIGRATION_PAGES} value={form.maxPages} onChange={(e) => set("maxPages", Math.max(1, Math.min(MAX_MIGRATION_PAGES, Number(e.target.value) || 1)))} /></div>
-            <div className="space-y-1"><Label htmlFor="mig-ceiling">AI-loft (USD)</Label><Input id="mig-ceiling" type="number" min={1} max={MAX_MIGRATION_CEILING_USD} step={0.5} value={form.ceilingUsd} onChange={(e) => set("ceilingUsd", Math.max(1, Math.min(MAX_MIGRATION_CEILING_USD, Number(e.target.value) || 1)))} /></div>
+            <div className="space-y-1"><Label htmlFor="mig-pages">Maks. sider</Label><Input id="mig-pages" type="number" min={1} max={MAX_MIGRATION_PAGES} value={form.maxPages} onChange={(e) => setMaxPages(Math.max(1, Math.min(MAX_MIGRATION_PAGES, Number(e.target.value) || 1)))} /></div>
+            <div className="space-y-1">
+              <Label htmlFor="mig-ceiling">AI-loft (USD)</Label>
+              <Input id="mig-ceiling" type="number" min={1} max={MAX_MIGRATION_CEILING_USD} step={0.5} value={form.ceilingUsd} onChange={(e) => setForm((f) => ({ ...f, ceilingUsd: Math.max(1, Math.min(MAX_MIGRATION_CEILING_USD, Number(e.target.value) || 1)), ceilingEdited: true }))} />
+              <p className="text-xs text-muted-foreground">Anbefalet for {form.maxPages} sider: ${recommendedCeilingUsd(form.maxPages)}. Et for lavt loft får sektioner til at ende som ren tekst.</p>
+            </div>
             <label className="flex items-center gap-2 pt-6"><Checkbox checked={form.respectRobots} onCheckedChange={(v) => set("respectRobots", v === true)} /> Respektér robots.txt</label>
           </div>
+          <label className="mt-3 flex items-start gap-2">
+            <Checkbox checked={form.requirePlanReview} onCheckedChange={(v) => set("requirePlanReview", v === true)} data-testid="checkbox-mig-plan-review" />
+            <span>Lad mig godkende planen først<span className="block text-xs text-muted-foreground">Normalt bygger migreringen hele siden færdig, og du gennemser resultatet. Sæt flueben her for i stedet at godkende sektions-planen, før der bygges.</span></span>
+          </label>
         </details>
         <label className="md:col-span-2 flex items-start gap-3 rounded-lg border p-3 text-sm">
           <Checkbox checked={form.consentAttested} onCheckedChange={(v) => set("consentAttested", v === true)} data-testid="checkbox-mig-consent" />

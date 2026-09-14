@@ -68,7 +68,13 @@ async function screenshotJpeg(page: Page): Promise<{ buffer: Buffer; width: numb
   return { buffer, width: meta.width ?? viewport.width, height: meta.height ?? height };
 }
 
-export async function capturePage(session: BrowserSession, args: { jobId: string; pageId: string; pageOrdinal: number; url: string; keepHtml?: boolean }): Promise<PageCaptureResult> {
+/**
+ * `thorough` is the second look at a page that read as empty the first time:
+ * lazy-loaded content usually needs another scroll and a longer settle, and a
+ * page whose bands are smaller than a normal section needs a lower bar to
+ * clear. It costs one extra page load, so it is only used where it is needed.
+ */
+export async function capturePage(session: BrowserSession, args: { jobId: string; pageId: string; pageOrdinal: number; url: string; keepHtml?: boolean; thorough?: boolean }): Promise<PageCaptureResult> {
   const warnings: string[] = [];
   const page = await session.newPage();
   try {
@@ -89,11 +95,16 @@ export async function capturePage(session: BrowserSession, args: { jobId: string
     const consent = await page.evaluate(dismissConsentInBrowser).catch(() => ({ detected: false, dismissed: false }));
     if (consent.detected) await new Promise((resolve) => setTimeout(resolve, 800));
     await page.evaluate(scrollThroughInBrowser, 250).catch(() => warnings.push("scroll_failed"));
+    if (args.thorough) {
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      await page.evaluate(scrollThroughInBrowser, 150).catch(() => undefined);
+      await new Promise((resolve) => setTimeout(resolve, 1_000));
+    }
     const documentHeight = await page.evaluate(() => Math.max(document.body.scrollHeight, document.documentElement.scrollHeight));
     if (documentHeight > MAX_SCREENSHOT_HEIGHT) warnings.push(`page_truncated: ${documentHeight}px tall, screenshot clipped at ${MAX_SCREENSHOT_HEIGHT}px`);
 
     const desktop = await screenshotJpeg(page);
-    const raw = await page.evaluate(extractPageInBrowser, { maxSections: MAX_SECTIONS_PER_PAGE, viewportWidth: DESKTOP_VIEWPORT.width, viewportHeight: DESKTOP_VIEWPORT.height });
+    const raw = await page.evaluate(extractPageInBrowser, { maxSections: MAX_SECTIONS_PER_PAGE, viewportWidth: DESKTOP_VIEWPORT.width, viewportHeight: DESKTOP_VIEWPORT.height, relaxed: args.thorough === true });
     const extraction = finalizeExtraction(raw, args.pageOrdinal, DESKTOP_VIEWPORT, consent, warnings);
 
     let renderedHtmlPath: string | undefined;

@@ -49,6 +49,7 @@ export async function createJob(input: {
   consentAttested: true;
   consentNote?: string;
   respectRobots: boolean;
+  requirePlanReview?: boolean;
   limits: Record<string, number>;
 }): Promise<MigrationJob> {
   await ready();
@@ -64,6 +65,7 @@ export async function createJob(input: {
     consentAttested: true,
     consentNote: input.consentNote ?? null,
     respectRobots: input.respectRobots,
+    requirePlanReview: input.requirePlanReview ?? false,
     limits: input.limits,
   }).returning();
   return row;
@@ -219,6 +221,14 @@ export async function updatePage(pageId: string, patch: Partial<Omit<MigrationPa
     .where(eq(clientMigrationPages.id, pageId))
     .returning();
   return row;
+}
+
+export async function deletePage(jobId: string, pageId: string): Promise<boolean> {
+  await ready();
+  const rows = await db.delete(clientMigrationPages)
+    .where(and(eq(clientMigrationPages.jobId, jobId), eq(clientMigrationPages.id, pageId)))
+    .returning();
+  return rows.length > 0;
 }
 
 export async function resetPagesForRetry(jobId: string, phase: MigrationPhase): Promise<void> {

@@ -16,6 +16,7 @@ import {
   MigrationPlanSchema,
   MigrationTargetSchema,
   SectionRoleSchema,
+  repairMigrationPlan,
   validateMigrationPlan,
   type MigrationAssetRecord,
   type MigrationPagePlan,
@@ -64,14 +65,24 @@ function sameUrl(a: string, b: string): boolean {
   try { return new URL(a).pathname.replace(/\/+$/, "") === new URL(b).pathname.replace(/\/+$/, ""); } catch { return false; }
 }
 
+/** Pages that extracted nothing at all; they cannot be planned and are reported instead. */
+export function emptySources(sources: PlanSource[]): PlanSource[] {
+  return sources.filter((source) => source.extraction.sections.length === 0);
+}
+
 export function deterministicPlan(args: { sources: PlanSource[]; assets: MigrationAssetRecord[]; siteName: string; language: "da" | "en"; pixelClose: boolean }): MigrationPlan {
   const used = new Set<string>();
-  const home = args.sources[0];
+  // Every planned page needs at least one section, and every planned section id
+  // must be one the extraction actually produced. A page that yielded nothing
+  // satisfies neither, so it is left out — never given an invented id.
+  const sources = args.sources.filter((source) => source.extraction.sections.length > 0);
+  if (!sources.length) throw new Error("No page produced any extractable section.");
+  const home = sources[0];
   const mediaByPath = new Map(args.assets.map((asset) => [asset.storagePath, asset.mediaId]));
   const navLinks = home.extraction.chrome.header?.nav ?? [];
   const slugByUrl = new Map<string, string>();
 
-  const pages: MigrationPagePlan[] = args.sources.map((source, index) => {
+  const pages: MigrationPagePlan[] = sources.map((source, index) => {
     const isHome = index === 0;
     const slug = isHome ? "" : slugFromUrl(source.url, `side-${index}`, used);
     slugByUrl.set(source.url, slug);
@@ -96,7 +107,7 @@ export function deterministicPlan(args: { sources: PlanSource[]; assets: Migrati
       navLabel: navHit >= 0 ? navLinks[navHit].text.slice(0, 40) : undefined,
       navOrder: navHit >= 0 ? navHit : isHome ? -1 : 100 + index,
       seo: { title: source.extraction.title?.slice(0, 120), description: source.extraction.description?.slice(0, 300) },
-      sections: sections.length ? sections : [{ sourceSectionId: `p${source.ordinal}-s0`, role: "rich-text", confidence: 0.3, target: { kind: "note", message: "Page had no extractable sections" }, imageMediaIds: [], order: 0 }],
+      sections,
     };
   });
 
@@ -214,7 +225,9 @@ export async function refinePlanWithModel(base: MigrationPlan, sources: PlanSour
           if (d.target && isTargetAllowed(section.role, d.target)) section.target = d.target;
         }
         page.sections = page.sections.filter((s) => !merged.has(s.sourceSectionId)).map((s, order) => ({ ...s, order }));
-        if (!page.sections.length) page.sections = [{ sourceSectionId: `p${sources.find((s) => s.pageId === page.sourcePageId)?.ordinal ?? 0}-s0`, role: "rich-text", confidence: 0.3, target: { kind: "note", message: "All sections were merged away" }, imageMediaIds: [], order: 0 }];
+        // A merge always keeps its host, so this cannot normally happen; if it
+        // somehow does, drop the page rather than invent a section id for it.
+        if (!page.sections.length) plan.pages = plan.pages.filter((p) => p !== page);
       }
       if (parsed.data.notes) plan.notes.push(...parsed.data.notes.slice(0, 20));
     } catch (error) {
@@ -236,17 +249,33 @@ export async function producePlan(args: {
   useModel: boolean;
 }): Promise<{ plan: MigrationPlan; warnings: string[] }> {
   const warnings: string[] = [];
-  const base = deterministicPlan(args);
+  for (const source of emptySources(args.sources)) {
+    warnings.push(`${source.url} had no content we could read and was left out of the plan.`);
+  }
   const validation = { sectionIds: args.sources.flatMap((s) => s.extraction.sections.map((x) => x.id)), mediaIds: args.assets.map((a) => a.mediaId), pageIds: args.sources.map((s) => s.pageId) };
-  const baseErrors = validateMigrationPlan(base, validation);
-  if (baseErrors.length) throw new Error(`Deterministic plan invalid: ${baseErrors.slice(0, 3).join("; ")}`);
+
+  // A plan that does not validate is repaired, never thrown away: losing one
+  // page's mapping must not cost the customer the whole migration.
+  const settle = (candidate: MigrationPlan, label: string): MigrationPlan | null => {
+    if (!validateMigrationPlan(candidate, validation).length) return candidate;
+    const { plan: repaired, repairs } = repairMigrationPlan(candidate, validation);
+    const errors = validateMigrationPlan(repaired, validation);
+    if (errors.length) {
+      warnings.push(`${label} could not be repaired (${errors.slice(0, 2).join("; ")}).`);
+      return null;
+    }
+    for (const repair of repairs.slice(0, 20)) warnings.push(repair);
+    if (repairs.length > 20) warnings.push(`…and ${repairs.length - 20} further plan corrections.`);
+    return repaired;
+  };
+
+  const base = settle(deterministicPlan(args), "The deterministic plan");
+  if (!base) throw new Error("The plan could not be made valid against what was extracted.");
   if (!args.useModel) return { plan: MigrationPlanSchema.parse(base), warnings };
+
   const refined = await refinePlanWithModel(base, args.sources, args.meter);
   if (refined.warning) warnings.push(refined.warning);
-  const errors = validateMigrationPlan(refined.plan, validation);
-  if (errors.length) {
-    warnings.push(`Model plan rejected (${errors.slice(0, 2).join("; ")}); deterministic plan used.`);
-    return { plan: MigrationPlanSchema.parse(base), warnings };
-  }
-  return { plan: MigrationPlanSchema.parse(refined.plan), warnings };
+  const settled = validateMigrationPlan(refined.plan, validation).length ? null : refined.plan;
+  if (!settled) warnings.push("The mapping model's plan did not fit what was extracted; the deterministic plan was used.");
+  return { plan: MigrationPlanSchema.parse(settled ?? base), warnings };
 }

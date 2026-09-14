@@ -32,6 +32,7 @@ export const CLIENT_MIGRATION_DDL: SchemaStatement[] = [
       consent_note      text,
       consent_at        timestamp NOT NULL DEFAULT now(),
       respect_robots    boolean NOT NULL DEFAULT true,
+      require_plan_review boolean NOT NULL DEFAULT false,
       status            text NOT NULL DEFAULT 'queued',
       phase             text NOT NULL DEFAULT 'discover',
       phase_attempts    jsonb NOT NULL DEFAULT '{}'::jsonb,
@@ -63,6 +64,13 @@ export const CLIENT_MIGRATION_DDL: SchemaStatement[] = [
       updated_at        timestamp NOT NULL DEFAULT now(),
       finished_at       timestamp
     )`,
+  },
+  {
+    // Columns added after the table shipped: CREATE TABLE IF NOT EXISTS leaves
+    // an existing table alone, so every later column needs its own statement.
+    label: "client_migration_jobs_require_plan_review",
+    sql: `ALTER TABLE client_migration_jobs
+          ADD COLUMN IF NOT EXISTS require_plan_review boolean NOT NULL DEFAULT false`,
   },
   {
     label: "client_migration_jobs_status_idx",

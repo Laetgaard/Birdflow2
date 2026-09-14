@@ -19,7 +19,7 @@
 
 export type RawExtraction = ReturnType<typeof extractPageInBrowser>;
 
-export function extractPageInBrowser(opts: { maxSections: number; viewportWidth: number; viewportHeight: number }) {
+export function extractPageInBrowser(opts: { maxSections: number; viewportWidth: number; viewportHeight: number; relaxed?: boolean }) {
   const doc = document;
   const win = window;
   const vw = opts.viewportWidth;
@@ -193,16 +193,22 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
   const significantChildren = (el: Element) => Array.from(el.children).filter((child) => !isEx(child) && !inChrome(child) && rectOf(child).h > 0);
   const hasHeading = (el: Element) => !!el.querySelector("h1,h2,h3,h4");
   const ownBackground = (el: Element) => !!color(cs(el).backgroundColor) || !!bgImageUrl(el);
+  // The thorough re-capture lowers the bars a page must clear to count as a
+  // section, for pages whose content is real but smaller than a normal band.
+  const minLeafH = opts.relaxed ? 60 : 120;
+  const minLeafW = vw * (opts.relaxed ? 0.4 : 0.6);
+  const minWalkH = opts.relaxed ? 24 : 40;
+  const minSectionH = opts.relaxed ? 40 : 80;
   const leafWorthy = (el: Element) => {
     const r = rectOf(el);
-    if (r.h < 120 || r.w < vw * 0.6) return false;
+    if (r.h < minLeafH || r.w < minLeafW) return false;
     return /^(SECTION|ARTICLE|ASIDE)$/.test(el.tagName) || el.getAttribute("role") === "region" || hasHeading(el) || (ownBackground(el) && (!el.parentElement || cs(el.parentElement).backgroundColor !== cs(el).backgroundColor));
   };
   const sections: Element[] = [];
   const segment = (el: Element, depth: number) => {
     if (isEx(el) || inChrome(el)) return;
     const r = rectOf(el);
-    if (r.h < 40) return;
+    if (r.h < minWalkH) return;
     const kids = significantChildren(el);
     const area = r.w * r.h;
     const bigKids = kids.filter((child) => { const cr = rectOf(child); return cr.w * cr.h >= area * 0.9; });
@@ -212,7 +218,7 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
       for (const child of kids) segment(child, depth + 1);
       return;
     }
-    if (leafWorthy(el) || r.h >= 80) sections.push(el);
+    if (leafWorthy(el) || r.h >= minSectionH) sections.push(el);
   };
   for (const child of significantChildren(root)) segment(child, 0);
   if (!sections.length && root !== doc.body) for (const child of significantChildren(doc.body)) segment(child, 0);
@@ -226,6 +232,19 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     const prevText = prev ? text(prev.el) : "";
     if (prev && entry.t && prevText.includes(entry.t)) { prev.extras.push(entry.el); continue; }
     merged.push({ el: entry.el, extras: [] });
+  }
+  // A page that segments into nothing (a thin page, a splash/redirect page, or
+  // one whose whole body sits inside header/footer chrome) still has content
+  // worth keeping. Fall back to the page root as a single section so the page
+  // always yields a real section id instead of forcing the planner to invent
+  // one. Marked so the admin can see it was a fallback rather than a reading.
+  let bodyFallback = false;
+  if (!merged.length) {
+    const fallbackRoot = root ?? doc.body;
+    if (fallbackRoot && (text(fallbackRoot).length > 0 || fallbackRoot.querySelector("img, svg, iframe, video"))) {
+      merged.push({ el: fallbackRoot, extras: [] });
+      bodyFallback = true;
+    }
   }
   if (merged.length > opts.maxSections) {
     const last = merged[opts.maxSections - 1];
@@ -405,6 +424,8 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     documentHeight: docHeight,
     chrome: { header, footer },
     sections: extracted,
+    /** True when `sections` holds one page-root fallback rather than a real reading. */
+    bodyFallback,
     paletteSamples: paletteSamples.slice(0, 400),
     fontSamples: fontSamples.slice(0, 60),
     ctaRadiusPx: radii.length ? radii[Math.floor(radii.length / 2)] : undefined,

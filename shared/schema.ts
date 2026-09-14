@@ -747,6 +747,8 @@ export const clientMigrationJobs = pgTable("client_migration_jobs", {
   consentNote: text("consent_note"),
   consentAt: timestamp("consent_at").defaultNow().notNull(),
   respectRobots: boolean("respect_robots").notNull().default(true),
+  /** When false the job builds straight through; the admin reviews the finished site. */
+  requirePlanReview: boolean("require_plan_review").notNull().default(false),
   status: text("status").notNull().default("queued"),
   phase: text("phase").notNull().default("discover"),
   phaseAttempts: jsonb("phase_attempts").$type<Record<string, number>>().notNull().default(sql`'{}'::jsonb`),
