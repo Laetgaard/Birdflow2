@@ -24,6 +24,7 @@ import { z, ZodError } from "zod";
 import crypto from "node:crypto";
 import { nextCalendarDate } from "./bookingDate";
 import { createClient } from "@supabase/supabase-js";
+import { registerClientMigrationRoutes } from "./clientMigration/routes";
 import { publishWebsite } from "./publisher";
 import { resolvePlatformUrl } from "./publisher/platformUrl";
 import {
@@ -7635,6 +7636,13 @@ ${invoice.description ? `<p><em>${escapeHtml(invoice.description)}</em></p>` : "
   // invoice billing and the admin review handover. Kept in its own module
   // (server/onboardingDecisionRoutes.ts) rather than inlined here.
   registerOnboardingDecisionRoutes(app, { requireAuth, requireAdmin });
+
+  // ============ ADMIN: CLIENT WEBSITE MIGRATION ============
+  //
+  // One URL of a client's existing website becomes an account, a project and
+  // a rebuilt site, driven from the admin panel. In its own module
+  // (server/clientMigration/).
+  registerClientMigrationRoutes(app, { requireAuth, requireAdmin });
 
   // ============ BUILDER ASSISTANT: PLAN MODE AND BUILD MODE ============
   //

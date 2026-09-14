@@ -527,6 +527,29 @@ export class EmailService {
     });
   }
 
+  /**
+   * The invitation a client receives when an administrator has migrated
+   * their existing website: a recovery link, because the account was
+   * created without a password and this is how they choose their first.
+   */
+  async sendMigrationInvite(
+    customerEmail: string,
+    websiteId: string,
+    details: { customerName: string; websiteName: string; sourceHost: string; inviteUrl: string }
+  ): Promise<boolean> {
+    return this.sendEmail({
+      to: customerEmail,
+      websiteId,
+      templateType: 'migration_invite',
+      variables: {
+        customerName: details.customerName,
+        websiteName: details.websiteName,
+        sourceHost: details.sourceHost,
+      },
+      buttonUrl: details.inviteUrl,
+    });
+  }
+
   async sendWebsitePublished(ownerEmail: string, websiteId: string, websiteName: string, websiteUrl: string): Promise<boolean> {
     return this.sendEmail({
       to: ownerEmail,

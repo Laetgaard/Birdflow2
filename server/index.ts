@@ -19,6 +19,8 @@ import { startPublishJobSchema } from "./publisher/publishJobSchema";
 import { failStalePublishJobs, getPublishJobByDeploymentId, completePublishJob, failPublishJob } from "./publisher/publishJobs";
 import { startPublishActivationReconciler } from "./publisher/worker";
 import { resumeOrphanedBuilds } from "./buildWorker";
+import { startClientMigrationSchema } from "./clientMigration/migrationDbSchema";
+import { resumeOrphanedMigrations } from "./clientMigration/migrationJob";
 import { storage as appStorage } from "./storage";
 import { registerSeoRoutes } from "./seo";
 import { ensureBookingSchema } from "./bookingSchema";
@@ -272,6 +274,17 @@ app.use((req, res, next) => {
       // Resume any builds that were interrupted by the previous server process.
       void resumeOrphanedBuilds().catch((err) =>
         console.error("[BuildWorker] Orphan recovery failed:", err)
+      );
+    }
+  });
+
+  // Client migration jobs and their pages. Same idempotent-DDL-at-boot pattern;
+  // once the tables are there, jobs a previous process left running with an
+  // expired lease are picked up again.
+  startClientMigrationSchema(db).then((ready) => {
+    if (ready) {
+      void resumeOrphanedMigrations().catch((err) =>
+        console.error("[ClientMigration] Orphan recovery failed:", err)
       );
     }
   });
