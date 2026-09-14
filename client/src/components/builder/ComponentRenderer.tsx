@@ -2,8 +2,10 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import type { BuilderComponentData, ComponentProps, ComponentStyles, StyledText, StatItem } from '@shared/componentRegistry';
 import { editableTextFields, type ComponentType } from '@shared/componentRegistry';
 import BookingWidget from './BookingWidget';
-import CroppedImage, { parseImageValue, type ImageValue, type CropData } from './CroppedImage';
+import BuilderImage from './BuilderImage';
 import ImageResizer from './ImageResizer';
+import { heroLayoutStyles, imageSlot, normalizeImageValue, scaleLength } from '@shared/rendering/imageRender';
+import type { ImageLike, ImageValue } from '@shared/rendering/imageValue';
 import CustomComponentRenderer from './CustomComponentRenderer';
 import { resolveApprovedFontStack } from '@shared/fonts';
 import { prefersReducedMotion } from '@shared/rendering/contract';
@@ -589,12 +591,11 @@ type ComponentRenderProps = {
 };
 
 function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, globalStyles }: ComponentRenderProps) {
-  const imageValue = props.imageUrl ? parseImageValue(props.imageUrl) : null;
+  const imageValue = normalizeImageValue(props.imageUrl as ImageLike);
   // What a screen reader says, and what a search engine reads. Empty when the
   // customer has written nothing, which is the correct value for an image that
   // carries no information of its own.
-  const imageAlt = (props.imageAlt as string) || '';
-  const backgroundImage = imageValue?.url ? { backgroundImage: `url(${imageValue.url})`, backgroundSize: 'cover', backgroundPosition: 'center' } : {};
+  const imageAlt = (props.imageAlt as string) || imageValue.alt || '';
 
   const canEdit = !isPreview && onTextChange && onEditField;
   const fontFamily = resolveFontFamily(styles, globalStyles);
@@ -610,7 +611,15 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
   const subtitleText = getStyledTextValue(props.styledSubtitle) || props.subtitle || '';
   const descriptionText = getStyledTextValue(props.styledDescription) || props.description || '';
 
-  const titleStyle = getStyledTextStyle(props.styledTitle as StyledText, { fontSize: titleFontSize, fontWeight, marginBottom: '16px', lineHeight: 1.1, letterSpacing: '-0.02em' });
+  const heroTitleDefaults = {
+    fontSize: scaleLength(titleFontSize, heroLayoutStyles(props.layout).titleScale) ?? titleFontSize,
+    fontWeight,
+    marginBottom: '16px',
+    lineHeight: 1.1,
+    letterSpacing: '-0.02em',
+    ...heroLayoutStyles(props.layout).title,
+  };
+  const titleStyle = getStyledTextStyle(props.styledTitle as StyledText, heroTitleDefaults);
   const subtitleStyle = getStyledTextStyle(props.styledSubtitle as StyledText, { fontSize: '24px', opacity: 0.9, marginBottom: '16px', lineHeight: 1.3, letterSpacing: '-0.01em' });
   const descriptionStyle = getStyledTextStyle(props.styledDescription as StyledText, { fontSize: bodyFontSize, opacity: 0.8, marginBottom: '32px', lineHeight: 1.6, maxWidth: '600px', margin: '0 auto 32px' });
   
@@ -625,16 +634,17 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
     position: 'relative',
     overflow: 'hidden',
     fontFamily,
-    ...backgroundImage,
   };
-  
-  const layout = props.layout || 'centered';
-  const isSplit = layout === 'split-left' || layout === 'split-right';
-  const imageOnLeft = layout === 'split-left';
+
+  // The five layouts are decided once, by the same function the published
+  // site calls, so a hero does not change shape when it goes live.
+  const hero = heroLayoutStyles(props.layout);
+  const isSplit = hero.split;
+  const imageOnLeft = hero.imageOnLeft;
 
   // Shared text content block — reused by both layouts
   const heroTextBlock = (
-    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: isSplit ? 'left' : (props.alignment || 'center') as React.CSSProperties['textAlign'] }}>
+    <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', textAlign: isSplit ? 'left' : (props.alignment || hero.content.textAlign) as React.CSSProperties['textAlign'] }}>
       {props.eyebrow && (
         <div style={{ display: 'inline-flex', alignSelf: 'flex-start', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', opacity: 0.75, marginBottom: '20px', padding: '6px 16px', borderRadius: '999px', border: `1px solid ${isSplit ? hexToRgba(styles.textColor || '#1a1a1a', 0.2) : 'rgba(255,255,255,0.25)'}`, backgroundColor: isSplit ? hexToRgba(styles.textColor || '#1a1a1a', 0.05) : 'rgba(255,255,255,0.1)', color: styles.textColor || (isSplit ? '#1a1a1a' : '#fff') }}>
           <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: buttonColor, display: 'inline-block', flexShrink: 0 }} />
@@ -690,18 +700,21 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
   // Split layout: 50/50 columns, image with gradient overlay
   if (isSplit) {
     const splitBg = styles.backgroundColor || '#ffffff';
-    const imgUrl = imageValue?.url || '';
+    const imgUrl = imageValue.url;
     return (
       <section style={{ ...heroStyle, backgroundColor: splitBg, backgroundImage: 'none' }} onClick={onClick}>
         <div style={{ display: 'flex', flexDirection: imageOnLeft ? 'row' : 'row-reverse', minHeight: '560px' }}>
           {/* Image panel */}
           <div style={{ flex: '0 0 50%', position: 'relative', overflow: 'hidden', minHeight: '400px' }}>
             {imgUrl ? (
-              imageValue?.crop ? (
-                <CroppedImage image={imageValue} alt={imageAlt} style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', inset: 0 }} />
-              ) : (
-                <img src={imgUrl} alt={imageAlt} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', position: 'absolute', inset: 0 }} />
-              )
+              <BuilderImage
+                value={imageValue}
+                alt={imageAlt}
+                slot={imageSlot('hero-split')}
+                isPreview={isPreview}
+                wrapperStyle={{ position: 'absolute', inset: 0, height: '100%', aspectRatio: 'auto' }}
+                style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}
+              />
             ) : (
               <div style={{ width: '100%', height: '100%', position: 'absolute', inset: 0, backgroundColor: hexToRgba(buttonColor, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke={hexToRgba(buttonColor, 0.4)} strokeWidth="1.5"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
@@ -722,14 +735,21 @@ function HeroComponent({ props, styles, isSelected, onClick, isPreview, onTextCh
   // Default centered / overlay layout
   return (
     <section style={heroStyle} onClick={onClick}>
-      {imageValue?.crop && imageValue.url && (
+      {imageValue.url && (
         <div style={{ position: 'absolute', inset: 0, zIndex: 0 }}>
-          <CroppedImage image={imageValue} alt={imageAlt} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <BuilderImage
+            value={imageValue}
+            alt={imageAlt}
+            slot={imageSlot('hero')}
+            isPreview={isPreview}
+            wrapperStyle={{ position: 'absolute', inset: 0, height: '100%', aspectRatio: 'auto' }}
+            style={{ width: '100%', height: '100%', position: 'absolute', inset: 0 }}
+          />
         </div>
       )}
       {/* Color overlay - sits on top of the background image */}
       <div style={{ position: 'absolute', inset: 0, backgroundColor: bgColorWithOpacity, zIndex: 1 }} />
-      <div style={{ maxWidth: '800px', margin: '0 auto', position: 'relative', zIndex: 2 }}>
+      <div style={{ maxWidth: hero.content.maxWidth, margin: hero.content.margin, position: 'relative', zIndex: 2 }}>
         {heroTextBlock}
       </div>
     </section>
@@ -756,10 +776,10 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
         ) : (
           <div style={{ display: 'flex', gap: '10px', overflowX: 'auto', padding: '4px 0', scrollbarWidth: 'none' }}>
             {images.map((img, i) => {
-              const iv = parseImageValue(img);
+              const iv = normalizeImageValue(img as ImageLike);
               return (
                 <div key={i} style={{ width: '260px', aspectRatio: '16/9', borderRadius: '10px', flexShrink: 0, overflow: 'hidden', border: i === 0 ? '2px solid rgba(59,130,246,0.45)' : '1px solid rgba(0,0,0,0.07)' }}>
-                  {iv.crop ? <CroppedImage image={iv} alt={`Slide ${i+1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <img src={iv.url} alt={`Slide ${i+1}`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                  <BuilderImage value={iv} alt={iv.alt ?? `Slide ${i+1}`} slot={imageSlot('slider')} isPreview={isPreview} wrapperStyle={{ height: '100%', aspectRatio: 'auto' }} style={{ width: '100%', height: '100%' }} />
                 </div>
               );
             })}
@@ -770,7 +790,7 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
   }
 
   if (images.length === 0) return null;
-  const current = parseImageValue(images[currentIndex]);
+  const current = normalizeImageValue(images[currentIndex] as ImageLike);
   const caption = captions[currentIndex] || '';
 
   return (
@@ -778,9 +798,7 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
       <div style={{ position: 'relative', width: '100%', maxWidth: '1200px', margin: '0 auto', borderRadius: styles.borderRadius || '16px', overflow: 'hidden', boxShadow: '0 8px 40px rgba(0,0,0,0.18)' }}>
         <div style={{ width: '100%', aspectRatio, position: 'relative', backgroundColor: '#0a0a0a' }}>
           <div key={currentIndex} style={{ position: 'absolute', inset: 0, animation: 'slider-fade 0.45s ease forwards' }}>
-            {current.crop
-              ? <CroppedImage image={current} alt={`Slide ${currentIndex+1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-              : <img src={current.url} alt={`Slide ${currentIndex+1}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+            <BuilderImage value={current} alt={current.alt ?? `Slide ${currentIndex+1}`} slot={imageSlot('slider', { priority: currentIndex === 0 })} isPreview={isPreview} wrapperStyle={{ height: '100%', aspectRatio: 'auto' }} style={{ width: '100%', height: '100%', display: 'block' }} />
           </div>
           {images.length > 1 && <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 50%)', zIndex: 1 }} />}
           {caption && (
@@ -812,10 +830,10 @@ function ImageSliderComponent({ props, styles, isSelected, onClick, isPreview }:
 function TextImageComponent({ props, styles, isSelected, onClick, isPreview, onTextChange, editingField, onEditField, onImageResize, globalStyles }: ComponentRenderProps) {
   const baseStyle = getBaseStyle(styles, isSelected, isPreview);
   const isImageLeft = props.imageSide === 'left';
-  const imageValue = props.imageUrl ? parseImageValue(props.imageUrl) : null;
+  const imageValue = normalizeImageValue(props.imageUrl as ImageLike);
   // The heading is the fallback here, as on the published site, so an existing
   // site does not lose the alt text it already had.
-  const imageAlt = (props.imageAlt as string) || (props.title as string) || '';
+  const imageAlt = (props.imageAlt as string) || imageValue.alt || (props.title as string) || '';
   const canEdit = !isPreview && onTextChange && onEditField;
   const fontFamily = resolveFontFamily(styles, globalStyles);
   const accentColor = resolveAccentColor(styles, globalStyles);
@@ -843,17 +861,22 @@ function TextImageComponent({ props, styles, isSelected, onClick, isPreview, onT
     color: styles.textColor,
   };
 
-  const imageSection = imageValue?.url && (
+  const imageSection = imageValue.url && (
     <div style={{ flex: 1, minWidth: '300px', position: 'relative' }}>
       {/* Decorative accent dot cluster */}
       <div style={{ position: 'absolute', width: '80px', height: '80px', borderRadius: '50%', background: hexToRgba(accentColor, 0.12), filter: 'blur(24px)', top: '-16px', right: isImageLeft ? 'auto' : '-16px', left: isImageLeft ? '-16px' : 'auto', zIndex: 0 }} />
       <div style={{ position: 'relative', zIndex: 1, overflow: 'hidden', borderRadius: styles.borderRadius || '16px', boxShadow: '0 12px 48px rgba(0,0,0,0.12)' }}>
         {!isPreview && onImageResize && isSelected ? (
           <ImageResizer imageUrl={imageValue.url} width={props.imageWidth || '100%'} height={props.imageHeight || 'auto'} onResize={onImageResize} isSelected={isSelected} isPreview={isPreview} style={{ borderRadius: styles.borderRadius || '16px' }} />
-        ) : imageValue.crop ? (
-          <CroppedImage image={imageValue} alt={imageAlt} style={{ width: props.imageWidth || '100%', borderRadius: styles.borderRadius || '16px', display: 'block' }} />
         ) : (
-          <img src={imageValue.url} alt={imageAlt} loading="lazy" style={{ width: props.imageWidth || '100%', height: props.imageHeight || 'auto', objectFit: 'cover', borderRadius: styles.borderRadius || '16px', display: 'block' }} />
+          <BuilderImage
+            value={imageValue}
+            alt={imageAlt}
+            slot={imageSlot('text-image')}
+            isPreview={isPreview}
+            wrapperStyle={{ width: props.imageWidth || '100%', borderRadius: styles.borderRadius || '16px' }}
+            style={{ width: props.imageWidth || '100%', height: props.imageHeight || 'auto', borderRadius: styles.borderRadius || '16px', display: 'block' }}
+          />
         )}
       </div>
     </div>
@@ -1105,7 +1128,7 @@ function TestimonialsComponent({ props, styles, isSelected, onClick, isPreview, 
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 {item.imageUrl ? (
                   <div style={{ width: '44px', height: '44px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, border: `2px solid ${hexToRgba(accentColor, 0.2)}` }}>
-                    <img src={item.imageUrl} alt={item.title || ''} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    <BuilderImage value={item.imageUrl as ImageLike} alt={item.title || ''} slot={imageSlot('avatar')} isPreview={isPreview} wrapperStyle={{ height: '100%', aspectRatio: 'auto' }} style={{ width: '100%', height: '100%' }} />
                   </div>
                 ) : (
                   <div style={{ width: '44px', height: '44px', borderRadius: '50%', backgroundColor: hexToRgba(accentColor, 0.12), border: `2px solid ${hexToRgba(accentColor, 0.2)}`, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, fontSize: '16px', fontWeight: 700, color: accentColor }}>
@@ -1264,7 +1287,7 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
   const baseStyle = getBaseStyle({ ...styles, padding: '16px 24px' }, isSelected, isPreview);
   const canEdit = !isPreview && onTextChange && onEditField;
   const fontFamily = resolveFontFamily(styles, globalStyles);
-  const logoImage = props.imageUrl ? parseImageValue(props.imageUrl) : null;
+  const logoImage = normalizeImageValue(props.imageUrl as ImageLike);
 
   const isTransparent = styles.isTransparent === true || styles.isTransparent === 'true';
   const overlayMode = styles.overlayMode === true || styles.overlayMode === 'true';
@@ -1464,12 +1487,13 @@ function HeaderComponent({ props, styles, isSelected, onClick, isPreview, pages,
     <header ref={headerRef} style={getHeaderStyle()} onClick={onClick} data-header-component>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', maxWidth: '1200px', margin: '0 auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            {logoImage?.url && (
-              <img 
-                src={logoImage.url} 
-                alt={(props.imageAlt as string) || (props.title as string) || 'Logo'} 
-                loading="lazy"
-                style={{ height: '40px', width: 'auto', objectFit: 'contain' }}
+            {logoImage.url && (
+              <BuilderImage
+                value={logoImage}
+                alt={(props.imageAlt as string) || (props.title as string) || 'Logo'}
+                slot={imageSlot('logo')}
+                isPreview={isPreview}
+                style={{ height: '40px', width: 'auto' }}
                 data-testid="header-logo"
               />
             )}
@@ -1861,7 +1885,7 @@ function ProductGridComponent({ props, styles, isSelected, onClick, isPreview, w
                       <>
                         <div className="product-image-wrapper" style={{ position: 'relative' }}>
                           {product.imageUrl ? (
-                            <img src={product.imageUrl} alt={product.name} loading="lazy" />
+                            <BuilderImage value={product.imageUrl as ImageLike} alt={product.name} slot={imageSlot('card')} isPreview={isPreview} />
                           ) : (
                             <div className="placeholder" style={{ background: `linear-gradient(135deg, ${hexToRgba(accentCol, 0.06)} 0%, ${hexToRgba(accentCol, 0.12)} 100%)` }}>
                               <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke={accentCol} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.4 }}><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
@@ -2221,7 +2245,7 @@ function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTex
           style={{ position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.9)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}
           onClick={() => setLightboxIndex(null)}
         >
-          <img src={images[lightboxIndex]} alt="" style={{ maxWidth: '92vw', maxHeight: '90vh', objectFit: 'contain', borderRadius: '8px' }} onClick={e => e.stopPropagation()} />
+          <BuilderImage value={images[lightboxIndex] as ImageLike} alt={captions[lightboxIndex] || ''} slot={imageSlot('gallery', { fit: 'contain', priority: true, sizes: '92vw' })} isPreview={isPreview} style={{ maxWidth: '92vw', maxHeight: '90vh', borderRadius: '8px' }} onClick={e => e.stopPropagation()} />
           <button onClick={() => setLightboxIndex(null)} style={{ position: 'absolute', top: '20px', right: '24px', background: 'none', border: 'none', color: '#fff', fontSize: '32px', cursor: 'pointer', opacity: 0.7 }}>✕</button>
           {lightboxIndex > 0 && (
             <button onClick={e => { e.stopPropagation(); setLightboxIndex(i => (i as number) - 1); }} style={{ position: 'absolute', left: '20px', background: 'rgba(255,255,255,0.12)', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '50%', color: '#fff', width: '48px', height: '48px', fontSize: '20px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>‹</button>
@@ -2255,7 +2279,7 @@ function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTex
                 onMouseEnter={() => setHoveredIndex(index)}
                 onMouseLeave={() => setHoveredIndex(null)}
               >
-                <img src={image} alt={captions[index] || ''} loading="lazy" style={{ width: '100%', display: 'block', borderRadius: br, transition: 'transform 0.4s cubic-bezier(0.16,1,0.3,1)', transform: hoveredIndex === index ? 'scale(1.03)' : 'scale(1)' }} />
+                <BuilderImage value={image as ImageLike} alt={captions[index] || ''} slot={imageSlot('gallery')} isPreview={isPreview} wrapperStyle={{ borderRadius: br }} style={{ width: '100%', display: 'block', borderRadius: br, transition: 'transform 0.4s cubic-bezier(0.16,1,0.3,1)', transform: hoveredIndex === index ? 'scale(1.03)' : 'scale(1)' }} />
                 {hoveredIndex === index && (
                   <div style={{ position: 'absolute', inset: 0, background: captions[index] ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.25)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: br, transition: 'background 0.25s' }}>
                     <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: captions[index] ? '10px' : 0 }}>
@@ -2278,7 +2302,7 @@ function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTex
                 onMouseEnter={() => setHoveredIndex(index)}
                 onMouseLeave={() => setHoveredIndex(null)}
               >
-                <img src={image} alt={captions[index] || ''} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', borderRadius: br, transition: 'transform 0.4s cubic-bezier(0.16,1,0.3,1)', transform: hoveredIndex === index ? 'scale(1.06)' : 'scale(1)' }} />
+                <BuilderImage value={image as ImageLike} alt={captions[index] || ''} slot={imageSlot('gallery')} isPreview={isPreview} wrapperStyle={{ height: '100%', aspectRatio: 'auto', borderRadius: br }} style={{ width: '100%', height: '100%', display: 'block', borderRadius: br, transition: 'transform 0.4s cubic-bezier(0.16,1,0.3,1)', transform: hoveredIndex === index ? 'scale(1.06)' : 'scale(1)' }} />
                 {hoveredIndex === index && (
                   <div style={{ position: 'absolute', inset: 0, background: captions[index] ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.2)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: br, transition: 'background 0.25s' }}>
                     <div style={{ width: '36px', height: '36px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.9)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: captions[index] ? '10px' : 0 }}>
@@ -3324,7 +3348,7 @@ function LogoCloudComponent({ props, styles, isSelected, onClick, isPreview, onT
           {logos.map((logo, index) => (
             <div key={logo.id || index} style={{ opacity: 0.6, filter: 'grayscale(100%)', transition: 'all 0.3s' }} data-testid={`logo-item-${index}`}>
               {logo.imageUrl ? (
-                <img src={logo.imageUrl} alt={logo.name || 'Logo'} loading="lazy" style={{ height: '40px', width: 'auto', objectFit: 'contain' }} />
+                <BuilderImage value={logo.imageUrl as ImageLike} alt={logo.name || 'Logo'} slot={imageSlot('logo')} isPreview={isPreview} style={{ height: '40px', width: 'auto', maxWidth: '140px' }} />
               ) : (
                 <div style={{ padding: '10px 24px', backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: '8px', fontWeight: '600' }}>
                   {logo.name || 'Logo'}
@@ -3441,7 +3465,7 @@ function TabsComponent({ props, styles, isSelected, onClick, isPreview, globalSt
               <h3 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '16px' }}>{tabs[activeTab].title}</h3>
               <p style={{ fontSize: '16px', lineHeight: '1.7', opacity: 0.8 }}>{tabs[activeTab].content}</p>
               {tabs[activeTab].imageUrl && (
-                <img src={tabs[activeTab].imageUrl} alt="" loading="lazy" style={{ width: '100%', borderRadius: '12px', marginTop: '24px' }} />
+                <BuilderImage value={tabs[activeTab].imageUrl as ImageLike} alt="" slot={imageSlot('content')} isPreview={isPreview} wrapperStyle={{ borderRadius: '12px', marginTop: '24px' }} style={{ width: '100%', borderRadius: '12px', marginTop: '24px' }} />
               )}
             </div>
           )}
@@ -3654,7 +3678,7 @@ function SplitSectionComponent({ props, styles, isSelected, onClick, isPreview, 
         </div>
         <div style={{ order: layout === 'image-right' ? 2 : 1 }}>
           {props.imageUrl ? (
-            <img src={props.imageUrl as string} alt={(props.imageAlt as string) || ''} loading="lazy" style={{ width: '100%', borderRadius: '16px', boxShadow: '0 25px 50px rgba(0,0,0,0.15)' }} />
+            <BuilderImage value={props.imageUrl as ImageLike} alt={(props.imageAlt as string) || ''} slot={imageSlot('text-image')} isPreview={isPreview} wrapperStyle={{ borderRadius: '16px', boxShadow: '0 25px 50px rgba(0,0,0,0.15)' }} style={{ width: '100%', borderRadius: '16px', boxShadow: '0 25px 50px rgba(0,0,0,0.15)' }} />
           ) : (
             <div style={{ aspectRatio: '4/3', backgroundColor: 'rgba(0,0,0,0.05)', borderRadius: '16px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
               <span style={{ fontSize: '48px', opacity: 0.3 }}>🖼️</span>
@@ -3777,7 +3801,7 @@ function TeamComponent({ props, styles, isSelected, onClick, isPreview, globalSt
               data-testid={`team-member-${index}`}
             >
               {member.imageUrl ? (
-                <img src={member.imageUrl} alt={member.name} loading="lazy" style={{ width: '120px', height: '120px', borderRadius: '50%', objectFit: 'cover', marginBottom: '20px' }} />
+                <BuilderImage value={member.imageUrl as ImageLike} alt={member.name} slot={imageSlot('avatar')} isPreview={isPreview} wrapperStyle={{ width: '120px', height: '120px', borderRadius: '50%', marginBottom: '20px', aspectRatio: 'auto' }} style={{ width: '120px', height: '120px', borderRadius: '50%', marginBottom: '20px' }} />
               ) : (
                 <div style={{ width: '120px', height: '120px', borderRadius: '50%', backgroundColor: hexToRgba(accentColor, 0.1), margin: '0 auto 20px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '48px' }}>
                   👤

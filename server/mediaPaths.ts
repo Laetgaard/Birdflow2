@@ -41,3 +41,44 @@ export function isAllowedMediaStoragePath(
   const remainder = storagePath.slice(prefix.length);
   return remainder.length > 0 && !remainder.includes("/");
 }
+
+/**
+ * What a PATCH of a media asset may change.
+ *
+ * The route used to pass `req.body` straight to the update, so any column —
+ * `storagePath` above all, which the delete route hands to the service-role
+ * client — could be rewritten by anyone who can edit media. Two fields
+ * describe how an image is *used* and are the only ones the editor sets;
+ * everything else describes the stored file and is written on upload.
+ */
+export function parseMediaAssetPatch(
+  body: unknown
+): { value: { altText?: string; crop?: { x: number; y: number; width: number; height: number } | null } } | { error: string } {
+  if (!body || typeof body !== "object" || Array.isArray(body)) return { error: "Ugyldigt indhold" };
+  const input = body as Record<string, unknown>;
+  const value: { altText?: string; crop?: { x: number; y: number; width: number; height: number } | null } = {};
+
+  if ("altText" in input) {
+    const altText = input.altText;
+    if (altText !== null && typeof altText !== "string") return { error: "altText skal være tekst" };
+    value.altText = typeof altText === "string" ? altText.slice(0, 250) : "";
+  }
+
+  if ("crop" in input) {
+    const crop = input.crop;
+    if (crop === null) {
+      value.crop = null;
+    } else {
+      if (!crop || typeof crop !== "object" || Array.isArray(crop)) return { error: "crop er ugyldig" };
+      const c = crop as Record<string, unknown>;
+      const numbers = ["x", "y", "width", "height"].map((key) => c[key]);
+      if (numbers.some((n) => typeof n !== "number" || !isFinite(n as number))) return { error: "crop er ugyldig" };
+      const [x, y, width, height] = numbers as number[];
+      if (width <= 0 || height <= 0 || x < 0 || y < 0) return { error: "crop er ugyldig" };
+      value.crop = { x, y, width, height };
+    }
+  }
+
+  if (Object.keys(value).length === 0) return { error: "Intet at opdatere" };
+  return { value };
+}

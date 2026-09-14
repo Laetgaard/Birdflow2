@@ -3,3 +3,5 @@ export * from './contract';
 export * from './componentStyles';
 export * from './globalsCss';
 export * from './theme';
+export * from './imageValue';
+export * from './imageRender';

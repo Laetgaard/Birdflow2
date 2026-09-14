@@ -18,7 +18,7 @@ import { getPlatformCalendar } from "./platformCalendar";
 import { requireWebsitePermission, getWebsiteAccess, getAuthedUser, resolveWebsiteAccess } from "./websiteAccess";
 import { classifyTrafficSource, extractUtmSource, getClientIp, lookupCountry, copenhagenDayStart } from "./analytics";
 import { recordAdminAudit, summarizeBuilderStateChange, auditManageMutation } from "./adminAudit";
-import { isAllowedMediaStoragePath } from "./mediaPaths";
+import { isAllowedMediaStoragePath, parseMediaAssetPatch } from "./mediaPaths";
 import { eq, sql, and as andOp, eq as eqOp, ne as neOp, gte as gteOp, lt as ltOp } from "drizzle-orm";
 import { z, ZodError } from "zod";
 import crypto from "node:crypto";
@@ -3814,7 +3814,12 @@ export async function registerRoutes(
   app.patch("/api/websites/:id/media/:mediaId", requireAuth, requireWebsitePermission("manageMedia"), async (req, res) => {
     try {
       const access = getWebsiteAccess(req);
-      const asset = await storage.updateMediaAsset(req.params.mediaId, req.params.id, req.body);
+      // Only the two fields the editor may change. The rest — storagePath
+      // above all, which the delete route hands to the service-role client —
+      // describes the stored file and is written once, on upload.
+      const patch = parseMediaAssetPatch(req.body);
+      if ("error" in patch) return res.status(400).json({ message: patch.error });
+      const asset = await storage.updateMediaAsset(req.params.mediaId, req.params.id, patch.value);
       if (!asset) {
         return res.status(404).json({ message: "Media asset not found" });
       }
@@ -3825,7 +3830,7 @@ export async function registerRoutes(
         resourceId: req.params.mediaId,
         httpMethod: "PATCH",
         route: "/api/websites/:id/media/:mediaId",
-        changedSummary: { changedFields: Object.keys(req.body ?? {}).sort() },
+        changedSummary: { changedFields: Object.keys(patch.value).sort() },
       });
 
       res.json(asset);

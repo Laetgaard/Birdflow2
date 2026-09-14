@@ -32,6 +32,7 @@ import { ReadOnlySitePreview } from '../client/src/components/onboarding/ReadOnl
 import {
   fontFamilies,
   imageAltTexts,
+  imageAttributes,
   imageSources,
   linkTargets,
   loadPublishedRenderer,
@@ -1517,5 +1518,82 @@ describe('canvas components', () => {
   it('the trusted runtime carries the root-style function, closure-free', () => {
     expect(generateTrustedRuntime()).toContain('export const canvasRootStyles = ');
     expect(loadPublishedRenderer().source).toContain("node.layout === 'canvas'");
+  });
+});
+
+
+describe('an image is fetched and drawn the same way on both sides', () => {
+  /**
+   * The two renderers used to decide independently what to put in `src`,
+   * whether to lazy-load, whether to reserve space, and where a crop sits —
+   * and several sections passed a stored `{url, crop}` object straight into
+   * `src`, which is how "[object Object]" reached the editor. Both now ask
+   * the same shared resolver, so these comparisons are of one answer.
+   */
+  const UPLOAD = '/objects/uploads/0f8fad5b-d9cb-469f-a165-70867728950e.webp';
+  const photo = (extra: Record<string, unknown> = {}) => ({ url: UPLOAD, width: 1600, height: 1000, alt: 'Klinikkens venteværelse', ...extra });
+
+  const withProps = (type: ComponentType, props: Record<string, unknown>): BuilderComponentData =>
+    ({ ...componentFor(type), props: { ...componentRegistry[type].defaultProps, ...props } }) as BuilderComponentData;
+
+  const cases: Array<[string, BuilderComponentData]> = [
+    ['hero centered', withProps('hero', { imageUrl: photo(), layout: 'centered' })],
+    ['hero split-left', withProps('hero', { imageUrl: photo(), layout: 'split-left' })],
+    ['hero split-right', withProps('hero', { imageUrl: photo(), layout: 'split-right' })],
+    ['hero minimal', withProps('hero', { imageUrl: photo(), layout: 'minimal' })],
+    ['hero bold', withProps('hero', { imageUrl: photo(), layout: 'bold' })],
+    ['hero cropped', withProps('hero', { imageUrl: photo({ crop: { x: 200, y: 100, width: 800, height: 400 } }) })],
+    ['hero focal', withProps('hero', { imageUrl: photo({ focal: { x: 0.2, y: 0.8 } }) })],
+    ['gallery', withProps('gallery', { images: [photo(), photo({ url: '/images/second.webp' })] })],
+    ['team', withProps('team', { items: [{ id: '1', title: 'Sara', name: 'Sara', role: 'Ejer', imageUrl: photo({ alt: 'Sara' }) }] })],
+    ['logo-cloud', withProps('logo-cloud', { items: [{ id: '1', title: 'Kunde', name: 'Kunde', imageUrl: photo({ alt: 'Kunde' }) }] })],
+    ['text-image', withProps('text-image', { imageUrl: photo() })],
+    ['split-section', withProps('split-section', { imageUrl: photo() })],
+    ['header', withProps('header', { imageUrl: photo({ alt: 'Logo' }) })],
+  ];
+
+  it.each(cases)('%s asks the browser for the same file, the same way', (_name, component) => {
+    expect(imageAttributes(renderPublished(component))).toEqual(imageAttributes(renderBuilder(component)));
+  });
+
+  it('never leaks a stored image object into src', () => {
+    for (const [, component] of cases) {
+      for (const html of [renderBuilder(component), renderPublished(component)]) {
+        expect(html).not.toContain('[object Object]');
+        for (const img of imageAttributes(html)) expect(img.src ?? '').not.toBe('');
+      }
+    }
+  });
+
+  it('gives the hero priority and everything below it lazy loading', () => {
+    const hero = imageAttributes(renderPublished(cases[0][1]))[0];
+    expect(hero.loading).toBe('eager');
+    expect(hero.fetchpriority).toBe('high');
+    const gallery = imageAttributes(renderPublished(withProps('gallery', { images: [photo()] })))[0];
+    expect(gallery.loading).toBe('lazy');
+  });
+
+  it('offers the same size candidates for an upload, and none for a foreign URL', () => {
+    const galleryImg = imageAttributes(renderPublished(withProps('gallery', { images: [photo()] })))[0];
+    expect(galleryImg.srcset).toBe(`${UPLOAD}?w=480 480w, ${UPLOAD}?w=960 960w, ${UPLOAD} 1600w`);
+    expect(galleryImg.sizes).toBe('(max-width: 640px) 100vw, 50vw');
+    const foreign = imageAttributes(renderPublished(withProps('gallery', { images: [{ url: 'https://images.unsplash.com/photo-1', width: 1600, height: 1000 }] })))[0];
+    expect(foreign.srcset).toBeUndefined();
+  });
+
+  it('reserves the box with the stored natural size, and lays a crop out exactly', () => {
+    const plain = imageAttributes(renderPublished(withProps('text-image', { imageUrl: photo() })))[0];
+    expect([plain.width, plain.height]).toEqual(['1600', '1000']);
+    const cropped = imageAttributes(renderPublished(cases[5][1]))[0];
+    // 1600 wide over an 800-wide crop is 200%, offset by -200/800 of it.
+    expect(cropped['style.width']).toBe('200%');
+    expect(cropped['style.left']).toBe('-25%');
+    expect(cropped['style.position']).toBe('absolute');
+    expect(cropped.width).toBeUndefined();
+  });
+
+  it('points a cropless image at the focal point the customer chose', () => {
+    const focal = imageAttributes(renderPublished(cases[6][1]))[0];
+    expect(focal['style.object-position']).toBe('20% 80%');
   });
 });

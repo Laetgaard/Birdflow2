@@ -103,6 +103,8 @@ import FloatingToolbar from "@/components/builder/FloatingToolbar";
 import SelectionOverlay from "@/components/builder/SelectionOverlay";
 import CanvasEditorOverlay from "@/components/builder/CanvasEditorOverlay";
 import { CanvasModeProvider, type CanvasMode } from "@/components/builder/canvasMode";
+import { ImagePickerProvider, type ImagePickerRequest } from "@/components/builder/ImagePickerContext";
+import ImagePicker from "@/components/builder/ImagePicker";
 import ContextMenu from "@/components/builder/ContextMenu";
 import CoachMarks from "@/components/builder/CoachMarks";
 import TemplateGalleryModal from "@/components/builder/TemplateGalleryModal";
@@ -1347,6 +1349,11 @@ export default function BuilderPage() {
     setSaveComponentOpen(true);
   }, [selectedComponent, toast]);
 
+  // Every image field opens the same dialog. It lives here, next to the
+  // page's other dialogs, and hands the chosen value back to whoever asked.
+  const [imageRequest, setImageRequest] = useState<ImagePickerRequest | null>(null);
+  const imagePickerApi = useMemo(() => ({ open: (request: ImagePickerRequest) => setImageRequest(request) }), []);
+
   const canvasMode = useMemo<CanvasMode>(() => {
     const tree = selectedComponent?.type === 'custom' ? ((selectedComponent.props as { customTree?: PrimitiveNode }).customTree ?? null) : null;
     const root = tree ? ((selectedNodeId && findCanvasRoot(tree, selectedNodeId)) || (isCanvasRoot(tree) ? tree : null)) : null;
@@ -2259,6 +2266,7 @@ export default function BuilderPage() {
         >
           <CanvasDocumentProvider>
           <CanvasModeProvider value={canvasMode}>
+          <ImagePickerProvider value={imagePickerApi}>
           <ElementSelectionProvider
             onElementStyleChange={(componentId, path, styles) => {
               // Update element styles within the component's builder state
@@ -2766,10 +2774,22 @@ export default function BuilderPage() {
         </aside>
         )}
         </ElementSelectionProvider>
+          </ImagePickerProvider>
           </CanvasModeProvider>
         </CanvasDocumentProvider>
         </BuilderSelectionProvider>
       </div>
+
+      <ImagePicker
+        open={!!imageRequest}
+        onClose={() => setImageRequest(null)}
+        websiteId={id!}
+        accessToken={session?.access_token ?? ""}
+        brandGuide={builderState?.brandGuide}
+        value={imageRequest?.value ?? null}
+        subject={imageRequest?.title}
+        onSelect={(picked) => imageRequest?.onSelect(picked)}
+      />
 
       {/* Create Page Dialog */}
       <Dialog open={pageDialogOpen} onOpenChange={setPageDialogOpen}>

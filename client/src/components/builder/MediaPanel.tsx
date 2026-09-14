@@ -1,14 +1,27 @@
-import { useState, useRef } from 'react';
+/**
+ * The website's media library.
+ *
+ * Every uploaded image for this site, with its real thumbnail, its size and
+ * its alt text. It is the "Bibliotek" tab of the image picker and can also
+ * stand alone as a manager. Uploads go through the shared helper, so the
+ * same validation, the same authorisation header and the same server-measured
+ * dimensions apply here as everywhere else.
+ */
+
+import { useMemo, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Upload, Trash2, Crop, Image as ImageIcon } from 'lucide-react';
+import { Upload, Trash2, Crop, Image as ImageIcon, Loader2 } from 'lucide-react';
 import ImageCropper from './ImageCropper';
 import { useAuth } from '@/lib/auth';
 import { adminSessionHeaders } from '@/lib/adminSession';
+import { uploadImage, validateImageFile } from '@/lib/builderUpload';
+import type { ImageValue } from '@shared/rendering/imageValue';
 
-type MediaAsset = {
+export type MediaAsset = {
   id: string;
   websiteId: string;
   filename: string;
@@ -25,7 +38,8 @@ type MediaAsset = {
 
 type Props = {
   websiteId: string;
-  onSelectImage?: (url: string, mediaId: string) => void;
+  /** Picking an asset hands back everything stored about it, not just a URL. */
+  onSelectImage?: (value: ImageValue) => void;
   selectionMode?: boolean;
 };
 
@@ -33,16 +47,27 @@ async function fetchMedia(websiteId: string, token: string): Promise<MediaAsset[
   const res = await fetch(`/api/websites/${websiteId}/media`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error('Failed to fetch media');
+  if (!res.ok) throw new Error('Mediebiblioteket kunne ikke hentes');
   return res.json();
 }
 
-async function getMediaUrl(websiteId: string, mediaId: string, token: string): Promise<{ url: string }> {
+async function getMediaUrl(websiteId: string, mediaId: string, token: string): Promise<string> {
   const res = await fetch(`/api/websites/${websiteId}/media/${mediaId}/url`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error('Failed to get media URL');
-  return res.json();
+  if (!res.ok) throw new Error('Billedets adresse kunne ikke hentes');
+  const { url } = await res.json();
+  return url as string;
+}
+
+export function mediaAssetToImageValue(asset: MediaAsset, url: string): ImageValue {
+  return {
+    url,
+    mediaId: asset.id,
+    ...(asset.altText ? { alt: asset.altText } : {}),
+    ...(asset.width && asset.height ? { width: asset.width, height: asset.height } : {}),
+    ...(asset.crop ? { crop: asset.crop } : {}),
+  };
 }
 
 export default function MediaPanel({ websiteId, onSelectImage, selectionMode = false }: Props) {
@@ -51,12 +76,12 @@ export default function MediaPanel({ websiteId, onSelectImage, selectionMode = f
   const accessToken = session?.access_token || '';
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
   const [cropDialogOpen, setCropDialogOpen] = useState(false);
   const [selectedAsset, setSelectedAsset] = useState<MediaAsset | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string>('');
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [assetToDelete, setAssetToDelete] = useState<MediaAsset | null>(null);
-  const [mediaUrls, setMediaUrls] = useState<Record<string, string>>({});
 
   const { data: assets = [], isLoading } = useQuery({
     queryKey: ['media', websiteId],
@@ -64,76 +89,36 @@ export default function MediaPanel({ websiteId, onSelectImage, selectionMode = f
     enabled: !!websiteId && !!accessToken,
   });
 
-  const uploadMutation = useMutation({
-    mutationFn: async (file: File) => {
-      if (!accessToken) throw new Error('Not authenticated');
-      
-      // Use optimized image upload for faster page loads
-      const formData = new FormData();
-      formData.append('image', file);
-      
-      const optimizedRes = await fetch('/api/uploads/optimized-image', {
-        method: 'POST',
-        body: formData,
-      });
-      
-      if (!optimizedRes.ok) {
-        throw new Error('Failed to upload and optimize image');
-      }
-      
-      const { objectPath, originalSize, optimizedSize, savings } = await optimizedRes.json();
-      console.log(`Image optimized: ${savings} smaller (${originalSize} → ${optimizedSize} bytes)`);
-
-      let width: number | undefined;
-      let height: number | undefined;
-      if (file.type.startsWith('image/')) {
-        const img = new Image();
-        await new Promise<void>((resolve) => {
-          img.onload = () => {
-            width = img.naturalWidth;
-            height = img.naturalHeight;
-            resolve();
-          };
-          img.src = URL.createObjectURL(file);
-        });
-      }
-
-      // Generate filename from objectPath
-      const filename = objectPath.split('/').pop() || `${Date.now()}.webp`;
-
-      const createRes = await fetch(`/api/websites/${websiteId}/media`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-          ...adminSessionHeaders(websiteId),
-        },
-        body: JSON.stringify({
-          filename,
-          originalFilename: file.name,
-          storagePath: objectPath,
-          mimeType: 'image/webp',
-          size: optimizedSize,
-          width,
-          height,
-        }),
-      });
-
-      if (!createRes.ok) throw new Error('Failed to create media record');
-      return createRes.json();
+  // The list endpoint returns storage paths; the browser needs signed URLs.
+  // One query for all of them, so a thumbnail never points at a JSON endpoint.
+  const { data: urls = {} } = useQuery({
+    queryKey: ['media-urls', websiteId, assets.map((a) => a.id).join(',')],
+    queryFn: async () => {
+      const entries = await Promise.all(
+        assets.map(async (asset) => {
+          try {
+            return [asset.id, await getMediaUrl(websiteId, asset.id, accessToken)] as const;
+          } catch {
+            return [asset.id, ''] as const;
+          }
+        })
+      );
+      return Object.fromEntries(entries) as Record<string, string>;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['media', websiteId] });
-      setUploading(false);
-    },
-    onError: () => {
-      setUploading(false);
-    },
+    enabled: assets.length > 0 && !!accessToken,
   });
 
-  const updateCropMutation = useMutation({
-    mutationFn: async ({ mediaId, crop }: { mediaId: string; crop: any }) => {
-      if (!accessToken) throw new Error('Not authenticated');
+  const visible = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    if (!needle) return assets;
+    return assets.filter((asset) =>
+      `${asset.originalFilename} ${asset.altText ?? ''}`.toLowerCase().includes(needle)
+    );
+  }, [assets, search]);
+
+  const patchMutation = useMutation({
+    mutationFn: async ({ mediaId, patch }: { mediaId: string; patch: { altText?: string; crop?: unknown } }) => {
+      if (!accessToken) throw new Error('Ikke logget ind');
       const res = await fetch(`/api/websites/${websiteId}/media/${mediaId}`, {
         method: 'PATCH',
         headers: {
@@ -141,26 +126,26 @@ export default function MediaPanel({ websiteId, onSelectImage, selectionMode = f
           Authorization: `Bearer ${accessToken}`,
           ...adminSessionHeaders(websiteId),
         },
-        body: JSON.stringify({ crop }),
+        body: JSON.stringify(patch),
       });
-      if (!res.ok) throw new Error('Failed to update crop');
+      if (!res.ok) throw new Error('Ændringen kunne ikke gemmes');
       return res.json();
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['media', websiteId] });
       setCropDialogOpen(false);
-      setSelectedAsset(null);
     },
+    onError: () => setError('Ændringen kunne ikke gemmes.'),
   });
 
   const deleteMutation = useMutation({
     mutationFn: async (mediaId: string) => {
-      if (!accessToken) throw new Error('Not authenticated');
+      if (!accessToken) throw new Error('Ikke logget ind');
       const res = await fetch(`/api/websites/${websiteId}/media/${mediaId}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${accessToken}`, ...adminSessionHeaders(websiteId) },
       });
-      if (!res.ok) throw new Error('Failed to delete');
+      if (!res.ok) throw new Error('Billedet kunne ikke slettes');
       return res.json();
     },
     onSuccess: () => {
@@ -168,39 +153,30 @@ export default function MediaPanel({ websiteId, onSelectImage, selectionMode = f
       setDeleteDialogOpen(false);
       setAssetToDelete(null);
     },
+    onError: () => setError('Billedet kunne ikke slettes.'),
   });
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files?.length) return;
-
-    setUploading(true);
-    for (const file of Array.from(files)) {
-      if (file.type.startsWith('image/')) {
-        await uploadMutation.mutateAsync(file);
-      }
-    }
     e.target.value = '';
-  };
-
-  const handleCropClick = async (asset: MediaAsset) => {
-    if (!accessToken) return;
-    const urlData = await getMediaUrl(websiteId, asset.id, accessToken);
-    setPreviewUrl(urlData.url);
-    setSelectedAsset(asset);
-    setCropDialogOpen(true);
-  };
-
-  const handleSelectImage = async (asset: MediaAsset) => {
-    if (!onSelectImage || !accessToken) return;
-    
-    let url = mediaUrls[asset.id];
-    if (!url) {
-      const urlData = await getMediaUrl(websiteId, asset.id, accessToken);
-      url = urlData.url;
-      setMediaUrls(prev => ({ ...prev, [asset.id]: url }));
+    if (!files?.length) return;
+    setError(null);
+    setUploading(true);
+    try {
+      for (const file of Array.from(files)) {
+        const invalid = validateImageFile(file);
+        if (invalid) {
+          setError(invalid);
+          continue;
+        }
+        await uploadImage(websiteId, accessToken, file);
+      }
+      queryClient.invalidateQueries({ queryKey: ['media', websiteId] });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Billedet kunne ikke uploades.');
+    } finally {
+      setUploading(false);
     }
-    onSelectImage(url, asset.id);
   };
 
   const formatFileSize = (bytes: number) => {
@@ -210,17 +186,25 @@ export default function MediaPanel({ websiteId, onSelectImage, selectionMode = f
   };
 
   return (
-    <div className="flex flex-col h-full">
-      <div className="p-4 border-b">
+    <div className="flex flex-col h-full" data-testid="media-panel">
+      <div className="p-4 border-b space-y-2">
         <Button
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
           className="w-full"
           data-testid="button-upload-media"
         >
-          <Upload className="w-4 h-4 mr-2" />
-          {uploading ? 'Uploading...' : 'Upload Images'}
+          {uploading ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Upload className="w-4 h-4 mr-2" />}
+          {uploading ? 'Uploader …' : 'Upload billeder'}
         </Button>
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Søg efter filnavn eller alt-tekst"
+          className="h-8 text-xs"
+          data-testid="input-media-search"
+        />
+        {error && <p className="text-xs text-destructive">{error}</p>}
         <input
           ref={fileInputRef}
           type="file"
@@ -233,71 +217,79 @@ export default function MediaPanel({ websiteId, onSelectImage, selectionMode = f
 
       <ScrollArea className="flex-1">
         {isLoading ? (
-          <div className="p-4 text-center text-gray-500">Loading media...</div>
-        ) : assets.length === 0 ? (
-          <div className="p-8 text-center text-gray-500">
+          <div className="p-4 text-center text-sm text-muted-foreground">Henter billeder …</div>
+        ) : visible.length === 0 ? (
+          <div className="p-8 text-center text-muted-foreground">
             <ImageIcon className="w-12 h-12 mx-auto mb-2 opacity-50" />
-            <p>No images uploaded yet</p>
-            <p className="text-sm">Click upload to add images</p>
+            <p className="text-sm">{assets.length === 0 ? 'Ingen billeder endnu' : 'Ingen billeder matcher søgningen'}</p>
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2 p-4">
-            {assets.map((asset) => (
+            {visible.map((asset) => (
               <div
                 key={asset.id}
-                className="relative group rounded-lg overflow-hidden border bg-gray-50 cursor-pointer hover:ring-2 hover:ring-blue-500"
-                onClick={() => selectionMode && handleSelectImage(asset)}
+                className="relative group rounded-lg overflow-hidden border bg-muted/40 cursor-pointer hover:ring-2 hover:ring-primary"
+                onClick={() => {
+                  if (!selectionMode || !onSelectImage) return;
+                  const url = urls[asset.id];
+                  if (url) onSelectImage(mediaAssetToImageValue(asset, url));
+                }}
                 data-testid={`media-item-${asset.id}`}
               >
-                <div className="aspect-square flex items-center justify-center bg-gray-100">
-                  <img
-                    src={mediaUrls[asset.id] || `/api/websites/${websiteId}/media/${asset.id}/url`}
-                    alt={asset.altText || asset.originalFilename}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      if (accessToken) {
-                        getMediaUrl(websiteId, asset.id, accessToken).then(data => {
-                          setMediaUrls(prev => ({ ...prev, [asset.id]: data.url }));
-                          (e.target as HTMLImageElement).src = data.url;
-                        });
-                      }
-                    }}
-                  />
-                </div>
-                
-                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                  {!selectionMode && (
-                    <>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleCropClick(asset);
-                        }}
-                        data-testid={`button-crop-${asset.id}`}
-                      >
-                        <Crop className="w-4 h-4" />
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setAssetToDelete(asset);
-                          setDeleteDialogOpen(true);
-                        }}
-                        data-testid={`button-delete-${asset.id}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </>
+                <div className="aspect-square flex items-center justify-center bg-muted">
+                  {urls[asset.id] ? (
+                    <img
+                      src={urls[asset.id]}
+                      alt={asset.altText || asset.originalFilename}
+                      width={asset.width}
+                      height={asset.height}
+                      loading="lazy"
+                      decoding="async"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <ImageIcon className="w-6 h-6 opacity-40" />
                   )}
                 </div>
 
-                <div className="p-2">
+                {!selectionMode && (
+                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={(e) => { e.stopPropagation(); setSelectedAsset(asset); setCropDialogOpen(true); }}
+                      data-testid={`button-crop-${asset.id}`}
+                    >
+                      <Crop className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onClick={(e) => { e.stopPropagation(); setAssetToDelete(asset); setDeleteDialogOpen(true); }}
+                      data-testid={`button-delete-${asset.id}`}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
+
+                <div className="p-2 space-y-1">
                   <p className="text-xs truncate font-medium">{asset.originalFilename}</p>
-                  <p className="text-xs text-gray-500">{formatFileSize(asset.size)}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatFileSize(asset.size)}
+                    {asset.width && asset.height ? ` · ${asset.width}×${asset.height}` : ''}
+                  </p>
+                  <Input
+                    defaultValue={asset.altText ?? ''}
+                    placeholder="Alt-tekst"
+                    className="h-7 text-[11px]"
+                    onClick={(e) => e.stopPropagation()}
+                    onBlur={(e) => {
+                      const altText = e.target.value;
+                      if (altText !== (asset.altText ?? '')) patchMutation.mutate({ mediaId: asset.id, patch: { altText } });
+                    }}
+                    data-testid={`input-alt-${asset.id}`}
+                  />
                 </div>
               </div>
             ))}
@@ -305,17 +297,12 @@ export default function MediaPanel({ websiteId, onSelectImage, selectionMode = f
         )}
       </ScrollArea>
 
-      {cropDialogOpen && selectedAsset && previewUrl && (
+      {cropDialogOpen && selectedAsset && urls[selectedAsset.id] && (
         <ImageCropper
-          imageSrc={previewUrl}
+          imageSrc={urls[selectedAsset.id]}
           open={cropDialogOpen}
-          onClose={() => {
-            setCropDialogOpen(false);
-            setSelectedAsset(null);
-          }}
-          onSave={(crop) => {
-            updateCropMutation.mutate({ mediaId: selectedAsset.id, crop });
-          }}
+          onClose={() => { setCropDialogOpen(false); setSelectedAsset(null); }}
+          onSave={(crop) => patchMutation.mutate({ mediaId: selectedAsset.id, patch: { crop } })}
           initialCrop={selectedAsset.crop || undefined}
         />
       )}
@@ -323,19 +310,17 @@ export default function MediaPanel({ websiteId, onSelectImage, selectionMode = f
       <Dialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Delete Image?</DialogTitle>
+            <DialogTitle>Slet billede?</DialogTitle>
           </DialogHeader>
-          <p>Are you sure you want to delete "{assetToDelete?.originalFilename}"? This cannot be undone.</p>
+          <p className="text-sm">Vil du slette "{assetToDelete?.originalFilename}"? Det kan ikke fortrydes.</p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>
-              Cancel
-            </Button>
+            <Button variant="outline" onClick={() => setDeleteDialogOpen(false)}>Annullér</Button>
             <Button
               variant="destructive"
               onClick={() => assetToDelete && deleteMutation.mutate(assetToDelete.id)}
               data-testid="button-confirm-delete"
             >
-              Delete
+              Slet
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -1,6 +1,7 @@
 export type ComponentType = 'hero' | 'image-slider' | 'text-image' | 'cta' | 'features' | 'testimonials' | 'footer' | 'header' | 'product-grid' | 'product-detail' | 'booking' | 'gallery' | 'pricing-table' | 'faq' | 'stats-counter' | 'contact-form' | 'video-embed' | 'divider' | 'spacer' | 'newsletter' | 'before-after' | 'logo-cloud' | 'marquee' | 'tabs' | 'comparison-table' | 'split-section' | 'rich-text' | 'team' | 'timeline' | 'services' | 'container' | 'shape-divider' | 'custom';
 
 import type { PrimitiveNode, EditableSchema } from './customComponents';
+import type { ImageValue } from './rendering/imageValue';
 import { SVG_SHAPES } from './svgShapes';
 import { createDefaultCustomTree } from './customComponents';
 import { APPROVED_FONTS } from './fonts';
@@ -127,7 +128,7 @@ export const cardStylePresets = [
 
 // Section layout variants
 export const sectionVariants = {
-  hero: ['centered', 'split-left', 'split-right', 'minimal', 'bold', 'video-bg'],
+  hero: ['centered', 'split-left', 'split-right', 'minimal', 'bold'],
   features: ['grid-3', 'grid-4', 'alternating', 'icon-left', 'card-style', 'minimal'],
   testimonials: ['carousel', 'grid', 'single', 'masonry', 'minimal'],
   pricing: ['cards', 'table', 'minimal', 'featured', 'comparison'],
@@ -327,7 +328,8 @@ export type ComponentItem = {
   title?: string;
   description?: string;
   icon?: string;
-  imageUrl?: string;
+  /** A URL, or the full image value (alt text, focal point, crop, natural size). */
+  imageUrl?: string | ImageValue;
   text?: string;
   year?: string;
   name?: string;
@@ -375,14 +377,15 @@ export type ComponentProps = {
   buttonText?: string;
   buttonLink?: string;
   showCart?: boolean | string;
-  imageUrl?: string;
+  /** A URL, or the full image value (alt text, focal point, crop, natural size). */
+  imageUrl?: string | ImageValue;
   /**
    * What a screen reader announces for `imageUrl`, and what a search engine
    * reads. Empty is correct for an image that carries no information of its own;
    * before this existed there was no way to say anything else.
    */
   imageAlt?: string;
-  images?: string[];
+  images?: Array<string | ImageValue>;
   items?: ComponentItem[];
   alignment?: 'left' | 'center' | 'right';
   imageSide?: 'left' | 'right';
@@ -674,7 +677,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'buttonLink', label: 'Button Link', type: 'text', group: 'content' },
       { key: 'secondaryButtonText', label: 'Secondary Button Text', type: 'text', group: 'content' },
       { key: 'secondaryButtonLink', label: 'Secondary Button URL', type: 'text', group: 'content' },
-      { key: 'layout', label: 'Layout Variant', type: 'select', group: 'content', options: ['centered', 'split-left', 'split-right', 'minimal', 'bold', 'video-bg'] },
+      { key: 'layout', label: 'Layout Variant', type: 'select', group: 'content', options: ['centered', 'split-left', 'split-right', 'minimal', 'bold'] },
       { key: 'imageUrl', label: 'Image (background or split panel)', type: 'image', group: 'content' },
       { key: 'imageAlt', label: 'Billedbeskrivelse (alt-tekst)', type: 'text', group: 'content' },
       { key: 'alignment', label: 'Text Alignment', type: 'select', group: 'content', options: ['left', 'center', 'right'] },

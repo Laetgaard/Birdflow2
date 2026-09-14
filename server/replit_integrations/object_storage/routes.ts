@@ -4,6 +4,40 @@ import sharp from "sharp";
 import { ObjectStorageService, ObjectNotFoundError, objectStorageClient } from "./objectStorage";
 import { randomUUID } from "crypto";
 
+/**
+ * One recipe for turning an upload into the webp the site serves.
+ *
+ * SVG rasterises at a high density (the default 72dpi renders a logo as a
+ * blurry thumbnail), an animated GIF keeps its frames instead of collapsing
+ * to frame one, and every photo is rotated by its EXIF orientation before
+ * the metadata is dropped — a portrait taken on a phone used to arrive on
+ * its side. The dimensions come back with it so nothing has to measure the
+ * file in a browser afterwards.
+ */
+export async function optimizeUploadBuffer(
+  buffer: Buffer,
+  mimeType: string
+): Promise<{ buffer: Buffer; width?: number; height?: number }> {
+  const isSvg = mimeType === "image/svg+xml";
+  const isGif = mimeType === "image/gif";
+  let pipeline = sharp(buffer, {
+    ...(isSvg ? { density: 192 } : {}),
+    ...(isGif ? { animated: true } : {}),
+  });
+  if (!isSvg && !isGif) pipeline = pipeline.rotate();
+
+  const metadata = await pipeline.metadata();
+  if (metadata.width && metadata.width > 2000) {
+    pipeline = pipeline.resize(2000, null, { withoutEnlargement: true, fit: "inside" });
+  }
+
+  const optimized = await pipeline.webp({ quality: 80 }).toBuffer();
+  const out = await sharp(optimized, isGif ? { animated: true } : {}).metadata();
+  // An animated webp reports the height of the filmstrip; pages need one frame.
+  const height = isGif && out.pages && out.pages > 1 && out.height ? Math.round(out.height / out.pages) : out.height;
+  return { buffer: optimized, width: out.width, height };
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
@@ -89,13 +123,16 @@ export function registerObjectStorageRoutes(app: Express, requireAuth?: RequestH
    * - Compressed to 80% quality
    * - Converted to WebP format (25-35% smaller than JPEG/PNG)
    * - Resized if larger than 2000px width
-   * 
+   * - Rotated by EXIF orientation; SVG rasterised at 192dpi; GIF kept animated
+   *
    * Response:
    * {
    *   "objectPath": "/objects/uploads/uuid.webp",
    *   "originalSize": 5242880,
    *   "optimizedSize": 102400,
-   *   "savings": "98%"
+   *   "savings": "98%",
+   *   "width": 2000,
+   *   "height": 1333
    * }
    */
   app.post("/api/uploads/optimized-image", ...(requireAuth ? [requireAuth] : []), upload.single('image'), async (req, res) => {
@@ -105,26 +142,12 @@ export function registerObjectStorageRoutes(app: Express, requireAuth?: RequestH
       }
 
       const originalSize = req.file.size;
-      
-      // Process image with Sharp
-      let sharpInstance = sharp(req.file.buffer);
-      
-      // Get image metadata
-      const metadata = await sharpInstance.metadata();
-      
-      // Resize if too large (max 2000px width)
-      if (metadata.width && metadata.width > 2000) {
-        sharpInstance = sharpInstance.resize(2000, null, {
-          withoutEnlargement: true,
-          fit: 'inside',
-        });
-      }
-      
-      // Convert to WebP with 80% quality
-      const optimizedBuffer = await sharpInstance
-        .webp({ quality: 80 })
-        .toBuffer();
-      
+
+      const { buffer: optimizedBuffer, width, height } = await optimizeUploadBuffer(
+        req.file.buffer,
+        req.file.mimetype
+      );
+
       const optimizedSize = optimizedBuffer.length;
       const savings = Math.round((1 - optimizedSize / originalSize) * 100);
       
@@ -154,6 +177,10 @@ export function registerObjectStorageRoutes(app: Express, requireAuth?: RequestH
         originalSize,
         optimizedSize,
         savings: `${savings}%`,
+        // Measured server-side, so the caller never has to load the file to
+        // learn how much space to reserve for it.
+        width,
+        height,
       });
     } catch (error) {
       console.error("Error optimizing and uploading image:", error);

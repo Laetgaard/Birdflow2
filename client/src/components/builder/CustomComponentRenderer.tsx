@@ -21,6 +21,8 @@ import {
   canvasRootStyles,
 } from "@shared/customComponents";
 import { sanitizeSvg } from "@shared/svgSanitizer";
+import BuilderImage from "./BuilderImage";
+import { imageSlot } from "@shared/rendering/imageRender";
 import { TOKEN_FALLBACKS, readableTextOn, resolveDesignTokens } from "@shared/designTokens";
 import { applySvgAssetColors, type SvgAssetLike } from "@shared/svgAssets";
 import { MOTION_TABLES, computeMotion, staggerChildSpec, type MotionSpec } from "@shared/motion";
@@ -551,7 +553,17 @@ function NodeRenderer({
           </div>
         );
       }
-      return <img {...dataAttrs} {...motionProps} src={node.src} alt={node.alt ?? ""} style={style} onClick={handleNodeClick} />;
+      return (
+        <BuilderImage
+          attrs={{ ...dataAttrs, ...motionProps }}
+          value={{ url: node.src, alt: node.alt, ...(node.mediaId ? { mediaId: node.mediaId } : {}) }}
+          alt={node.alt ?? ""}
+          slot={imageSlot("content")}
+          isPreview={isPreview}
+          style={style}
+          onClick={handleNodeClick}
+        />
+      );
     }
 
     case "button": {
