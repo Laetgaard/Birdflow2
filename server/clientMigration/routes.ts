@@ -390,13 +390,30 @@ export function registerClientMigrationRoutes(app: Express, guards: { requireAut
     }
   });
 
-  const approveSchema = z.object({ sendInvite: z.boolean().default(true) });
+  const approveSchema = z.object({
+    sendInvite: z.boolean().default(true),
+    /** Approve although pages are below the fidelity target; the admin has looked. */
+    override: z.boolean().default(false),
+  });
   app.post("/api/admin/migrations/:id/approve", requireAuth, requireAdmin, async (req, res) => {
     try {
       const job = await store.getJob(req.params.id);
       if (!job) return res.status(404).json({ message: "Migreringen findes ikke." });
       if (job.status !== "awaiting_final_review" && job.status !== "done") return res.status(409).json({ message: "Siden er ikke klar til godkendelse endnu." });
-      const { sendInvite } = approveSchema.parse(req.body ?? {});
+      const { sendInvite, override } = approveSchema.parse(req.body ?? {});
+      // A page that did not reach the target is a page the client will open
+      // and find poorer than their own site. The admin may still send it —
+      // but says so, rather than finding out from the customer.
+      const fidelity = job.fidelity as { target?: number; belowTarget?: string[] } | null;
+      const below = fidelity?.belowTarget ?? [];
+      if (below.length && !override) {
+        return res.status(409).json({
+          code: "below_target",
+          belowTarget: below,
+          target: fidelity?.target,
+          message: `${below.length} side${below.length === 1 ? "" : "r"} nåede ikke troskabsmålet (${below.slice(0, 5).join(", ")}). Gennemse dem, eller godkend alligevel.`,
+        });
+      }
       const adminId = (req as any).user.id as string;
       await updateDecisionByUser(job.clientUserId, { decisionState: "approved", approvedAt: new Date() } as any).catch(() => undefined);
       let invite = null;
@@ -406,7 +423,7 @@ export function registerClientMigrationRoutes(app: Express, guards: { requireAut
       } else {
         await store.updateJob(job.id, { status: "done", approvedAt: new Date(), approvedBy: adminId, finishedAt: new Date() });
       }
-      await audit(req, job.websiteId, "client_migration.approved", "migrationJob", job.id, { sendInvite });
+      await audit(req, job.websiteId, "client_migration.approved", "migrationJob", job.id, { sendInvite, ...(below.length ? { overriddenBelowTarget: below } : {}) });
       res.json({
         ok: true,
         emailSent: invite?.emailSent ?? false,

@@ -24,7 +24,7 @@ import { createSpendMeter, assumedCallCostUsd, type SpendMeter } from "../aiSpen
 import { storage } from "../storage";
 import { assertPublicUrl } from "../websiteImportCrawler";
 import { brandGuideToDesignTokens } from "@shared/generative/sanitize";
-import type { BuilderStateData } from "@shared/schema";
+import type { BuilderPage, BuilderStateData } from "@shared/schema";
 import {
   MigrationPlanSchema,
   migrationLimitsSchema,
@@ -55,6 +55,8 @@ import { runAgentLoop } from "../aiAgent";
 import type { AgentContext } from "../aiAgentTools";
 import { makeFidelityGuard } from "./build/fidelityGuard";
 import { migrationToolCatalogue } from "./build/migrationToolCatalogue";
+import { MIGRATION_CORRECTION_PROMPT } from "./build/migrationPrompts";
+import { loadSvgAssetSummaries } from "../svgAssetSummaries";
 import { sectionEvidence } from "./plan/sectionMapper";
 import { resolveIssues, openReviewBrowser, type ReviewBrowser, type VisualIssue } from "../visualReview";
 import { publishedRendererHealth } from "../publisher/inProcessRenderer";
@@ -64,10 +66,23 @@ const PROCESS_ID = `${process.pid}-${randomUUID().slice(0, 8)}`;
 const HEARTBEAT_MS = 10_000;
 const MAX_PHASE_ATTEMPTS = 3;
 const MAX_CONCURRENT_MIGRATIONS = 1;
-const MAX_FIDELITY_ITERATIONS = 2;
+const MAX_FIDELITY_ITERATIONS = 4;
+
+/**
+ * What a page must reach before the site is offered to the client without a
+ * warning. The loop corrects a page until it gets there, its budget runs out,
+ * or a pass stops improving it.
+ */
+const DEFAULT_FIDELITY_TARGET = 0.95;
+export function fidelityTarget(): number {
+  const raw = Number(process.env.MIGRATION_FIDELITY_TARGET);
+  return Number.isFinite(raw) ? Math.max(0.5, Math.min(1, raw)) : DEFAULT_FIDELITY_TARGET;
+}
+/** A pass that moves the score less than this is not worth buying again. */
+const MIN_FIDELITY_GAIN = 0.01;
 
 /** Budget slices, as shares of the job ceiling. */
-const SLICES = { plan: 0.15, build: 0.6, verify: 0.2, enrich: 0.05 } as const;
+const SLICES = { plan: 0.15, build: 0.55, verify: 0.25, enrich: 0.05 } as const;
 
 /** Which metered roles draw on which slice, so a slice can be spent down. */
 const SLICE_ROLES: Record<keyof typeof SLICES, string[]> = {
@@ -75,7 +90,10 @@ const SLICE_ROLES: Record<keyof typeof SLICES, string[]> = {
   // The section reviewer is part of building — its calls are what makes a
   // band worth keeping — so it is charged to the build slice, not verify.
   build: ["migrationBuild", "migrationSectionReview"],
-  verify: ["migrationFidelity"],
+  // Both halves of verification: looking at the page, and the corrective
+  // passes that looking asks for. A correction charged to the build slice
+  // would have let the loop spend money the build had already committed.
+  verify: ["migrationFidelity", "migrationCorrection"],
   enrich: ["migrationExtract"],
 };
 
@@ -245,6 +263,17 @@ async function checkControl(rt: Runtime): Promise<void> {
  * could quietly consume the plan's and the verification's money too.
  */
 /** The stored vectors a rebuilt tree may reference by id. */
+/**
+ * The job-level copy of a page's score: the numbers only. The per-section
+ * breakdown and the list of missing lines stay on the page row, where the
+ * admin opens them — a job with ten pages should not carry ten section maps
+ * in the column the dashboard polls.
+ */
+function summarise(score: MigrationFidelity): MigrationFidelity {
+  const { sections: _sections, missing, ...numbers } = score;
+  return { ...numbers, ...(missing?.length ? { missingCount: missing.length } : {}) };
+}
+
 function svgAssetIdsOf(assets: MigrationAssetRecord[]): Set<string> {
   return new Set(assets.flatMap((asset) => (asset.svgAssetId ? [asset.svgAssetId] : [])));
 }
@@ -562,6 +591,7 @@ async function phaseBuild(rt: Runtime): Promise<void> {
       language: rt.job.language as "da" | "en",
       agentBudgetUsd,
       browser: browser ?? undefined,
+      websiteId: rt.job.websiteId,
       store: { jobId: rt.job.id, pageRowId: row.id },
       limits: { sectionIterations: rt.limits.sectionIterations, sectionPassScore: rt.limits.sectionPassScore, sectionCapUsd: rt.limits.sectionCapUsd },
       fontNote: fontNote(rt.job),
@@ -607,8 +637,9 @@ async function phaseVerify(rt: Runtime): Promise<void> {
   const pages = await store.listPages(rt.job.id);
   const assets = rt.job.assets as MigrationAssetRecord[];
   const allowed = new Set(assets.map((asset) => asset.storagePath));
-  const fidelity: Record<string, MigrationFidelity & { reviewed?: boolean; issues?: number }> = {};
+  const fidelity: Record<string, MigrationFidelity & { reviewed?: boolean; issues?: number; belowTarget?: boolean; name?: string }> = {};
   const ordered = [...plan.pages].sort((a, b) => (a.role === "home" ? -1 : b.role === "home" ? 1 : (a.navOrder ?? 999) - (b.navOrder ?? 999)));
+  const target = fidelityTarget();
 
   // A missing builder state is the one thing here that is the job's problem
   // rather than a page's, so it is checked once, up front.
@@ -622,7 +653,10 @@ async function phaseVerify(rt: Runtime): Promise<void> {
   const writeAggregate = async () => {
     const scores = Object.values(fidelity).map((f) => f.score);
     const overall = scores.length ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
-    await store.updateJob(rt.job.id, { fidelity: { pages: fidelity, overall: Math.round(overall * 1000) / 1000 } as unknown as Record<string, unknown> });
+    // Which pages the admin should look at before the client sees the site —
+    // named, so the gate on approval can say what is wrong without recomputing.
+    const below = Object.values(fidelity).filter((f) => f.belowTarget).map((f) => f.name ?? "").filter(Boolean);
+    await store.updateJob(rt.job.id, { fidelity: { pages: fidelity, overall: Math.round(overall * 1000) / 1000, target, belowTarget: below } as unknown as Record<string, unknown> });
   };
 
   // The published renderer is a compiled module, not a service. If it cannot
@@ -650,7 +684,7 @@ async function phaseVerify(rt: Runtime): Promise<void> {
       // redo all ten pages — and that is how the phase burned its lives.
       if (row.verifyStatus !== "pending" && row.verify) {
         const stored = row.verify as { score?: MigrationFidelity; reviewed?: boolean; issues?: unknown[] };
-        if (stored?.score) fidelity[row.id] = { ...stored.score, reviewed: !!stored.reviewed, issues: Array.isArray(stored.issues) ? stored.issues.length : 0 };
+        if (stored?.score) fidelity[row.id] = { ...summarise(stored.score), reviewed: !!stored.reviewed, issues: Array.isArray(stored.issues) ? stored.issues.length : 0, belowTarget: stored.score.score < target, name: pagePlan.targetName };
         continue;
       }
 
@@ -671,11 +705,25 @@ async function phaseVerify(rt: Runtime): Promise<void> {
           continue;
         }
 
+        // Which component each planned section became, so a missing line can
+        // name the component the corrective pass has to change.
+        const componentIds = Object.fromEntries(Object.entries((row.buildProgress as MigrationPageBuildProgress | null)?.sections ?? {}).map(([id, s]) => [id, s.componentId]));
+        const scoreOf = (target_: BuilderPage): MigrationFidelity => scorePageFidelity({
+          extraction: item.extraction,
+          plan: pagePlan,
+          page: target_,
+          importedPaths: allowed,
+          // The footer's art belongs to the site, not to the page; it is
+          // scored against the footer the finish phase will install.
+          chrome: { footer: (dressed() as { siteChrome?: { footer?: unknown } }).siteChrome?.footer },
+          componentIds,
+        });
+
         // The deterministic score is the number the admin trusts, so it gets
         // its own guard: a crash in it costs this page's score, not the run.
         let score: MigrationFidelity;
         try {
-          score = scorePageFidelity({ extraction: item.extraction, plan: pagePlan, page, importedPaths: allowed });
+          score = scoreOf(page);
         } catch (error) {
           const detail = String((error as Error)?.message ?? error).slice(0, 300);
           await warn(rt, "verify", "scoring_failed", `Fidelity score failed for ${pagePlan.targetName}: ${detail}`, row.sourceUrl);
@@ -687,80 +735,129 @@ async function phaseVerify(rt: Runtime): Promise<void> {
         let resolutions: ReturnType<typeof resolveIssues> = [];
         let reviewed = false;
         let iterations = 0;
+        let corrections = 0;
         let skipReason: VerifySkipReason | undefined;
+        // A page that cannot be photographed is still corrected: the free
+        // measurement knows which wave, picture and headline are missing.
+        let visionOff = !health.ok;
+
+        // A section the admin settled is nobody's to change — neither the
+        // reviewer's nor the measurement's.
+        const settled = new Set(pagePlan.sections.filter((s) => s.keepAsOriginal).map((s) => componentIds[s.sourceSectionId]).filter((id): id is string => !!id));
+        const pagesLeft = Math.max(1, ordered.length - ordered.indexOf(pagePlan));
+        // What this page may spend putting itself right, so page one cannot
+        // eat the whole verify slice.
+        const correctionCap = Math.min(0.6, roomFor(rt, "verify") / pagesLeft);
+        const spentAtStart = rt.meter.spentUsd;
+        let lastRebuiltDesktop: string | undefined;
 
         const screenshots = (row.screenshots as any) ?? {};
-        while (health.ok && !browserFailed && iterations < MAX_FIDELITY_ITERATIONS && roomFor(rt, "verify") >= assumedCallCostUsd("migrationFidelity")) {
-          iterations++;
-          const before = rt.meter.spentUsd;
-          if (!browser) {
-            try {
-              browser = await openReviewBrowser();
-            } catch (error) {
-              browserFailed = true;
-              iterations--;
-              await warn(rt, "verify", "browser_unavailable", `Chromium could not be started for the comparison screenshots: ${String((error as Error)?.message ?? error).slice(0, 200)}`);
-              break;
+        while (score.score < target && corrections < MAX_FIDELITY_ITERATIONS) {
+          // ── What a reviewer can see that the measurement cannot ──────────
+          if (!visionOff && !browserFailed && iterations < MAX_FIDELITY_ITERATIONS && roomFor(rt, "verify") >= assumedCallCostUsd("migrationFidelity")) {
+            const before = rt.meter.spentUsd;
+            if (!browser) {
+              try {
+                browser = await openReviewBrowser();
+              } catch (error) {
+                browserFailed = true;
+                await warn(rt, "verify", "browser_unavailable", `Chromium could not be started for the comparison screenshots: ${String((error as Error)?.message ?? error).slice(0, 200)}`);
+              }
+            }
+            if (browser) {
+              iterations++;
+              const review = await reviewPageFidelity({
+                state: dressed(),
+                pageId: page.id,
+                pagePlan,
+                sourceScreenshots: { desktop: screenshots.desktop?.storagePath, mobile: screenshots.mobile?.storagePath },
+                language: rt.job.language as "da" | "en",
+                meter: rt.meter,
+                store: { jobId: rt.job.id, pageRowId: row.id },
+                browser,
+                websiteId: rt.job.websiteId,
+                // What the measurement already found, so the reviewer spends
+                // its attention on the rest.
+                knownMissing: (score.missing ?? []).map((m) => m.detail),
+              });
+              // Keep the rebuild's screenshots on the page row so the admin's compare
+              // view can show both sides without re-rendering anything.
+              if (review.rebuiltPaths?.desktop) { screenshots.rebuild = { storagePath: review.rebuiltPaths.desktop }; lastRebuiltDesktop = review.rebuiltPaths.desktop; }
+              if (review.rebuiltPaths?.mobile) screenshots.rebuildMobile = { storagePath: review.rebuiltPaths.mobile };
+              if (review.rebuiltPaths?.desktop || review.rebuiltPaths?.mobile) await store.updatePage(row.id, { screenshots });
+              rt.spendByRole.migrationFidelity = (rt.spendByRole.migrationFidelity ?? 0) + (rt.meter.spentUsd - before);
+              if (!review.ran) {
+                // Said once per page: the loop carries on from the free
+                // measurement rather than asking again and paying again.
+                visionOff = true;
+                skipReason = review.reason ?? "screenshot_failed";
+                if (review.skippedReason) await warn(rt, "verify", "review_skipped", `${pagePlan.targetName}: ${review.skippedReason}`, row.sourceUrl);
+              } else {
+                reviewed = true;
+                if (issues.length) resolutions = resolveIssues(issues, review.issues);
+                issues = review.issues;
+              }
             }
           }
-          const review = await reviewPageFidelity({ state: dressed(), pageId: page.id, pagePlan, sourceScreenshots: { desktop: screenshots.desktop?.storagePath, mobile: screenshots.mobile?.storagePath }, language: rt.job.language as "da" | "en", meter: rt.meter, store: { jobId: rt.job.id, pageRowId: row.id }, browser });
-          // Keep the rebuild's screenshots on the page row so the admin's compare
-          // view can show both sides without re-rendering anything.
-          if (review.rebuiltPaths?.desktop) screenshots.rebuild = { storagePath: review.rebuiltPaths.desktop };
-          if (review.rebuiltPaths?.mobile) screenshots.rebuildMobile = { storagePath: review.rebuiltPaths.mobile };
-          if (review.rebuiltPaths?.desktop || review.rebuiltPaths?.mobile) await store.updatePage(row.id, { screenshots });
-          rt.spendByRole.migrationFidelity = (rt.spendByRole.migrationFidelity ?? 0) + (rt.meter.spentUsd - before);
-          if (!review.ran) {
-            skipReason = review.reason ?? "screenshot_failed";
-            if (review.skippedReason) await warn(rt, "verify", "review_skipped", `${pagePlan.targetName}: ${review.skippedReason}`, row.sourceUrl);
-            break;
-          }
-          reviewed = true;
-          if (iterations > 1) resolutions = resolveIssues(issues, review.issues);
-          issues = review.issues;
-          // A section the admin settled is not the reviewer's to change.
-          const settled = new Set(pagePlan.sections.filter((s) => s.keepAsOriginal).map((s) => (row.buildProgress as MigrationPageBuildProgress | null)?.sections?.[s.sourceSectionId]?.componentId).filter((id): id is string => !!id));
-          const actionable = issues.filter((issue) => (issue.severity === "critical" || issue.severity === "high") && issue.componentId && !settled.has(issue.componentId));
-          if (!actionable.length || iterations >= MAX_FIDELITY_ITERATIONS || roomFor(rt, "verify") < assumedCallCostUsd("migrationBuild")) break;
+
+          // ── What to put right, measured first and seen second ────────────
+          const measured = (score.missing ?? []).filter((m) => !m.componentId || !settled.has(m.componentId)).slice(0, 12);
+          const seen = issues.filter((issue) => (issue.severity === "critical" || issue.severity === "high") && issue.componentId && !settled.has(issue.componentId));
+          if (!measured.length && !seen.length) break;
+          if (rt.meter.spentUsd - spentAtStart >= correctionCap) break;
+          if (roomFor(rt, "verify") < assumedCallCostUsd("migrationBuild")) break;
 
           // One corrective pass, behind the same guard as the build.
+          corrections++;
           const guard = makeFidelityGuard({ evidence: sectionEvidence(item.extraction), allowedImagePaths: allowed, allowedSvgAssetIds: svgAssetIdsOf(assets), label: pagePlan.targetName });
-          const ctx: AgentContext = { websiteId: rt.job.websiteId, state: structuredClone(state), applied: [], notes: [], createdImages: [], imageCache: new Map(Array.from({ length: 8 }, (_, i) => [`blocked-${i}`, ""])), spendMeter: rt.meter, approvedLargeChanges: true, guard };
+          const ctx: AgentContext = { websiteId: rt.job.websiteId, state: structuredClone(state), applied: [], notes: [], createdImages: [], imageCache: new Map(Array.from({ length: 8 }, (_, i) => [`blocked-${i}`, ""])), spendMeter: rt.meter, approvedLargeChanges: true, guard, svgAssets: await loadSvgAssetSummaries(rt.job.websiteId) };
           const fixBefore = rt.meter.spentUsd;
           try {
-            const fixMessage = `Page "${page.id}". Fix these differences from the original, each naming the component to change:\n${actionable.map((i) => `- [${i.severity}] ${i.componentId}: ${i.description} → ${i.suggestedAction}`).join("\n")}\n\nWhich component is which section: ${sectionMapText(pagePlan, row.buildProgress as MigrationPageBuildProgress | null)}\n\nAvailable image paths: ${Array.from(allowed).slice(0, 40).join(", ")}`;
+            const fixMessage = [
+              `Page "${page.id}". Make the rebuild carry everything the original page had.`,
+              measured.length ? `Measured as missing (each line is a fact, not a guess):\n${measured.map((m) => `- ${m.componentId ? `${m.componentId}: ` : ""}[${m.kind}] ${m.detail}`).join("\n")}` : "",
+              seen.length ? `Seen in the comparison:\n${seen.map((i) => `- [${i.severity}] ${i.componentId}: ${i.description} → ${i.suggestedAction}`).join("\n")}` : "",
+              `Which component is which section: ${sectionMapText(pagePlan, row.buildProgress as MigrationPageBuildProgress | null)}`,
+              `Available image paths: ${Array.from(allowed).slice(0, 40).join(", ")}`,
+            ].filter(Boolean).join("\n\n");
             // Sighted, like the build loop: the original page and the rebuild
             // as it stands. A text-only issue list was a description of a
             // picture nobody in the conversation had seen.
-            const fixImages = await comparePair(screenshots.desktop?.storagePath, review.rebuiltPaths?.desktop);
+            const fixImages = await comparePair(screenshots.desktop?.storagePath, lastRebuiltDesktop);
             await runAgentLoop({
               tools: migrationToolCatalogue(),
-              systemPrompt: "You are BirdFlow's migration agent correcting a rebuilt page so it matches the customer's original. Use only the tools. Use only text and images already present on the page or supplied here; never invent. Call finish when done.",
+              systemPrompt: MIGRATION_CORRECTION_PROMPT,
               userMessage: fixMessage,
               userContent: fixImages.length ? [{ type: "text", text: fixMessage }, ...fixImages] : undefined,
               ctx,
-              maxSteps: 6,
+              maxSteps: 8,
               role: "migrationBuild",
               spendMeter: rt.meter,
               finalTurn: { toolName: "finish", reminder: "Call finish now.", satisfied: () => ctx.applied.length > 0 },
               allowContinuations: false,
             });
-            rt.spendByRole.migrationBuild = (rt.spendByRole.migrationBuild ?? 0) + (rt.meter.spentUsd - fixBefore);
-            if (ctx.applied.length) {
-              const saved = await storage.updateBuilderState(rt.job.websiteId, ctx.state, revision, { svgAssetOrigin: "customer" } as any);
-              // A conflict on a correction costs this page its correction —
-              // its review already happened and its score already stands.
-              if (!saved) {
-                await warn(rt, "verify", "builder_conflict", `The site was edited while ${pagePlan.targetName} was being corrected; its fixes were not saved.`, row.sourceUrl);
-                break;
-              }
-              state = ctx.state;
-              revision = (saved as any).revision;
-              const fixedPage = state.pages.find((p) => p.id === row.targetPageId);
-              // Re-scoring is a bonus, not a requirement: if it throws, the
-              // page keeps the score it already earned.
-              if (fixedPage) try { score = scorePageFidelity({ extraction: item.extraction, plan: pagePlan, page: fixedPage, importedPaths: allowed }); } catch { /* keep the score from before the correction */ }
+            rt.spendByRole.migrationCorrection = (rt.spendByRole.migrationCorrection ?? 0) + (rt.meter.spentUsd - fixBefore);
+            if (!ctx.applied.length) break; // a pass that changed nothing will not change anything next time either
+            const saved = await storage.updateBuilderState(rt.job.websiteId, ctx.state, revision, { svgAssetOrigin: "customer" } as any);
+            // A conflict on a correction costs this page its correction —
+            // its review already happened and its score already stands.
+            if (!saved) {
+              await warn(rt, "verify", "builder_conflict", `The site was edited while ${pagePlan.targetName} was being corrected; its fixes were not saved.`, row.sourceUrl);
+              break;
             }
+            state = ctx.state;
+            revision = (saved as any).revision;
+            const fixedPage = state.pages.find((p) => p.id === row.targetPageId);
+            // Re-scoring is a bonus, not a requirement: if it throws, the
+            // page keeps the score it already earned.
+            if (!fixedPage) break;
+            let next: MigrationFidelity;
+            try { next = scoreOf(fixedPage); } catch { break; }
+            const gain = next.score - score.score;
+            score = next.score >= score.score ? next : score;
+            rt.log(`verify ${pagePlan.targetName}: pass ${corrections} ${gain >= 0 ? "+" : ""}${Math.round(gain * 1000) / 10} points → ${Math.round(score.score * 100)} %`);
+            // A pass that barely moved the number will not be bought again.
+            if (gain < MIN_FIDELITY_GAIN) break;
           } catch (error) {
             await warn(rt, "verify", "correction_failed", String((error as Error)?.message ?? error), row.sourceUrl);
             break;
@@ -771,8 +868,12 @@ async function phaseVerify(rt: Runtime): Promise<void> {
         // Only a genuine refusal of money says "budget"; the other reasons
         // already warned for themselves inside the loop.
         if (status === "skipped_budget" && iterations === 0) await warn(rt, "verify", "skipped_budget", `Vision comparison skipped for ${pagePlan.targetName}: verify budget used up.`, row.sourceUrl);
-        fidelity[row.id] = { ...score, reviewed, issues: issues.length };
-        await store.updatePage(row.id, { verifyStatus: status, verify: { score, issues, resolutions, iterations, reviewed, ...(status === "done" ? {} : { reason: status }) } as unknown as Record<string, unknown> });
+        const belowTarget = score.score < target;
+        // The admin is told before the client is: a page under the target is
+        // named, with what it is missing, and approval asks for a confirmation.
+        if (belowTarget) await warn(rt, "verify", "below_target", `${pagePlan.targetName} reached ${Math.round(score.score * 100)} % of the original (target ${Math.round(target * 100)} %)${(score.missing ?? []).length ? `; missing: ${(score.missing ?? []).slice(0, 4).map((m) => m.detail).join("; ")}` : ""}`, row.sourceUrl);
+        fidelity[row.id] = { ...summarise(score), reviewed, issues: issues.length, belowTarget, name: pagePlan.targetName };
+        await store.updatePage(row.id, { verifyStatus: status, verify: { score, issues, resolutions, iterations, corrections, reviewed, target, belowTarget, ...(status === "done" ? {} : { reason: status }) } as unknown as Record<string, unknown> });
         await store.updateJob(rt.job.id, { builderRevision: revision });
       } catch (error) {
         if (error instanceof JobControl) throw error;

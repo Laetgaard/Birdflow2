@@ -329,6 +329,42 @@ describe("verification can never kill a job", () => {
     expect(review).not.toContain("warnings[0]");
   });
 
+  it("photographs the rebuild with its imported artwork in it", () => {
+    // An imported wave is a reference until something resolves it. Screenshots
+    // taken without that step showed blank space where every decoration was,
+    // and the reviewer dutifully reported the artwork as missing.
+    for (const rel of ["server/clientMigration/verify/fidelityReview.ts", "server/clientMigration/verify/sectionRender.ts"]) {
+      expect(read(rel), rel).toContain("stateForCapture(");
+      const src = read(rel);
+      expect(src.indexOf("stateForCapture("), rel).toBeLessThan(src.indexOf("capturePageScreenshots("));
+    }
+    expect(read("server/clientMigration/verify/renderState.ts")).toContain("resolveSvgAssetsInState(");
+  });
+
+  it("measures the artwork, names what is missing, and corrects until the page reaches its target", () => {
+    const score = read("server/clientMigration/verify/fidelityScore.ts");
+    expect(score).toContain("decorationCoverage");
+    expect(score).toContain("FIDELITY_WEIGHTS");
+    const src = read("server/clientMigration/migrationJob.ts");
+    expect(src).toContain("MIGRATION_FIDELITY_TARGET");
+    const verify = src.slice(src.indexOf("async function phaseVerify"), src.indexOf("async function phaseFinish"));
+    // The loop is driven by the free measurement, not only by a vision call
+    // that a job without budget or a working browser never gets to make.
+    expect(verify).toContain("score.score < target");
+    expect(verify).toContain("score.missing");
+    expect(verify).toContain('warn(rt, "verify", "below_target"');
+    // And the reviewer knows about the artwork it is meant to look for.
+    expect(read("server/clientMigration/verify/fidelityReview.ts")).toContain("fidelity_decoration");
+  });
+
+  it("asks before sending a client a site that did not reach the target", () => {
+    const routes = read("server/clientMigration/routes.ts");
+    const approve = routes.slice(routes.indexOf("const approveSchema"), routes.indexOf("resend-invite"));
+    expect(approve).toContain('code: "below_target"');
+    expect(approve).toContain("override");
+    expect(approve).toContain("409");
+  });
+
   it("keeps one stub map for the published renderer, so it cannot drift again", () => {
     // A map that forgot @/components/trustedRuntime rendered every review
     // screenshot blank, silently, for as long as nobody looked.

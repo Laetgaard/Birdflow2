@@ -794,13 +794,54 @@ export type MigrationAssetRecord = {
   colorSlots?: Array<{ id: string; original: string; label: string }>;
 };
 
+/** One thing the rebuild left out, in words the corrective agent can act on. */
+export type MigrationFidelityMissing = {
+  /** The planned section it belongs to, or "chrome-footer". */
+  sectionId: string;
+  kind: "text" | "heading" | "cta" | "image" | "decoration";
+  /** What is missing: a quoted line, an imported path, or "wave on the bottom edge". */
+  detail: string;
+  /** For a decoration: its index in the host's `decorations`. */
+  decoration?: number;
+  /** The component the section became, when the caller knows it. */
+  componentId?: string;
+};
+
+/** What one planned section kept, axis by axis; 1 when nothing was expected. */
+export type MigrationSectionFidelity = {
+  text: number;
+  headings: number;
+  ctas: number;
+  images: number;
+  decorations: number;
+  missing: MigrationFidelityMissing[];
+};
+
 export type MigrationFidelity = {
   score: number;
   textCoverage: number;
   headingCoverage: number;
   ctaCoverage: number;
   imageCoverage: number;
+  /** Waves, dividers, illustrations and background art: 1 when the page had none. */
+  decorationCoverage: number;
   orderScore: number;
+  /** Per planned section (plus "chrome-footer"), so the admin and the agent see WHICH band fell short. */
+  sections?: Record<string, MigrationSectionFidelity>;
+  /** The page's missing items, worst first, at most 40. */
+  missing?: MigrationFidelityMissing[];
+  /** How many there were, for the job-level copy that leaves the list on the page row. */
+  missingCount?: number;
+};
+
+/** What a page's verification recorded, beyond the score. */
+export type MigrationVerifySummary = {
+  score: MigrationFidelity;
+  iterations: number;
+  correctivePasses?: number;
+  reviewed: boolean;
+  target?: number;
+  belowTarget?: boolean;
 };
 
 /**

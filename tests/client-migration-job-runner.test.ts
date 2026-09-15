@@ -126,7 +126,10 @@ const publishedRendererHealth = vi.fn(async () => ({ ok: true }) as { ok: true }
 vi.mock("../server/publisher/inProcessRenderer", () => ({ publishedRendererHealth: () => publishedRendererHealth() }));
 const finalizeMigratedSite = vi.fn(async ({ expectedRevision }: any) => ({ revision: expectedRevision + 1, snapshotId: 4242 }));
 vi.mock("../server/clientMigration/finish/finalize", () => ({ finalizeMigratedSite: (...args: unknown[]) => finalizeMigratedSite(...(args as [any])) }));
-vi.mock("../server/aiAgent", () => ({ runAgentLoop: vi.fn() }));
+// The corrective pass in verification runs through this; by default it is an
+// agent that looks at the list and changes nothing.
+const runAgentLoop = vi.fn(async (_args: any) => undefined as unknown);
+vi.mock("../server/aiAgent", () => ({ runAgentLoop: (...args: unknown[]) => runAgentLoop(...(args as [any])) }));
 vi.mock("../server/aiAgentTools", () => ({ buildToolCatalogue: () => [] }));
 const closeBrowser = vi.fn(async () => undefined);
 const openBrowser = vi.fn(async () => ({ close: closeBrowser }) as unknown);
@@ -187,6 +190,9 @@ beforeEach(() => {
   buildPage.mockClear();
   finalizeMigratedSite.mockClear();
   reviewPageFidelity.mockClear();
+  runAgentLoop.mockClear();
+  runAgentLoop.mockImplementation(async () => undefined);
+  delete process.env.MIGRATION_FIDELITY_TARGET;
   scorePageFidelity.mockClear();
   scorePageFidelity.mockImplementation((args: any) => realScore(args));
   publishedRendererHealth.mockClear();
@@ -353,6 +359,56 @@ describe("verification never costs more than the page it failed on", () => {
     await vi.waitFor(() => expect(runner.isMigrationLive(id)).toBe(false), { timeout: 15_000, interval: 10 });
     return jobs.get(id)!;
   }
+
+  /** A score object of the shape the loop reads, at the level given. */
+  const scoreAt = (value: number, missing: Row[] = [{ sectionId: "p0-s0", kind: "decoration", detail: "bølgen i bunden af hero", decoration: 0 }]) => ({
+    score: value, textCoverage: value, headingCoverage: value, ctaCoverage: value, imageCoverage: value, decorationCoverage: value, orderScore: 1, sections: {}, missing,
+  });
+
+  it("corrects a page the measurement calls incomplete, and stops when a pass changes nothing", async () => {
+    const id = seedJob();
+    const job = await runToFinish(id);
+
+    // The stub build leaves a page with one headline on it: far below target,
+    // and the free measurement — not the vision model, which is unreachable
+    // here — is what sends the agent in.
+    expect(runAgentLoop).toHaveBeenCalledTimes(2);
+    const fix = runAgentLoop.mock.calls[0][0] as Row;
+    expect(fix.userMessage).toContain("Measured as missing");
+    expect(fix.role).toBe("migrationBuild");
+    // One pass only: an agent that applied nothing will apply nothing next time.
+    expect(pagesOf(id).map((p) => p.verify.corrections)).toEqual([1, 1]);
+    expect(pagesOf(id).every((p) => p.verify.belowTarget)).toBe(true);
+    expect(job.fidelity.target).toBe(0.95);
+    expect(job.fidelity.belowTarget).toEqual(["Forside", "Ydelser"]);
+    expect(job.warnings.filter((w: Row) => w.code === "below_target")).toHaveLength(2);
+  });
+
+  it("keeps correcting while the score climbs, and stops the moment it reaches the target", async () => {
+    const id = seedJob();
+    const steps = [0.6, 0.8, 0.97];
+    let call = 0;
+    scorePageFidelity.mockImplementation(() => scoreAt(steps[Math.min(call++, steps.length - 1)]));
+    runAgentLoop.mockImplementation(async (args: any) => { args.ctx.applied.push({ action: "update_component" }); });
+
+    const job = await runToFinish(id);
+    const home = pagesOf(id)[0];
+    expect(home.verify.corrections).toBe(2);
+    expect(home.verify.score.score).toBe(0.97);
+    expect(home.verify.belowTarget).toBe(false);
+    expect(job.fidelity.belowTarget).toEqual([]);
+  });
+
+  it("never buys a correction for a page that is already good enough", async () => {
+    const id = seedJob();
+    process.env.MIGRATION_FIDELITY_TARGET = "0.5";
+    scorePageFidelity.mockImplementation(() => scoreAt(0.9, []));
+
+    const job = await runToFinish(id);
+    expect(runAgentLoop).not.toHaveBeenCalled();
+    expect(job.fidelity.belowTarget).toEqual([]);
+    expect(job.warnings.filter((w: Row) => w.code === "below_target")).toHaveLength(0);
+  });
 
   it("records the page whose score throws and finishes the phase anyway", async () => {
     const id = seedJob();

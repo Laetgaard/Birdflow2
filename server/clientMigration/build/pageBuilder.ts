@@ -25,6 +25,7 @@ import type { AgentContext } from "../../aiAgentTools";
 import { assumedCallCostUsd, childSpendMeter, type SpendMeter } from "../../aiSpend";
 import type { ReviewBrowser } from "../../visualReview";
 import { renderSectionCrops } from "../verify/sectionRender";
+import type { SvgAssetSource } from "../verify/renderState";
 import { reviewSectionFidelity, type SectionReview } from "../verify/sectionReview";
 import { scoreSectionFidelity } from "../verify/fidelityScore";
 import { makeFidelityGuard, imagePathsIn } from "./fidelityGuard";
@@ -53,6 +54,14 @@ export type PageBuildInput = {
   agentBudgetUsd: number;
   /** One Chromium for the whole build phase, so a section can be photographed. */
   browser?: ReviewBrowser;
+  /**
+   * Whose svg store holds the imported artwork. A section photographed
+   * without it shows every imported wave as blank space, and the reviewer
+   * rejects a band that is in fact correct.
+   */
+  websiteId?: string;
+  /** The vectors themselves, for a run with no database (the bench). */
+  svgAssets?: SvgAssetSource;
   /**
    * The font the brand step had to substitute, if any. The reviewer is told,
    * because a substituted typeface is the largest visible difference on most
@@ -577,11 +586,14 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
         }
 
         // ── What it kept, for free ────────────────────────────────────────
-        const det = scoreSectionFidelity({ section, components: pageState().components.filter((c) => componentIds.includes(c.id)), importedPaths: input.allowedImagePaths });
+        // The strips the builder placed around the band count as the band's
+        // artwork: the agent did not draw them, and must not be judged as
+        // though the wave were missing.
+        const det = scoreSectionFidelity({ section, components: pageState().components.filter((c) => componentIds.includes(c.id) || stripIds.includes(c.id)), importedPaths: input.allowedImagePaths });
         if (det.score < 0.5) {
           state = snapshot;
           lastRebuildCrop = undefined;
-          rejected = det.missing.length ? det.missing : ["most of the section's words"];
+          rejected = det.missingText.length ? det.missingText : ["most of the section's words"];
           lastError = `the rebuild kept too little (${Math.round(det.score * 100)} %)`;
           fixNote = `Your previous rebuild was REJECTED and undone: it left out ${rejected.join(", ")}. Build it again with every word and picture below.`;
           log(`[${key}] rebuild rejected: ${lastError}`);
@@ -598,6 +610,8 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
               componentIds: [...stripIds, ...componentIds],
               language: input.language,
               browser: input.browser,
+              websiteId: input.websiteId,
+              svgAssets: input.svgAssets,
               store: input.store ? { ...input.store, name: `${key}-rebuild-${iteration + 1}` } : undefined,
             })
           : { paths: {}, warnings: ["no browser for this build"] } as Awaited<ReturnType<typeof renderSectionCrops>>;

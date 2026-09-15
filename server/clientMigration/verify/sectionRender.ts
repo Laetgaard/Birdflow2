@@ -16,6 +16,7 @@
 import sharp from "sharp";
 import { capturePageScreenshots, type ReviewBrowser, type VisualScreenshot } from "../../visualReview";
 import { storeMigrationFile } from "../capture/pageCapture";
+import { stateForCapture, type SvgAssetSource } from "./renderState";
 import type { BuilderStateData } from "@shared/schema";
 
 export type SectionCrops = {
@@ -53,13 +54,17 @@ export async function renderSectionCrops(args: {
   store?: { jobId: string; pageRowId: string; name: string };
   /** The phone is where a rebuilt grid usually breaks; skip it to save time. */
   mobile?: boolean;
+  /** Whose svg store to resolve imported artwork from, so a wave is not photographed as blank space. */
+  websiteId?: string;
+  svgAssets?: SvgAssetSource;
 }): Promise<SectionCrops> {
   const out: SectionCrops = { paths: {}, warnings: [] };
   if (!args.componentIds.length) return out;
   const cache = new Map<string, VisualScreenshot>();
   const viewports = args.mobile === false ? (["desktop"] as const) : (["desktop", "mobile"] as const);
+  const renderable = await stateForCapture(args.state, { websiteId: args.websiteId, svgAssets: args.svgAssets });
   const { refs, warnings } = await capturePageScreenshots(
-    args.state,
+    renderable,
     args.pageId,
     [...viewports],
     cache,
