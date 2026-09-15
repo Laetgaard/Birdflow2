@@ -695,13 +695,21 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     return out;
   };
   const sigOf = (el: Element) => `${el.tagName}|${(typeof el.className === "string" ? el.className : "").split(/\s+/).filter(Boolean).sort().join(".")}|${Math.min(el.childElementCount, 6)}`;
+  // A looser fingerprint: the same tag with the same number of children,
+  // whatever extra classes one of them carries. It is what finds a row of
+  // cards where one is "featured", "highlighted" or — as on the site this
+  // was written for — the one review whose quote sits on its picture. Under
+  // the exact signature those three cards split into a group of two and a
+  // group of one, neither reached the minimum, and the whole review section
+  // arrived as three loose quotes with the illustrations thrown away.
+  const looseSigOf = (el: Element) => `${el.tagName}|${Math.min(el.childElementCount, 6)}`;
   const repeatedItems = (section: Element) => {
     let best: { items: Element[]; container: Element } | null = null;
-    const consider = (container: Element) => {
+    const consider = (container: Element, signature: (el: Element) => string) => {
       const kids = Array.from(container.children).filter((child) => !isEx(child) && rectOf(child).h > 24);
       if (kids.length < 3) return;
       const groups = new Map<string, Element[]>();
-      for (const kid of kids) { const key = sigOf(kid); groups.set(key, [...(groups.get(key) ?? []), kid]); }
+      for (const kid of kids) { const key = signature(kid); groups.set(key, [...(groups.get(key) ?? []), kid]); }
       for (const group of Array.from(groups.values())) {
         if (group.length < 3) continue;
         const heights = group.map((el) => rectOf(el).h).sort((a, b) => a - b);
@@ -710,8 +718,15 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
         if (uniform.length >= 3 && (!best || uniform.length > best.items.length)) best = { items: uniform, container };
       }
     };
-    consider(section);
-    for (const el of Array.from(section.querySelectorAll("*")).slice(0, 400)) { if (!isEx(el)) consider(el); }
+    const descendants = Array.from(section.querySelectorAll("*")).slice(0, 400);
+    consider(section, sigOf);
+    for (const el of descendants) { if (!isEx(el)) consider(el, sigOf); }
+    // Only when nothing matched exactly: the same walk, one rule looser. A
+    // page whose cards really are identical keeps the strict answer.
+    if (!best) {
+      consider(section, looseSigOf);
+      for (const el of descendants) { if (!isEx(el)) consider(el, looseSigOf); }
+    }
     if (!best) return { items: [] as any[], columns: 0 };
     const b = best as { items: Element[]; container: Element };
     const firstTop = rectOf(b.items[0]).y;

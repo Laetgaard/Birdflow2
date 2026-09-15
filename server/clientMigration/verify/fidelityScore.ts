@@ -177,13 +177,26 @@ export function scorePageFidelity(args: {
   const idsByPath = args.mediaIdsByPath ?? new Map(list(args.extraction.sections).flatMap((s) => [...list(s.images).map((img) => [img.src, img.mediaId] as const), ...list(s.items).map((i) => [i.imageSrc ?? "", i.imageMediaId] as const)]).filter((pair): pair is readonly [string, string] => !!pair[0] && !!pair[1]));
   const pathsById = new Map(Array.from(idsByPath.entries()).map(([path, id]) => [id, path] as const));
   const pageMediaIds = new Set(Array.from(shown.paths).map((path) => idsByPath.get(path)).filter((id): id is string => !!id));
+  // A picture that was imported as a vector is drawn by asset id, not by
+  // path: an illustrated review card holds `svgAssetId`, and nothing on the
+  // page carries its `/objects/...` twin. Counted by path alone, a faithful
+  // illustrated section scored zero on images.
+  const svgIdByMediaId = new Map<string, string>();
+  for (const section of list(args.extraction.sections)) {
+    for (const item of list(section.items)) if (item.imageMediaId && item.imageSvgAssetId) svgIdByMediaId.set(item.imageMediaId, item.imageSvgAssetId);
+  }
+  const showsMedia = (id: string): boolean => {
+    if (pageMediaIds.has(id)) return true;
+    const svgAssetId = svgIdByMediaId.get(id);
+    return !!svgAssetId && anywhere.svgAssetIds.has(svgAssetId);
+  };
 
   const ratio = (items: string[], test: (v: string) => boolean) => items.length ? items.filter(test).length / items.length : 1;
   const textCoverage = ratio(sentences, (s) => present(copy, s));
   const headingCoverage = ratio(headings, (h) => present(copy, h));
   const ctaCoverage = ratio(ctas, (c) => present(copy, c));
   // Per image: each planned image counts only if the page shows that image.
-  const imageCoverage = plannedImages.length ? plannedImages.filter((id) => pageMediaIds.has(id)).length / plannedImages.length : 1;
+  const imageCoverage = plannedImages.length ? plannedImages.filter(showsMedia).length / plannedImages.length : 1;
 
   // Per section: the same axes for each band, plus its artwork, and the
   // list of what fell out. The page's decoration axis is the sum of them.
@@ -203,7 +216,7 @@ export function scorePageFidelity(args: {
     const sCtas = uniq(group.flatMap(ctasOf));
     const sImages = uniq(list(planSection.imageMediaIds));
     for (const h of sHeadings.filter((h) => !present(copy, h)).slice(0, 4)) note("heading", `overskriften "${h.slice(0, 60)}"`);
-    for (const id of sImages.filter((id) => !pageMediaIds.has(id)).slice(0, 4)) note("image", `billedet ${pathsById.get(id) ?? id}`);
+    for (const id of sImages.filter((id) => !showsMedia(id)).slice(0, 4)) note("image", `billedet ${pathsById.get(id) ?? id}`);
 
     let expected = 0;
     let found = 0;
@@ -225,7 +238,7 @@ export function scorePageFidelity(args: {
       text: round(ratio(sSentences, (t) => present(copy, t))),
       headings: round(ratio(sHeadings, (h) => present(copy, h))),
       ctas: round(ratio(sCtas, (c) => present(copy, c))),
-      images: round(ratio(sImages, (id) => pageMediaIds.has(id))),
+      images: round(ratio(sImages, showsMedia)),
       decorations: round(expected ? found / expected : 1),
       missing,
     };
@@ -260,7 +273,11 @@ export function scorePageFidelity(args: {
 
   // Section order: the first component whose copy carries each planned
   // section's first heading, in plan order, should be monotonically later.
-  const componentCopy = list(args.page.components).map((component) => pageCopy({ ...args.page, components: [component] }));
+  // One component's own words, with none of the page's. Keeping the page's
+  // name and SEO text in every slice meant a meta description that repeated
+  // a heading put that heading in component zero — and two sections that
+  // both "start" at zero score as out of order however they are arranged.
+  const componentCopy = list(args.page.components).map((component) => pageCopy({ id: args.page.id, name: "", path: args.page.path, components: [component] } as BuilderPage));
   const positions = [...list(args.plan.sections)]
     .sort((a, b) => a.order - b.order)
     .map((s) => list(sections.find((x) => x.id === s.sourceSectionId)?.headings)[0]?.text)

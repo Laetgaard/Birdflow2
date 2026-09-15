@@ -11,6 +11,7 @@
     "check": "tsc",
     "test": "vitest run",
     "qa:fixtures": "tsx scripts/run-persistent-onboarding-qa.ts",
+    "bench:migration": "tsx scripts/run-migration-bench.ts",
     "typecheck:qa": "tsc -p tsconfig.qa.json",
     "db:push": "drizzle-kit push"
   },

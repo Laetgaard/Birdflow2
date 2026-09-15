@@ -23,6 +23,7 @@ import {
   type SectionRole,
 } from "@shared/clientMigration";
 import { heroOverWaveCue, illustratedReviewsCue } from "./decorationMapper";
+import { normalizeForEvidence } from "../../claimRules";
 
 export { MIGRATION_ID_PREFIX };
 
@@ -216,7 +217,7 @@ function altFor(section: ExtractedSection, src: string): string {
  * pictures: a fallback that drops the images is how a page ends up as a
  * bare run of paragraphs.
  */
-export function richHtml(section: ExtractedSection, allowed: Set<string> = new Set()): string {
+export function richHtml(section: ExtractedSection, allowed: Set<string> = new Set(), rewrite?: (href: string | undefined) => string): string {
   const parts: string[] = [];
   const imgs = imagePaths(section, allowed);
   const figure = (src: string, alt: string, caption?: string) => `<figure><img src="${esc(src)}" alt="${esc(alt)}" />${caption ? `<figcaption>${esc(caption)}</figcaption>` : ""}</figure>`;
@@ -247,7 +248,58 @@ export function richHtml(section: ExtractedSection, allowed: Set<string> = new S
   }
   for (const src of imgs.slice(1, 8)) parts.push(figure(src, altFor(section, src)));
   for (const img of orns) if (!placed.has(img.src)) parts.push(ornament(img));
+  // The band's buttons. A rich-text block has no button props, so a section
+  // routed here used to lose its call to action outright — "Book en samtale"
+  // vanished from every prose page of a migrated site.
+  for (const cta of section.ctas.slice(0, 3)) {
+    if (!cta.text) continue;
+    const href = rewrite ? rewrite(cta.href) : cta.href;
+    parts.push(href ? `<p><a href="${esc(href)}">${esc(cta.text)}</a></p>` : `<p>${esc(cta.text)}</p>`);
+  }
   return parts.join("").slice(0, 20_000) || `<p>${esc(bodyText(section) || firstHeading(section) || "")}</p>`;
+}
+
+/**
+ * The customer's words that the block we placed does not show.
+ *
+ * A structured block shows what it has props for: a price table shows
+ * prices, a testimonials band shows quotes, a features grid shows cards.
+ * Prose that sat in the same band beside them had nowhere to go, and was
+ * dropped in silence — the paragraphs under a "Tilskud" heading on a price
+ * page simply never arrived. What the block does not show is placed after
+ * it, verbatim, in the order the customer wrote it.
+ *
+ * @param shownCopy The placed component's own copy, normalised the way the
+ *   fidelity score normalises it — so this puts back exactly what the score
+ *   would otherwise count as lost, and never duplicates what is there.
+ */
+export function proseTailMutation(args: { section: ExtractedSection; shownCopy: string; ctx: BuildContext; id: string; position: number }): BuilderMutation | null {
+  const { section, shownCopy } = args;
+  const shows = (text: string): boolean => {
+    const needle = normalizeForEvidence(text).trim();
+    return !needle || shownCopy.includes(` ${needle} `);
+  };
+  const blocks: string[] = [];
+  const headings = new Set(section.headings.map((h) => h.text));
+  const itemText = new Set(section.items.flatMap((item) => [item.title ?? "", item.text ?? "", item.quote ?? ""]));
+  for (const heading of section.headings.slice(1)) {
+    if (!shows(heading.text)) blocks.push(`<h3>${esc(heading.text)}</h3>`);
+  }
+  for (const paragraph of section.paragraphs) {
+    if (headings.has(paragraph) || itemText.has(paragraph)) continue;
+    if (paragraph.length < 40 || shows(paragraph)) continue;
+    blocks.push(`<p>${esc(paragraph)}</p>`);
+  }
+  for (const list of section.lists) {
+    const missing = list.filter((line) => line.length >= 12 && !shows(line));
+    if (missing.length) blocks.push(`<ul>${missing.map((line) => `<li>${esc(line)}</li>`).join("")}</ul>`);
+  }
+  for (const quote of section.quotes) {
+    if (quote.text.length >= 40 && !shows(quote.text)) blocks.push(`<blockquote>${esc(quote.text)}${quote.cite ? ` — ${esc(quote.cite)}` : ""}</blockquote>`);
+  }
+  // One stray line is noise; a paragraph the customer wrote is not.
+  if (!blocks.some((block) => block.startsWith("<p>") || block.startsWith("<ul>") || block.startsWith("<blockquote>"))) return null;
+  return component({ ...args.ctx, position: args.position }, args.id, "rich-text", { content: blocks.join("").slice(0, 20_000), maxWidth: "820px", alignment: "left" }, sectionStyles(section));
 }
 
 export type BuildContext = {
@@ -335,7 +387,11 @@ export function buildPlacementMutation(section: ExtractedSection, plan: Migratio
       case "social-proof-section":
         return component(ctx, id, "testimonials", {
           styledTitle: { text: title ?? "" }, title: title ?? "",
-          items: (items.length ? items : section.quotes.map((q) => ({ quote: q.text, personName: q.cite }))).slice(0, 12).map((item: any, n) => ({
+          // A review card is a quote AND the picture beside it. When the
+          // extraction found quotes but no items, the section's own pictures
+          // are paired with them in order — one per card, as they sat — so an
+          // illustrated review section does not arrive as three bare quotes.
+          items: (items.length ? items : section.quotes.map((q, n) => ({ quote: q.text, personName: q.cite, imageSrc: imgs[n] }))).slice(0, 12).map((item: any, n) => ({
             id: itemId(n), title: item.personName ?? item.title ?? "", role: item.role ?? "", description: item.quote ?? item.text ?? "", imageUrl: item.imageSrc ? itemImage(item, ctx.allowedImagePaths) : "",
           })),
         }, styles);
@@ -460,7 +516,7 @@ export function buildPlacementMutation(section: ExtractedSection, plan: Migratio
       return component(ctx, id, "spacer", { height: "40px" }, {});
     case "rich-text":
     default:
-      return component(ctx, id, "rich-text", { content: richHtml(section, ctx.allowedImagePaths), maxWidth: "820px", alignment: section.textAlign === "center" ? "center" : "left" }, styles);
+      return component(ctx, id, "rich-text", { content: richHtml(section, ctx.allowedImagePaths, ctx.rewriteHref), maxWidth: "820px", alignment: section.textAlign === "center" ? "center" : "left" }, styles);
   }
 }
 

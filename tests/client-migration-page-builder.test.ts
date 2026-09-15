@@ -131,7 +131,11 @@ describe("deterministic pages", () => {
     host.mergeSourceIds = ["p0-s2"];
     base.pagePlan.sections = base.pagePlan.sections.filter((s) => s.sourceSectionId !== "p0-s2");
     const result = await buildPage(base);
-    expect(result.page.components.map((c) => c.type)).toEqual(["hero", "services", "pricing-table", "faq", "contact-form"]);
+    // The services grid shows its own three cards; the quotes it absorbed
+    // have no slot in it, so they follow it as prose rather than being lost.
+    expect(result.page.components.map((c) => c.type)).toEqual(["hero", "services", "rich-text", "pricing-table", "faq", "contact-form"]);
+    expect(result.page.components[2].id).toBe("mig-0-1-t0");
+    expect(JSON.stringify(result.page.components[2].props)).toContain(QUOTE_1.slice(0, 30));
     expect(result.progress.sections["p0-s2"]).toBeUndefined();
     expect(result.progress.sections["p0-s1"].status).toBe("placed");
   });

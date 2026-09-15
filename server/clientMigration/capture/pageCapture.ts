@@ -6,7 +6,7 @@
 
 import sharp from "sharp";
 import type { Page } from "puppeteer";
-import { objectStorageClient, ObjectStorageService } from "../../replit_integrations/object_storage/objectStorage";
+import { migrationFileStore } from "./fileStore";
 import { type BrowserSession, DESKTOP_VIEWPORT, MOBILE_VIEWPORT } from "./browserSession";
 import { dismissConsentInBrowser, extractPageInBrowser, scrollThroughInBrowser } from "./domExtract.browser";
 import { finalizeExtraction } from "./domExtract";
@@ -32,26 +32,12 @@ export class BotProtectionError extends Error {
   }
 }
 
-function storagePathFor(jobId: string, pageId: string, suffix: string): { fullPath: string; storagePath: string } {
-  const privateDir = new ObjectStorageService().getPrivateObjectDir();
-  const fullPath = `${privateDir}/migrations/${jobId}/${pageId}-${suffix}`;
-  return { fullPath, storagePath: `/objects/migrations/${jobId}/${pageId}-${suffix}` };
-}
-
 export async function storeMigrationFile(jobId: string, pageId: string, suffix: string, bytes: Buffer, contentType: string): Promise<string> {
-  const { fullPath, storagePath } = storagePathFor(jobId, pageId, suffix);
-  const parts = fullPath.replace(/^\//, "").split("/");
-  await objectStorageClient.bucket(parts[0]).file(parts.slice(1).join("/")).save(bytes, { contentType, resumable: false });
-  return storagePath;
+  return migrationFileStore().store({ jobId, pageId, suffix, bytes, contentType });
 }
 
 export async function readMigrationFile(storagePath: string): Promise<Buffer> {
-  const privateDir = new ObjectStorageService().getPrivateObjectDir();
-  const relative = storagePath.replace(/^\/objects\//, "");
-  const fullPath = `${privateDir}/${relative}`;
-  const parts = fullPath.replace(/^\//, "").split("/");
-  const [contents] = await objectStorageClient.bucket(parts[0]).file(parts.slice(1).join("/")).download();
-  return contents;
+  return migrationFileStore().read(storagePath);
 }
 
 async function detectBotProtection(page: Page): Promise<boolean> {

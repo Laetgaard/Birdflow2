@@ -186,6 +186,66 @@ export function registerClientMigrationRoutes(app: Express, guards: { requireAut
     }
   });
 
+  /**
+   * One page of JSON that says how close the rebuild got, page by page and
+   * section by section: what the capture found, what the build placed, what
+   * the score still misses and what each page cost.
+   *
+   * It exists so a run against a real customer site can be read — and pasted
+   * back — without trawling the builder or the database.
+   */
+  app.get("/api/admin/migrations/:id/report", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const job = await store.getJob(req.params.id);
+      if (!job) return res.status(404).json({ message: "Migreringen findes ikke." });
+      const pages = await store.listPages(job.id);
+      const assets = (job.assets ?? []) as Array<{ storagePath: string; svgAssetId?: string; kind?: string; role?: string }>;
+      const fidelity = (job.fidelity ?? {}) as { overall?: number; target?: number; belowTarget?: string[] };
+      res.json({
+        job: { id: job.id, company: job.company, sourceUrl: job.sourceUrl, status: job.status, phase: job.phase, spentUsd: Number(job.spentUsd), spendByRole: job.spendByRole },
+        fidelity: { overall: fidelity.overall, target: fidelity.target, belowTarget: fidelity.belowTarget ?? [] },
+        pages: pages.map((page) => {
+          const extraction = page.extraction as unknown as PageExtraction | null;
+          const progress = page.buildProgress as MigrationPageBuildProgress | null;
+          const verify = page.verify as { score?: Record<string, unknown>; issues?: unknown[]; iterations?: number; corrections?: number; reason?: string } | null;
+          const sections = Object.entries(progress?.sections ?? {}).map(([id, section]) => ({
+            id,
+            status: section.status,
+            componentId: section.componentId,
+            score: section.score,
+            decorations: section.decorations ? { placed: section.decorations.placed.length, missing: section.decorations.missing, recipe: section.decorations.recipe, recreated: Object.keys(section.decorations.recreated ?? {}).length } : undefined,
+            note: section.note,
+          }));
+          return {
+            sourceUrl: page.sourceUrl,
+            title: page.title,
+            captureStatus: page.captureStatus,
+            buildStatus: page.buildStatus,
+            verifyStatus: page.verifyStatus,
+            extractionVersion: extraction ? (extraction.version ?? 1) : null,
+            decorationsCaptured: extraction ? extraction.sections.reduce((n, section) => n + decorationsOf(section).length, 0) + decorationsOf(extraction.chrome.footer).length : 0,
+            decorationsPlaced: sections.reduce((n, section) => n + (section.decorations?.placed ?? 0), 0),
+            score: verify?.score,
+            issues: (verify?.issues ?? []).length,
+            iterations: verify?.iterations,
+            corrections: verify?.corrections,
+            reason: verify?.reason,
+            agentSpendUsd: progress?.agentSpendUsd,
+            sections,
+          };
+        }),
+        assets: {
+          imported: assets.length,
+          svg: assets.filter((asset) => !!asset.svgAssetId).length,
+          byRole: assets.reduce<Record<string, number>>((totals, asset) => ({ ...totals, [asset.role ?? "image"]: (totals[asset.role ?? "image"] ?? 0) + 1 }), {}),
+        },
+        warnings: job.warnings,
+      });
+    } catch (error: any) {
+      res.status(500).json({ message: error?.message ?? "Rapporten kunne ikke hentes." });
+    }
+  });
+
   app.get("/api/admin/migrations/:id/pages/:pageId/screenshot", requireAuth, requireAdmin, async (req, res) => {
     try {
       const page = await store.getPage(req.params.id, req.params.pageId);

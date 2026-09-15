@@ -219,6 +219,29 @@ describe("the browser that visits the client's site", () => {
   });
 });
 
+describe("the offline bench's seams", () => {
+  it("cannot be used to write a customer's files into a Map, or to visit a private address", () => {
+    const store = read("server/clientMigration/capture/fileStore.ts");
+    const session = read("server/clientMigration/capture/browserSession.ts");
+    // Both switches are development affordances and say so in code, not in
+    // a comment: a production process refuses one and ignores the other.
+    expect(store).toContain('process.env.NODE_ENV === "production"');
+    expect(store).toMatch(/throw new Error\(.*production/);
+    expect(session).toContain('options.allowPrivateOrigin === true && process.env.NODE_ENV !== "production"');
+  });
+
+  it("runs the same pipeline a customer's job runs, with no model in it", () => {
+    const bench = read("server/clientMigration/bench/migrationBench.ts");
+    for (const step of ["capturePage(", "importPageAssets(", "deriveBrandGuide(", "deterministicPlan(", "validateMigrationPlan(", "buildPage(", "applyChromeAndNavigation(", "scorePageFidelity("]) {
+      expect(bench, step).toContain(step);
+    }
+    // No agent, no reviewer, no plan model: the bench measures the floor.
+    expect(bench).toContain('agentMode: "off"');
+    expect(bench).not.toContain("runAgentLoop");
+    expect(bench).not.toContain("meteredChat");
+  });
+});
+
 describe("the onboarding import still works the way it did", () => {
   it("imports assets through the shared module instead of its own copy", () => {
     const src = read("server/websiteImportService.ts");

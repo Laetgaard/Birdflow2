@@ -1,7 +1,15 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["scripts/run-persistent-onboarding-qa.ts"],
-  "exclude": ["node_modules", "build", "dist", "**/*.test.ts"],
+  "include": [
+    "scripts/run-persistent-onboarding-qa.ts",
+    "scripts/run-migration-bench.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "build",
+    "dist",
+    "**/*.test.ts"
+  ],
   "compilerOptions": {
     "incremental": false,
     "tsBuildInfoFile": null,

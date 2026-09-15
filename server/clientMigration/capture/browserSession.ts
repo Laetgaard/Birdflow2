@@ -75,7 +75,21 @@ export function navigationVerdict(target: URL, canonical: URL, resolvedOrigin: s
   return "adopt";
 }
 
-export async function openBrowserSession(canonicalOrigin: string, options: { maxPages?: number } = {}): Promise<BrowserSession> {
+export async function openBrowserSession(
+  canonicalOrigin: string,
+  options: {
+    maxPages?: number;
+    /**
+     * Let the session talk to the origin it was opened for even though its
+     * address is private. This is how the offline bench serves the fixture
+     * site on 127.0.0.1 and captures it like any other site. Development
+     * only: in production it is ignored, so a job can never be pointed at
+     * something inside the network.
+     */
+    allowPrivateOrigin?: boolean;
+  } = {},
+): Promise<BrowserSession> {
+  const allowPrivateOrigin = options.allowPrivateOrigin === true && process.env.NODE_ENV !== "production";
   const browser = await puppeteer.launch({
     headless: true,
     args: [...HEADLESS_CHROMIUM_ARGS, "--disable-features=Translate", "--no-default-browser-check"],
@@ -90,6 +104,9 @@ export async function openBrowserSession(canonicalOrigin: string, options: { max
   // that merely failed this moment is retried, and never remembered as a no.
   const hostVerdicts = new Map<string, Promise<boolean>>();
   const verdictFor = (protocol: string, hostname: string): Promise<boolean> => {
+    // The one exception, and only outside production: the fixture host the
+    // bench serves its own pages from.
+    if (allowPrivateOrigin && hostname === origin.hostname) return Promise.resolve(true);
     const pending = hostVerdicts.get(hostname);
     if (pending) return pending;
     const attempt = (async () => {

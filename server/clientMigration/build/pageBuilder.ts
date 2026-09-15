@@ -19,7 +19,7 @@ import type OpenAI from "openai";
 import type { BuilderStateData, BuilderPage } from "@shared/schema";
 import type { BuilderMutation } from "@shared/aiBuilderSchema";
 import { applyMutation, validateMutation } from "../../aiBuilder";
-import { checkMutationClaims, normalizeForEvidence } from "../../claimRules";
+import { checkMutationClaims, collectStateCopy, normalizeForEvidence } from "../../claimRules";
 import { runAgentLoop } from "../../aiAgent";
 import type { AgentContext } from "../../aiAgentTools";
 import { assumedCallCostUsd, childSpendMeter, type SpendMeter } from "../../aiSpend";
@@ -34,7 +34,7 @@ import { migrationToolCatalogue } from "./migrationToolCatalogue";
 import { migrationAgentTools, type CropImporter } from "./migrationTools";
 import { DECORATION_RULEBOOK, MIGRATION_SECTION_SYSTEM_PROMPT } from "./migrationPrompts";
 import type { SvgAssetSummary } from "../../svgAssetSummaries";
-import { backgroundPath, buildPlacementMutation, defaultTargetFor, roleTargetFor, ornaments, sectionEvidence, MIGRATION_ID_PREFIX } from "../plan/sectionMapper";
+import { backgroundPath, buildPlacementMutation, defaultTargetFor, proseTailMutation, roleTargetFor, ornaments, sectionEvidence, MIGRATION_ID_PREFIX } from "../plan/sectionMapper";
 import { backgroundDecorationStyles, decorationRenderable, edgeDecorations, edgeStripMutation, footerStripMutation, heroOverWaveMutation, illustratedReviewsMutation, type DecorationContext, type DecorationMarker } from "../plan/decorationMapper";
 import { decorationsOf } from "@shared/clientMigration";
 import { cropSection, readMigrationFile } from "../capture/pageCapture";
@@ -452,6 +452,27 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
       continue;
     }
 
+    // ── 1a. The words the floor has no room for ───────────────────────────
+    // A price table shows prices and a testimonials band shows quotes; prose
+    // that sat beside them in the same band has nowhere to go. Rather than
+    // lose it, it is placed right after the block, verbatim. Only for the
+    // standard blocks: a custom rebuild is the agent's whole band, and a
+    // tail under it would be the same words twice.
+    let tailId: string | undefined;
+    if (target.kind === "section" || target.kind === "component") {
+      const placedFloor = pageState().components.find((c) => c.id === floorId);
+      const shownCopy = placedFloor
+        ? collectStateCopy({ pages: [{ id: page.id, name: "", path: page.path, components: [placedFloor] }], activePage: page.id, globalStyles: {} } as unknown as BuilderStateData).map(normalizeForEvidence).join("")
+        : "";
+      const at = pageState().components.findIndex((c) => c.id === floorId) + 1;
+      const tail = proseTailMutation({ section, shownCopy, ctx, id: `${MIGRATION_ID_PREFIX}-${input.pageOrdinal}-${index}-t0`, position: at });
+      if (tail) {
+        const placed = place(state, tail);
+        if (placed.error) log(`[${key}] prose tail refused: ${placed.error}`);
+        else { state = placed.state; tailId = `${MIGRATION_ID_PREFIX}-${input.pageOrdinal}-${index}-t0`; }
+      }
+    }
+
     // ── 1b. A recipe: the floor drawn as the source drew it, for free ──────
     // A hero whose picture rides the wave into the next band, or review cards
     // around their illustrations, is a custom tree the builder can draw
@@ -508,7 +529,7 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
     /** Where the next section starts: after the floor and every strip below it. */
     const afterSection = () => {
       const components = pageState().components;
-      const last = Math.max(components.findIndex((c) => c.id === floorId), ...stripIds.map((id) => components.findIndex((c) => c.id === id)));
+      const last = Math.max(components.findIndex((c) => c.id === floorId), ...[...stripIds, ...(tailId ? [tailId] : [])].map((id) => components.findIndex((c) => c.id === id)));
       return last + 1 || components.length;
     };
     position = afterSection();
