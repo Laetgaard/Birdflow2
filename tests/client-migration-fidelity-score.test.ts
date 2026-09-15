@@ -11,8 +11,8 @@ import type { MigrationPagePlan } from "../shared/clientMigration";
 process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||= "test-dummy";
 process.env.OPENAI_API_KEY ||= "test-dummy";
 
-const { scorePageFidelity } = await import("../server/clientMigration/verify/fidelityScore");
-const { extraction, section, allowedPaths } = await import("./fixtures/clientMigration");
+const { scorePageFidelity, scoreSectionFidelity } = await import("../server/clientMigration/verify/fidelityScore");
+const { extraction, section, decoration, allowedPaths, WAVE_SVG } = await import("./fixtures/clientMigration");
 
 const S1 = "Første samtale er helt uforpligtende for dig.";
 const S2 = "Afbud skal ske senest 24 timer før samtalen.";
@@ -43,10 +43,11 @@ const practical = (over: Record<string, unknown> = {}) => ({ id: "b", type: "ric
 describe("scorePageFidelity", () => {
   it("scores a faithful rebuild 1.0 on every axis", () => {
     const result = scorePageFidelity({ extraction: page(), plan: plan(), page: built([hero(), practical()]), importedPaths: allowedPaths() });
-    expect(result).toEqual({ score: 1, textCoverage: 1, headingCoverage: 1, ctaCoverage: 1, imageCoverage: 1, orderScore: 1 });
+    expect(result).toMatchObject({ score: 1, textCoverage: 1, headingCoverage: 1, ctaCoverage: 1, imageCoverage: 1, decorationCoverage: 1, orderScore: 1 });
+    expect(result.missing).toEqual([]);
   });
 
-  it("weights text 0.4, headings 0.2, buttons 0.15, images 0.15 and order 0.1", () => {
+  it("weights text 0.4, headings 0.2, buttons 0.15, images 0.15 and order 0.1 on a page with no artwork", () => {
     // Half the sentences missing, everything else intact.
     const half = scorePageFidelity({ extraction: page(), plan: plan(), page: built([hero({ description: S1 }), practical({ content: `<h2>Praktisk</h2><p>${S3}</p><a>Find vej</a>` })]), importedPaths: allowedPaths() });
     expect(half.textCoverage).toBe(0.5);
@@ -97,6 +98,19 @@ describe("scorePageFidelity", () => {
     expect(result.score).toBeGreaterThan(0);
   });
 
+  it("names what is missing, section by section, so a corrective pass has a list", () => {
+    const result = scorePageFidelity({ extraction: page(), plan: plan(), page: built([hero({ imageUrl: "", buttonText: "" })]), importedPaths: allowedPaths(), componentIds: { "p0-s0": "mig-0-0-0", "p0-s1": "mig-0-1-0" } });
+    const kinds = result.missing!.map((m) => m.kind);
+    expect(kinds).toContain("heading");
+    expect(kinds).toContain("image");
+    // Worst first: a lost headline before a lost sentence.
+    expect(kinds.indexOf("heading")).toBeLessThan(kinds.indexOf("text"));
+    expect(result.missing!.find((m) => m.kind === "image")!.detail).toContain("/objects/uploads/hero.webp");
+    expect(result.missing!.find((m) => m.kind === "image")!.componentId).toBe("mig-0-0-0");
+    expect(result.sections!["p0-s1"].text).toBe(0);
+    expect(result.sections!["p0-s0"].headings).toBe(1);
+  });
+
   it("gives an empty page a score of zero for what was planned", () => {
     const result = scorePageFidelity({ extraction: page(), plan: plan(), page: built([]), importedPaths: allowedPaths() });
     expect(result.textCoverage).toBe(0);
@@ -104,5 +118,117 @@ describe("scorePageFidelity", () => {
     expect(result.imageCoverage).toBe(0);
     expect(result.orderScore).toBe(1);
     expect(result.score).toBe(0.1);
+  });
+});
+
+/**
+ * The waves, dividers and illustrations between the bands: the part of the
+ * example site the rebuild used to drop in silence, and the reason the score
+ * grew a sixth axis.
+ */
+describe("the decoration axis", () => {
+  const WAVE = decoration({ svgAssetId: "svg-hero-wave", src: "/objects/uploads/hero-wave.webp", svgMarkup: WAVE_SVG, edge: "bottom", overlap: "next", overlapPx: 40 });
+  const withWave = () => {
+    const ex = page();
+    ex.sections[0].decorations = [WAVE];
+    return ex;
+  };
+  const strip = (props: Record<string, unknown>) => ({ id: "w", type: "custom", props, styles: {} });
+
+  it("costs a page a sixth of its score when the wave between two bands is gone", () => {
+    const result = scorePageFidelity({ extraction: withWave(), plan: plan(), page: built([hero(), practical()]), importedPaths: allowedPaths() });
+    expect(result.decorationCoverage).toBe(0);
+    // text .35 + headings .15 + buttons .10 + images .15 + order .10
+    expect(result.score).toBe(0.85);
+    expect(result.missing!.filter((m) => m.kind === "decoration")).toHaveLength(1);
+    expect(result.missing![0].sectionId).toBe("p0-s0");
+  });
+
+  it("counts the wave when the page draws it by asset id, by markup, or with the builder's own marker", () => {
+    const byId = scorePageFidelity({ extraction: withWave(), plan: plan(), page: built([hero(), strip({ customTree: { id: "r", type: "box", children: [{ id: "a", type: "svg", svgAssetId: "svg-hero-wave" }] } }) as never, practical()]), importedPaths: allowedPaths() });
+    expect(byId.decorationCoverage).toBe(1);
+    expect(byId.score).toBe(1);
+
+    const byMarkup = scorePageFidelity({ extraction: withWave(), plan: plan(), page: built([hero(), strip({ customTree: { id: "r", type: "box", children: [{ id: "a", type: "svg", svg: WAVE_SVG.replace(/\n/g, " ") }] } }) as never, practical()]), importedPaths: allowedPaths() });
+    expect(byMarkup.decorationCoverage).toBe(1);
+
+    // What the builder placed, stamped with where it came from: true even if
+    // the agent later recoloured or re-drew the artwork.
+    const byMarker = scorePageFidelity({ extraction: withWave(), plan: plan(), page: built([hero(), strip({ migration: { sourceSectionId: "p0-s0", decoration: 0, edge: "bottom" } }) as never, practical()]), importedPaths: allowedPaths() });
+    expect(byMarker.decorationCoverage).toBe(1);
+  });
+
+  it("scores the footer's artwork once, against the footer the site will carry", () => {
+    const ex = withWave();
+    ex.chrome.footer = { ...(ex.chrome.footer ?? { links: [] }), decorations: [decoration({ svgAssetId: "svg-footer-wave", edge: "top" })] } as never;
+    const withoutIt = scorePageFidelity({ extraction: ex, plan: plan(), page: built([hero(), practical()]), importedPaths: allowedPaths() });
+    expect(withoutIt.sections!["chrome-footer"].decorations).toBe(0);
+
+    const footer = { id: "f", type: "footer", props: { customTree: { id: "r", type: "svg", svgAssetId: "svg-footer-wave" } }, styles: {} };
+    const withIt = scorePageFidelity({ extraction: ex, plan: plan(), page: built([hero(), practical()]), importedPaths: allowedPaths(), chrome: { footer } });
+    expect(withIt.sections!["chrome-footer"].decorations).toBe(1);
+    expect(withIt.decorationCoverage).toBe(0.5); // the hero's wave is still missing
+  });
+
+  it("counts artwork a tool recreated for the decoration it was asked to replace", () => {
+    const recreated = new Map([["p0-s0#0", ["/objects/uploads/drawn-wave.svg"]]]);
+    const drawn = { id: "w", type: "custom", props: { customTree: { id: "r", type: "image", src: "/objects/uploads/drawn-wave.svg" } }, styles: {} };
+    const result = scorePageFidelity({ extraction: withWave(), plan: plan(), page: built([hero(), drawn as never, practical()]), importedPaths: allowedPaths(), recreated });
+    expect(result.decorationCoverage).toBe(1);
+  });
+
+  it("leaves the old weights alone for a page that never had artwork", () => {
+    const result = scorePageFidelity({ extraction: page(), plan: plan(), page: built([hero({ imageUrl: "" }), practical()]), importedPaths: allowedPaths() });
+    expect(result.decorationCoverage).toBe(1);
+    expect(result.score).toBe(0.85);
+  });
+});
+
+/**
+ * The same measurement, for one band — free, and bought before any vision
+ * call is. A rebuild that lost half the words is not worth a reviewer's fee,
+ * and the loop needs to be able to say so on its own.
+ */
+describe("scoreSectionFidelity", () => {
+  const band = () => section({
+    id: "p0-s0",
+    headings: [{ level: 1, text: "Ro i hverdagen" }],
+    paragraphs: [S1, S2],
+    ctas: [{ text: "Book en samtale", primary: true }],
+    images: [{ src: "/objects/uploads/hero.webp", mediaId: "m-hero" }],
+  });
+
+  it("gives a faithful rebuild full marks", () => {
+    const result = scoreSectionFidelity({ section: band(), components: [hero()], importedPaths: allowedPaths() });
+    expect(result.score).toBe(1);
+    expect(result.headingCoverage).toBe(1);
+    expect(result.imageCoverage).toBe(1);
+    expect(result.missing).toEqual([]);
+  });
+
+  it("counts a photo used as a background, not only one in a prop", () => {
+    const onlyStyles = { id: "a", type: "rich-text", props: { content: `<h1>Ro i hverdagen</h1><p>${S1}</p><p>${S2}</p><a>Book en samtale</a>` }, styles: { backgroundImage: "linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), url(/objects/uploads/hero.webp)" } };
+    const result = scoreSectionFidelity({ section: band(), components: [onlyStyles as never], importedPaths: allowedPaths() });
+    expect(result.imageCoverage).toBe(1);
+  });
+
+  it("names what the rebuild left out", () => {
+    const thin = { id: "a", type: "rich-text", props: { content: "<h1>Ro i hverdagen</h1>" }, styles: {} };
+    const result = scoreSectionFidelity({ section: band(), components: [thin as never], importedPaths: allowedPaths() });
+    // Heading kept, everything else gone: below the floor the loop refuses to
+    // pay a reviewer for.
+    expect(result.score).toBeLessThan(0.5);
+    expect(result.headingCoverage).toBe(1);
+    expect(result.ctaCoverage).toBe(0);
+    expect(result.imageCoverage).toBe(0);
+    expect(result.missingText.join(" ")).toContain("/objects/uploads/hero.webp");
+    expect(result.missingText.join(" ")).toContain(S1.slice(0, 20));
+    expect(result.missing.map((m) => m.kind)).toContain("image");
+  });
+
+  it("does not punish a band that never had pictures or buttons", () => {
+    const words = section({ id: "p0-s1", headings: [{ level: 2, text: "Praktisk" }], paragraphs: [S3] });
+    const rebuilt = { id: "b", type: "rich-text", props: { content: `<h2>Praktisk</h2><p>${S3}</p>` }, styles: {} };
+    expect(scoreSectionFidelity({ section: words, components: [rebuilt as never], importedPaths: allowedPaths() }).score).toBe(1);
   });
 });

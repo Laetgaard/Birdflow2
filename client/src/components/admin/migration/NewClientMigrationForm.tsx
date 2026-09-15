@@ -23,6 +23,10 @@ export function NewClientMigrationForm({ getAuthHeaders, onCreated }: Props) {
     planSlug: "starter" as "basic" | "starter" | "professional", planMonths: 12, notes: "",
     consentAttested: false, consentNote: "", respectRobots: true, requirePlanReview: false,
     maxPages: DEFAULT_MIGRATION_PAGES, ceilingUsd: recommendedCeilingUsd(DEFAULT_MIGRATION_PAGES),
+    // How hard the rebuild tries per section, and what counts as close
+    // enough. The defaults are the schema's; an admin who wants a cheaper
+    // run lowers the iterations, one who wants a closer copy raises the score.
+    sectionIterations: 3, sectionPassScore: 85, pageAgentCapUsd: 3, sectionCapUsd: 0.9,
     // True once the admin types a ceiling by hand; until then it follows the
     // page count, so the two numbers cannot drift apart unnoticed.
     ceilingEdited: false,
@@ -42,7 +46,14 @@ export function NewClientMigrationForm({ getAuthHeaders, onCreated }: Props) {
           language: form.language, planSlug: form.planSlug, planMonths: form.planMonths, notes: form.notes || undefined,
           consentAttested: true, consentNote: form.consentNote || undefined, respectRobots: form.respectRobots,
           requirePlanReview: form.requirePlanReview,
-          limits: { maxPages: form.maxPages, ceilingUsd: form.ceilingUsd },
+          limits: {
+            maxPages: form.maxPages,
+            ceilingUsd: form.ceilingUsd,
+            sectionIterations: form.sectionIterations,
+            sectionPassScore: form.sectionPassScore,
+            pageAgentCapUsd: form.pageAgentCapUsd,
+            sectionCapUsd: form.sectionCapUsd,
+          },
           existingUserId: existingUserId ?? undefined,
         }),
       });
@@ -104,6 +115,26 @@ export function NewClientMigrationForm({ getAuthHeaders, onCreated }: Props) {
               <p className="text-xs text-muted-foreground">Anbefalet for {form.maxPages} sider: ${recommendedCeilingUsd(form.maxPages)}. Et for lavt loft får sektioner til at ende som ren tekst.</p>
             </div>
             <label className="flex items-center gap-2 pt-6"><Checkbox checked={form.respectRobots} onCheckedChange={(v) => set("respectRobots", v === true)} /> Respektér robots.txt</label>
+          </div>
+          <div className="mt-3 grid gap-3 sm:grid-cols-4">
+            <div className="space-y-1">
+              <Label htmlFor="mig-iterations">Forsøg pr. sektion</Label>
+              <Input id="mig-iterations" type="number" min={1} max={5} value={form.sectionIterations} onChange={(e) => set("sectionIterations", Math.max(1, Math.min(5, Number(e.target.value) || 1)))} data-testid="input-mig-iterations" />
+              <p className="text-xs text-muted-foreground">Byg, se efter, ret. 1 = byg én gang.</p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="mig-passscore">Godkendt fra</Label>
+              <Input id="mig-passscore" type="number" min={60} max={100} value={form.sectionPassScore} onChange={(e) => set("sectionPassScore", Math.max(60, Math.min(100, Number(e.target.value) || 60)))} data-testid="input-mig-passscore" />
+              <p className="text-xs text-muted-foreground">Point ud af 100 mod originalen.</p>
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="mig-pagecap">Maks. pr. side ($)</Label>
+              <Input id="mig-pagecap" type="number" min={0.5} max={6} step={0.25} value={form.pageAgentCapUsd} onChange={(e) => set("pageAgentCapUsd", Math.max(0.5, Math.min(6, Number(e.target.value) || 0.5)))} />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="mig-sectioncap">Maks. pr. sektion ($)</Label>
+              <Input id="mig-sectioncap" type="number" min={0.3} max={2} step={0.1} value={form.sectionCapUsd} onChange={(e) => set("sectionCapUsd", Math.max(0.3, Math.min(2, Number(e.target.value) || 0.3)))} />
+            </div>
           </div>
           <label className="mt-3 flex items-start gap-2">
             <Checkbox checked={form.requirePlanReview} onCheckedChange={(v) => set("requirePlanReview", v === true)} data-testid="checkbox-mig-plan-review" />

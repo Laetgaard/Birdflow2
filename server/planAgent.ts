@@ -24,6 +24,7 @@ import {
 } from "@shared/assistantPlan";
 import { buildRoleToSectionTable } from "./sectionRoleLibrary";
 import { buildReadTools, type AgentContext, type AgentTool } from "./aiAgentTools";
+import { loadSvgAssetSummaries } from "./svgAssetSummaries";
 import { runAgentLoop, type AgentEvent } from "./aiAgent";
 import { buildPlanDraft, SubmitPlanSchema, type PlanDraft } from "./planDraft";
 import { createSpendMeter } from "./aiSpend";
@@ -193,6 +194,7 @@ export async function runPlanAgent(args: {
   const ctx: AgentContext = {
     websiteId: args.websiteId,
     state: structuredClone(args.state),
+    svgAssets: await loadSvgAssetSummaries(args.websiteId),
     applied: [],
     notes: [],
     createdImages: [],

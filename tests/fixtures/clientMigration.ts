@@ -7,6 +7,7 @@
  */
 
 import type {
+  ExtractedDecoration,
   ExtractedSection,
   PageExtraction,
   MigrationAssetRecord,
@@ -29,6 +30,7 @@ export function section(over: Partial<ExtractedSection> & { id: string }): Extra
     embeds: [],
     tables: [],
     items: [],
+    decorations: [],
     textLength: 0,
     wordCount: 0,
     role: "rich-text",
@@ -36,6 +38,23 @@ export function section(over: Partial<ExtractedSection> & { id: string }): Extra
     ...over,
   };
 }
+
+/** A decoration with sensible defaults: a full-width wave on the bottom edge of a 1440×400 section. */
+export function decoration(over: Partial<ExtractedDecoration> = {}): ExtractedDecoration {
+  return {
+    kind: "svg",
+    bbox: { x: 0, y: 320, w: 1440, h: 80 },
+    rel: { x: 0, y: 0.8, w: 1, h: 0.2 },
+    edge: "bottom",
+    overlap: "none",
+    zOrder: "behind",
+    fills: ["#f5f3ff"],
+    ...over,
+  };
+}
+
+export const WAVE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 80" preserveAspectRatio="none"><path d="M0,40 C360,80 1080,0 1440,40 L1440,80 L0,80 Z" fill="#f5f3ff"/></svg>`;
+export const ILLUSTRATION_SVG = (fill: string) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><circle cx="100" cy="100" r="90" fill="${fill}"/><circle cx="70" cy="80" r="12" fill="#1e1b4b"/><circle cx="130" cy="80" r="12" fill="#1e1b4b"/></svg>`;
 
 export function extraction(over: Partial<PageExtraction> = {}): PageExtraction {
   return {
@@ -223,4 +242,75 @@ export function assets(): MigrationAssetRecord[] {
 
 export function allowedPaths(): Set<string> {
   return new Set(assets().map((asset) => asset.storagePath));
+}
+
+/* ─────────────────────────── the illustrated site ─────────────────────────── */
+
+/**
+ * The same clinic, dressed the way the example site is: a hero whose
+ * illustration floats beside the words with a wave on its bottom edge running
+ * into the next band, a wave divider under the services, review cards drawn
+ * around illustrations (one quote drawn on top of its picture), and a footer
+ * with art behind it and a wave on its top edge.
+ */
+export function illustratedAssets(): MigrationAssetRecord[] {
+  return [
+    ...assets(),
+    { sourceUrl: "inline-svg://p0-s0", storagePath: "/objects/uploads/hero-wave.webp", mediaId: "m-hero-wave", svgAssetId: "svg-hero-wave", sha256: "sha-hero-wave", usedBy: ["p0-s0"], kind: "svg", role: "decoration", colorSlots: [{ id: "c1", original: "#f5f3ff", label: "Farve 1" }] },
+    { sourceUrl: `${ORIGIN}/img/hero-art.png`, storagePath: "/objects/uploads/hero-art.webp", mediaId: "m-hero-art", sha256: "sha-hero-art", usedBy: ["p0-s0"], kind: "image", role: "decoration", width: 720, height: 720 },
+    { sourceUrl: "inline-svg://p0-s1", storagePath: "/objects/uploads/divider.webp", mediaId: "m-divider", svgAssetId: "svg-divider", sha256: "sha-divider", usedBy: ["p0-s1"], kind: "svg", role: "decoration" },
+    { sourceUrl: "inline-svg://p0-s2", storagePath: "/objects/uploads/review-art.webp", mediaId: "m-review-art", svgAssetId: "svg-review-art", sha256: "sha-review-art", usedBy: ["p0-s2"], kind: "svg", role: "illustration" },
+    { sourceUrl: `${ORIGIN}/img/footer-bg.jpg`, storagePath: "/objects/uploads/footer-bg.webp", mediaId: "m-footer-bg", sha256: "sha-footer-bg", usedBy: ["chrome-footer"], kind: "image", role: "background" },
+    { sourceUrl: `${ORIGIN}/img/footer-wave.svg`, storagePath: "/objects/uploads/footer-wave.webp", mediaId: "m-footer-wave", svgAssetId: "svg-footer-wave", sha256: "sha-footer-wave", usedBy: ["chrome-footer"], kind: "svg", role: "decoration" },
+  ];
+}
+
+export function illustratedAllowed(): { paths: Set<string>; svgIds: Set<string> } {
+  const records = illustratedAssets();
+  return { paths: new Set(records.map((asset) => asset.storagePath)), svgIds: new Set(records.flatMap((asset) => (asset.svgAssetId ? [asset.svgAssetId] : []))) };
+}
+
+export function illustratedHomeExtraction(): PageExtraction {
+  const home = homeExtraction();
+  const [hero, services, reviews, ...rest] = home.sections;
+  return {
+    ...home,
+    chrome: {
+      ...home.chrome,
+      footer: {
+        ...home.chrome.footer!,
+        bgColor: "rgb(30, 27, 75)",
+        textColor: "rgb(255, 255, 255)",
+        bgImage: "/objects/uploads/footer-bg.webp",
+        bgSize: "cover",
+        bgPosition: "center",
+        bbox: { x: 0, y: 3440, w: 1440, h: 400 },
+        decorations: [decoration({ kind: "pseudo", pseudo: "before", src: "/objects/uploads/footer-wave.webp", svgAssetId: "svg-footer-wave", edge: "top", overlap: "prev", overlapPx: 30, bbox: { x: 0, y: 3410, w: 1440, h: 60 }, rel: { x: 0, y: -0.075, w: 1, h: 0.15 }, fills: [] })],
+      },
+    },
+    sections: [
+      {
+        ...hero,
+        images: [],
+        textAlign: "left",
+        decorations: [
+          decoration({ kind: "svg", svgAssetId: "svg-hero-wave", src: "/objects/uploads/hero-wave.webp", svgMarkup: WAVE_SVG, edge: "bottom", overlap: "next", overlapPx: 40, bbox: { x: 0, y: 760, w: 1440, h: 80 }, rel: { x: 0, y: 0.944, w: 1, h: 0.111 }, displayWidth: 1440, displayHeight: 80 }),
+          decoration({ kind: "image", src: "/objects/uploads/hero-art.webp", edge: "float", zOrder: "above", bbox: { x: 880, y: 200, w: 360, h: 360 }, rel: { x: 0.611, y: 0.167, w: 0.25, h: 0.5 }, displayWidth: 360, displayHeight: 360, fills: [] }),
+        ],
+      },
+      {
+        ...services,
+        decorations: [decoration({ kind: "svg", svgAssetId: "svg-divider", src: "/objects/uploads/divider.webp", svgMarkup: WAVE_SVG, edge: "bottom", overlap: "none", bbox: { x: 0, y: 1320, w: 1440, h: 60 }, rel: { x: 0, y: 1, w: 1, h: 0.115 }, displayWidth: 1440, displayHeight: 60, fills: ["rgb(245, 243, 255)"] })],
+      },
+      {
+        ...reviews,
+        items: [
+          { quote: QUOTE_1, personName: "Mette Hansen", role: "Klient siden 2023", imageSvgAssetId: "svg-review-art", imageSrc: "/objects/uploads/review-art.webp", svgMarkup: ILLUSTRATION_SVG("#a5b4fc"), imageRel: { x: 0.1, y: 0, w: 0.8, h: 0.55 }, quoteInsideImage: true, quoteRel: { x: 0.15, y: 0.6, w: 0.7, h: 0.3 } },
+          { quote: QUOTE_2, personName: "Jonas Friis", imageSvgAssetId: "svg-review-art", imageSrc: "/objects/uploads/review-art.webp", svgMarkup: ILLUSTRATION_SVG("#a5b4fc"), imageRel: { x: 0.1, y: 0, w: 0.8, h: 0.55 } },
+          { quote: QUOTE_3, imageSvgAssetId: "svg-review-art", imageSrc: "/objects/uploads/review-art.webp", svgMarkup: ILLUSTRATION_SVG("#a5b4fc"), imageRel: { x: 0.1, y: 0, w: 0.8, h: 0.55 } },
+        ],
+      },
+      ...rest,
+    ],
+  };
 }

@@ -2,8 +2,9 @@ import { practiceProfilePrompt } from '../shared/practiceProfile';
 import { websiteBriefPrompt } from './websiteBrief';
 import OpenAI from "openai";
 import { zodToJsonSchema } from "zod-to-json-schema";
-import type { BuilderStateData, BrandGuide } from "@shared/schema";
+import type { BuilderStateData, BrandGuide, MigrationOrigin } from "@shared/schema";
 import type { BuilderMutation } from "@shared/aiBuilderSchema";
+import { asksForRedesign } from "@shared/redesignIntent";
 import { buildBrandContext } from "@shared/customComponents";
 import { buildBusinessContextPrompt } from "@shared/businessContext";
 import { PRIMITIVE_STYLE_KEYS } from "@shared/customComponents";
@@ -14,6 +15,7 @@ import {
   type AgentTool,
   type ToolResult,
 } from "./aiAgentTools";
+import { loadSvgAssetSummaries } from "./svgAssetSummaries";
 
 /* ─────────────────────────────────────────────────────────────
    The builder agent.
@@ -133,7 +135,7 @@ export type AgentOutcome =
 
 /* ─────────── prompt ─────────── */
 
-function buildSystemPrompt(lang: SiteLanguage): string {
+function buildSystemPrompt(lang: SiteLanguage, migration?: MigrationOrigin): string {
   return `You are Birdflow's website-building agent. You work on a real, live website by CALLING TOOLS — you never output website JSON directly.
 
 ## How you work
@@ -235,7 +237,9 @@ Usage example: { id: '...', type: 'box', behavior: { type: 'accordion', multiple
 
 ## Standard section tools
 - set_motion — entrance animations ("load" above the fold, "scroll" below, staggered delays) or parallax ("parallax" with scrollSpeed 0.05–0.9).
-- insert_svg_shape — add a decorative built-in SVG shape: wave-gentle, wave-bold, wave-asymmetric, curve-bottom, curve-top, blob-soft, blob-wide, organic-divider, circle-deco, arch-divider. Pass colors: { fill: '{color.primary}' } to tint with brand tokens.
+- insert_svg_shape — add a decorative built-in SVG shape: wave-gentle, wave-bold, wave-asymmetric, curve-bottom, curve-top, blob-soft, blob-wide, organic-divider, circle-deco, arch-divider. Pass colors: { fill: '{color.primary}' } to tint with brand tokens; get_svg_shape_info lists a shape's colour slots.
+- generate_svg_shape — draw a wave/curve/blob/arch/tilt from numbers (amplitude, periods, phase, up to four layers with colour + opacity, flipX/flipY) when the look must match something specific: redraw an existing svg node (nodeId), add one under a box (parentNodeId), insert it as its own section (pageId only), or just get the markup back (no target) for a component you are creating. Put a bottom-edge wave in a box with lineHeight 0; flipY for a top edge.
+- list_svg_assets — the site's stored illustrations (imported artwork, earlier drawings). Draw one with an svg node carrying svgAssetId (and svgColors: { c1: '{color.primary}' } to recolour a slot) instead of pasting its markup.
 - Responsive overrides on standard sections: styles.responsive.tablet / styles.responsive.mobile — padding, gap, minHeight, maxWidth, titleFontSize, bodyFontSize, textAlign, alignItems, justifyContent, flexDirection, gridTemplateColumns, display, borderRadius. Layout/spacing only — never colours or font-family.
 - batch_update_components: filter by pageIds, componentType, stylePath + styleValue; update.stylePath is a dotted path (e.g. 'motion.effect'). Default safety cap: 20 matches. Always preview first: find_text → batch_update_components mode='preview' → mode='apply'.
 - Motion validation: a motion object MUST include effect (e.g. 'fade-in'). Use set_motion instead of raw update_component for motion changes.
@@ -257,7 +261,27 @@ After substantial visual work — full-page redesigns, SVG divider additions, re
 - The user mentions an uploaded inspiration image ("/objects/…" URL in their message): analyze_reference_image first, then apply what you learned with the write tools.
 
 ## Autonomy
-You act on your own for ordinary edits. Structural changes — deleting a page, editing the brand guide, applying a whole theme, removing many sections, or a very large batch — are gated: the tool will refuse and tell you approval is needed. When that happens, STOP calling tools and reply with a short Danish summary of what you propose. Do not try to work around the gate.`;
+You act on your own for ordinary edits. Structural changes — deleting a page, editing the brand guide, applying a whole theme, removing many sections, or a very large batch — are gated: the tool will refuse and tell you approval is needed. When that happens, STOP calling tools and reply with a short Danish summary of what you propose. Do not try to work around the gate.${migratedSiteRule(migration)}`;
+}
+
+/**
+ * A site that was rebuilt from the customer's own old website is a copy, on
+ * purpose: the colours, the fonts and the section order are theirs, matched
+ * band by band. Left alone, the assistant treats that identity as a starting
+ * point and "tidies" it — one apply_preset and the migration is undone with
+ * no way back but the snapshot. So the whole-site tools are closed here until
+ * the customer asks for a redesign in their own words. Editing a section,
+ * a picture or a sentence stays exactly as free as on any other site.
+ */
+function migratedSiteRule(migration?: MigrationOrigin): string {
+  if (!migration?.preserveFidelity) return "";
+  return `
+
+## This site was rebuilt from ${migration.sourceHost}
+The design here is a deliberate copy of the customer's existing website — colours, fonts, section order and the pictures behind their text were matched to it on purpose. It is not a template to be improved.
+- NEVER call apply_preset, update_brand_guide, propose_design_directions, or a batch_update_components that repaints or re-types whole pages, unless the customer asks for a redesign in this conversation ("lav et nyt design", "modernisér siden", "skift farverne"). A request to change one section, one colour on one element, or one piece of text is NOT that.
+- When you think the site would look better restyled, SAY so in one sentence and let the customer decide. Do not do it and report it afterwards.
+- Everything else is normal work: edit text, swap a picture, add or remove a section, fix what is broken on a phone.`;
 }
 
 /**
@@ -452,6 +476,17 @@ export async function runAgentLoop(args: {
    * the whole budget on calls that can never succeed.
    */
   maxToolErrors?: number;
+  /**
+   * Whether the run may extend itself past `maxSteps` when it has not called
+   * finish and the money is not spent. Default: true — an interactive build
+   * should not stop mid-thought.
+   *
+   * A caller that hands out a per-run allowance must pass false: the meter
+   * caps the money, this caps the turns, and without it a three-step pass can
+   * quietly become nineteen calls and eat the section's whole budget before
+   * anything is checked.
+   */
+  allowContinuations?: boolean;
 }): Promise<AgentLoopResult> {
   const { tools, ctx } = args;
   const emit = args.emit ?? (() => {});
@@ -777,6 +812,7 @@ export async function runAgentLoop(args: {
     if (
       steps >= nextPhaseEnd &&
       !finishCalled &&
+      args.allowContinuations !== false &&
       continuationCount < MAX_AUTOMATIC_CONTINUATIONS &&
       !meter.exceeded()
     ) {
@@ -895,17 +931,21 @@ export async function runBuilderAgent(args: {
     websiteId,
     ownerId,
     state: structuredClone(state),
+    svgAssets: await loadSvgAssetSummaries(websiteId),
     applied: [],
     notes: [],
     createdImages: [],
     imageCache: new Map(),
     spendMeter,
     approvedLargeChanges,
+    // A migrated site keeps its borrowed look unless this message asks for
+    // a new one; on every other site the flag is never read.
+    redesignRequested: asksForRedesign(prompt),
   };
 
   const outcome = await runAgentLoop({
     tools: buildToolCatalogue(),
-    systemPrompt: buildSystemPrompt(language),
+    systemPrompt: buildSystemPrompt(language, ctx.state.migration),
     userMessage: `${buildStateSummary(ctx.state)}\n\nOpgave: ${prompt}`,
     ctx,
     emit,

@@ -12,8 +12,10 @@ import {
   AlertTriangle,
   Sparkles,
   CalendarHeart,
+  MoveRight,
 } from "lucide-react";
 import type { BrandGuide } from "@shared/customComponents";
+import type { MigrationOrigin } from "@shared/schema";
 import type { WebsiteReadiness } from '@shared/websiteReadiness';
 import type { OnboardingDecisionSnapshot, OnboardingResumeStage } from "@shared/onboardingDecision";
 import { BrandGuideView } from "./BrandGuideView";
@@ -56,6 +58,58 @@ export type DesignDirection = {
 };
 
 type Tab = "site" | "brand" | "report" | "adjust";
+
+/**
+ * "Din side er flyttet fra …" — the first thing a migrated customer should
+ * read in their workspace.
+ *
+ * Without it the site just looks like theirs, and the two things they most
+ * need to know go unsaid: that the design is a deliberate copy (so nothing
+ * here is a template the platform picked), and what the rebuild could not
+ * bring along. The version named after the source is the way back from any
+ * edit they regret, so it is named here rather than left to be found.
+ */
+export function MigratedFromCard({ migration }: { migration?: MigrationOrigin | null }) {
+  if (!migration) return null;
+  const movedOn = (() => {
+    const date = new Date(migration.migratedAt);
+    return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString("da-DK", { day: "numeric", month: "long", year: "numeric" });
+  })();
+  const notes = migration.notes ?? [];
+  return (
+    <section
+      className="rounded-3xl border-2 border-black/10 bg-white p-4"
+      data-testid="migrated-from-card"
+      aria-label={`Flyttet fra ${migration.sourceHost}`}
+    >
+      <p className="flex items-center gap-2 text-sm font-bold">
+        <MoveRight className="h-4 w-4 shrink-0" style={{ color: PURPLE }} />
+        Din side er flyttet fra {migration.sourceHost}
+      </p>
+      <p className="mt-1 text-xs text-neutral-600">
+        Design, tekst og billeder er bygget efter din hidtidige hjemmeside{movedOn ? ` den ${movedOn}` : ""}. Du kan
+        ændre alt frit — og under “Versioner” i editoren ligger versionen “Migreret fra {migration.sourceHost}”, som du
+        altid kan vende tilbage til.
+      </p>
+      {notes.length > 0 && (
+        <div className="mt-3 rounded-xl border border-black/10 p-3">
+          <p className="text-xs font-bold">Det her kunne ikke bygges med over</p>
+          <ul className="mt-1 space-y-1">
+            {notes.slice(0, 8).map((note, index) => (
+              <li key={index} className="flex gap-1.5 text-xs text-neutral-600">
+                <span aria-hidden="true">·</span>
+                <span>{note}</span>
+              </li>
+            ))}
+          </ul>
+          {notes.length > 8 && (
+            <p className="mt-1 text-xs text-neutral-500">…og {notes.length - 8} punkter mere i byggerapporten.</p>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
 
 export function ReadinessSummary({ readiness }: { readiness?: WebsiteReadiness | null }) {
   if (!readiness) return null;
@@ -603,6 +657,7 @@ export function DecisionWorkspace({
   designDirections = [],
   selectedDirectionId = null,
   brandGuide,
+  migration,
   reportSlot,
   readiness,
   adjustmentsSlot,
@@ -630,6 +685,8 @@ export function DecisionWorkspace({
   designDirections?: DesignDirection[];
   selectedDirectionId?: string | null;
   brandGuide: BrandGuide;
+  /** Set when this site was rebuilt from the customer's own old website. */
+  migration?: MigrationOrigin | null;
   reportSlot: ReactNode;
   readiness?: WebsiteReadiness | null;
   adjustmentsSlot: ReactNode;
@@ -746,6 +803,7 @@ export function DecisionWorkspace({
     return (
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(380px,440px)]" data-testid="decision-workspace">
         <div className="flex min-w-0 flex-col gap-4">
+          <MigratedFromCard migration={migration} />
           {directionCards}
           {preview}
         </div>
@@ -799,6 +857,7 @@ export function DecisionWorkspace({
         </div>
       ) : (
         <>
+          <MigratedFromCard migration={migration} />
           {directionCards}
           <div className="flex flex-wrap items-center gap-1.5">
             {tabButton("site", "Hjemmeside", true)}

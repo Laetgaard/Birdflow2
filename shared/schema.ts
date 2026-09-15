@@ -571,7 +571,8 @@ export type DesignTokens = {
   /** Max width of centred page content. */
   containerWidth?: string;
   buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
-  cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
+  /** 'photo' puts the card's own picture behind its words, as the source had it. */
+  cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass' | 'photo';
 };
 
 export type BuilderStateData = {
@@ -610,6 +611,33 @@ export type BuilderStateData = {
    * copy whose concrete claims it does not back.
    */
   businessContext?: BusinessContext;
+  /**
+   * Set once, by the migration, on a site that was rebuilt from a customer's
+   * existing website. It says "this look is not ours to change": the AI
+   * assistant must not restyle the captured identity on its own, the builder
+   * shows where the site came from, and the snapshot taken right after the
+   * rebuild is the way back. Absent on every site built from scratch.
+   */
+  migration?: MigrationOrigin;
+};
+
+/** Where a migrated site came from, and what could not be brought along. */
+export type MigrationOrigin = {
+  /** The host the site was rebuilt from, e.g. "sensuvitality.com". */
+  sourceHost: string;
+  jobId: string;
+  /** The "Migreret fra …" snapshot: the state as the rebuild left it. */
+  snapshotId?: string;
+  /** ISO timestamp of the finish phase. */
+  migratedAt: string;
+  /**
+   * True while the rebuild is meant to stay a faithful copy. The customer's
+   * own AI assistant honours it: no presets, no site-wide restyling, unless
+   * the customer asks for a redesign in so many words.
+   */
+  preserveFidelity: boolean;
+  /** What the migration could not rebuild, in the customer's language. */
+  notes?: string[];
 };
 
 // Builder state table

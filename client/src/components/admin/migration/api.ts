@@ -2,6 +2,8 @@
 // shapes the endpoints return. Types mirror shared/clientMigration.ts.
 import type {
   MigrationJobSummary,
+  MigrationLimits,
+  MigrationPageBuildProgress,
   MigrationPlan,
   MigrationPhase,
   MigrationWarning,
@@ -10,12 +12,39 @@ import type {
 
 export type Headers = () => Record<string, string>;
 
+/** One thing the rebuild left out, as the score names it. */
+export type MigrationMissing = { sectionId: string; kind: "text" | "heading" | "cta" | "image" | "decoration"; detail: string; decoration?: number; componentId?: string };
+
+/** What a page kept of its original, axis by axis. */
+export type MigrationScore = {
+  score: number;
+  textCoverage: number;
+  headingCoverage: number;
+  ctaCoverage: number;
+  imageCoverage: number;
+  /** Waves, dividers, illustrations and background art; 1 when the page had none. */
+  decorationCoverage?: number;
+  orderScore: number;
+  sections?: Record<string, { text: number; headings: number; ctas: number; images: number; decorations: number; missing: MigrationMissing[] }>;
+  missing?: MigrationMissing[];
+  missingCount?: number;
+};
+
+/** What the score's missing items are called in the admin's language. */
+export const MISSING_KIND_LABELS: Record<string, string> = {
+  text: "tekst",
+  heading: "overskrift",
+  cta: "knap",
+  image: "billede",
+  decoration: "dekoration",
+};
+
 export type MigrationJobDetail = MigrationJobSummary & {
   live: boolean;
   notes?: string | null;
   consentNote?: string | null;
   respectRobots: boolean;
-  limits: { maxPages: number; maxAssets: number; ceilingUsd: number };
+  limits: MigrationLimits;
   spendByRole: Record<string, number>;
   warnings: MigrationWarning[];
   discovery: { pages?: Array<{ url: string; title?: string; fromNav: boolean }>; robots?: { fetched: boolean; disallow: string[] } } | null;
@@ -23,7 +52,7 @@ export type MigrationJobDetail = MigrationJobSummary & {
   assets: Array<{ sourceUrl: string; storagePath: string; mediaId: string }>;
   plan: MigrationPlan | null;
   planReviewedAt: string | null;
-  fidelity: { overall?: number; pages?: Record<string, { score: number; textCoverage: number; headingCoverage: number; ctaCoverage: number; imageCoverage: number; orderScore: number; reviewed?: boolean; issues?: number }> } | null;
+  fidelity: { overall?: number; target?: number; belowTarget?: string[]; pages?: Record<string, MigrationScore & { reviewed?: boolean; issues?: number; belowTarget?: boolean; name?: string }> } | null;
   inviteSentAt: string | null;
   inviteLinkExpiresAt: string | null;
   approvedAt: string | null;
@@ -45,9 +74,11 @@ export type MigrationPageView = {
   hasScreenshots: boolean;
   hasRebuildScreenshot: boolean;
   needsAttention: boolean;
-  sections: Array<{ id: string; role: string; confidence: number; fallback: boolean; headings: string[]; items: number; images: number; bbox: { x: number; y: number; w: number; h: number } }>;
-  buildProgress: { sections?: Record<string, { status: string; componentId?: string; attempts: number; note?: string }>; agentSpendUsd?: number } | null;
-  verify: { score?: { score: number; textCoverage: number; headingCoverage: number; ctaCoverage: number; imageCoverage: number; orderScore: number }; issues?: Array<{ id: string; severity: string; description: string; suggestedAction: string; componentId?: string }>; resolutions?: Array<{ issueId: string; description: string; status: string }>; iterations?: number; reviewed?: boolean } | null;
+  /** 1 = captured before decorations (waves, illustrations, backgrounds) were read; null before capture. */
+  extractionVersion?: number | null;
+  sections: Array<{ id: string; role: string; confidence: number; fallback: boolean; headings: string[]; items: number; images: number; decorations?: number; bbox: { x: number; y: number; w: number; h: number } }>;
+  buildProgress: MigrationPageBuildProgress | null;
+  verify: { score?: MigrationScore; issues?: Array<{ id: string; severity: string; description: string; suggestedAction: string; componentId?: string }>; resolutions?: Array<{ issueId: string; description: string; status: string }>; iterations?: number; corrections?: number; reviewed?: boolean; target?: number; belowTarget?: boolean } | null;
   updatedAt: string;
 };
 
@@ -84,11 +115,41 @@ export const VERIFY_STATUS_LABELS: Record<string, string> = {
   done: "udført",
   skipped_budget: "sprunget over (budget)",
   renderer_unavailable: "kunne ikke gengive siden",
+  browser_unavailable: "browseren kunne ikke starte",
   screenshot_failed: "screenshot fejlede",
   no_source_screenshot: "intet original-screenshot",
   model_unavailable: "modellen svarede ikke",
   scoring_failed: "kunne ikke måles",
   failed: "fejlede",
+};
+
+/** What became of one section's rebuild, for the per-section table. */
+export const SECTION_STATUS_LABELS: Record<string, string> = {
+  placed: "standard",
+  upgraded: "genskabt",
+  upgrade_partial: "tæt på",
+  upgrade_failed: "kunne ikke genskabes",
+  upgrade_rejected: "afvist",
+  upgrade_skipped: "sprunget over",
+  agent: "genskabt",
+  failed: "fejlede",
+  skipped: "fravalgt",
+  noted: "låst",
+};
+
+/** The reviewer's verdict on a rebuilt band, in the admin's language. */
+export const SECTION_VERDICT_LABELS: Record<string, string> = {
+  match: "som originalen",
+  close: "tæt på",
+  wrong: "for langt fra",
+};
+
+/** Why no picture was compared, when none was. */
+export const SECTION_REVIEW_REASONS: Record<string, string> = {
+  no_original: "intet udsnit af originalen",
+  no_rebuild: "kunne ikke gengives",
+  model_unavailable: "modellen svarede ikke",
+  skipped_budget: "budgettet var brugt",
 };
 
 export const STATUS_LABELS: Record<string, string> = {

@@ -10,7 +10,7 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { isAttachmentPage, isAttachmentTitle, normalizePageUrl } from "../server/clientMigration/capture/discovery";
+import { isAttachmentPage, isAttachmentTitle, normalizePageUrl, parseMenuItems } from "../server/clientMigration/capture/discovery";
 import { jobByteBudgetFor } from "../server/clientMigration/capture/browserSession";
 
 const ORIGIN = "https://sensuvitality.com";
@@ -63,5 +63,38 @@ describe("the download budget", () => {
     expect(src).toContain("pageBytes = 0; budgetWarned = false;");
     expect(src).toContain("response.fromCache()");
     expect(src).toContain("byte_budget:");
+  });
+});
+
+/**
+ * The site's own menu, when WordPress will say. A theme that hides its menu
+ * behind a burger leaves the capture with nothing to read; this is the
+ * fallback that keeps the rebuilt site's navigation from collapsing to one
+ * "Forside" link.
+ */
+describe("reading a WordPress menu", () => {
+  it("keeps the owner's order and decodes the labels", () => {
+    expect(parseMenuItems([
+      { title: { rendered: "Kontakt" }, url: `${ORIGIN}/contact`, menu_order: 3 },
+      { title: { rendered: "Book&#8217;s" }, url: `${ORIGIN}/book`, menu_order: 1 },
+      { title: { rendered: "Om" }, url: `${ORIGIN}/about`, menu_order: 2 },
+    ])).toEqual([
+      { label: "Book’s", url: `${ORIGIN}/book`, order: 1 },
+      { label: "Om", url: `${ORIGIN}/about`, order: 2 },
+      { label: "Kontakt", url: `${ORIGIN}/contact`, order: 3 },
+    ]);
+  });
+
+  it("leaves out submenu items and rows with nothing to link to", () => {
+    expect(parseMenuItems([
+      { title: { rendered: "Ydelser" }, url: `${ORIGIN}/services`, menu_order: 1 },
+      { title: { rendered: "Massage" }, url: `${ORIGIN}/services/massage`, menu_order: 2, parent: 11 },
+      { title: { rendered: "Ingen adresse" }, menu_order: 3 },
+    ]).map((item) => item.label)).toEqual(["Ydelser"]);
+  });
+
+  it("is empty rather than broken when the endpoint answers something else", () => {
+    expect(parseMenuItems(null)).toEqual([]);
+    expect(parseMenuItems({ code: "rest_forbidden" })).toEqual([]);
   });
 });

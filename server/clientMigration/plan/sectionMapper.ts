@@ -12,15 +12,19 @@ import type { ComponentType } from "@shared/componentRegistry";
 import { componentRegistry } from "@shared/componentRegistry";
 import {
   targetKey,
+  decorationsOf,
   ROLE_TARGET_COMPATIBILITY,
+  MIGRATION_ID_PREFIX,
+  type ExtractedDecoration,
   type ExtractedSection,
   type MigrationSectionPlan,
   type MigrationTarget,
   type PageExtraction,
   type SectionRole,
 } from "@shared/clientMigration";
+import { heroOverWaveCue, illustratedReviewsCue } from "./decorationMapper";
 
-export const MIGRATION_ID_PREFIX = "mig";
+export { MIGRATION_ID_PREFIX };
 
 /** The default target for a role, before the model or the admin weighs in. */
 export function defaultTargetFor(section: ExtractedSection, pixelClose: boolean): MigrationTarget {
@@ -34,9 +38,40 @@ export function defaultTargetFor(section: ExtractedSection, pixelClose: boolean)
   // spends the budget that the genuinely unusual sections need.
   const WELL_SERVED: SectionRole[] = ["hero", "contact", "faq", "pricing", "team", "stats", "cta", "timeline", "comparison-table", "logo-cloud"];
   const needsAgent = section.confidence < 0.5 || (strongVisual && section.confidence < 0.75);
+  // Words on a photo are the thing a standard block reproduces least well,
+  // and the thing a client notices first. The deterministic floor under such
+  // a section now carries the photo and the source's own scrim, so sending it
+  // to the agent can only improve it — and its role no longer shields it.
+  const textOnPhoto = (backdrop && section.role !== "hero" && section.role !== "cta") || section.items.some((item) => item.imageBehindText);
+  // Artwork no standard block can draw: a hero whose picture rides the wave
+  // into the next band, review cards drawn around their illustrations, art
+  // layered over a band's words. The first two have a deterministic recipe;
+  // the third goes to the agent with the decorations in its brief.
+  if (section.role === "hero") {
+    const cue = heroOverWaveCue(section);
+    if (cue.wave || cue.art) return { kind: "custom", recipe: "hero-over-wave", brief: `Rebuild faithfully: the hero${cue.art ? " has an illustration beside its words" : ""}${cue.wave ? `, and its bottom edge is a wave that runs ${cue.wave.deco.overlapPx ?? 0}px into the next section` : ""}. ${section.headings.map((h) => h.text).join(" / ").slice(0, 100)}` };
+  }
+  if (section.role === "testimonials" && illustratedReviewsCue(section)) {
+    return { kind: "custom", recipe: "illustrated-reviews", brief: `Rebuild faithfully: each review is drawn around an illustration${section.items.some((item) => item.quoteInsideImage) ? ", with the quote on top of it" : ""}. ${section.headings.map((h) => h.text).join(" / ").slice(0, 100)}` };
+  }
+  const layeredArt = decorationsOf(section).some((deco) => deco.zOrder === "above" && (deco.edge === "float" || deco.edge === "left" || deco.edge === "right"));
+  if (pixelClose && layeredArt && section.role !== "contact") {
+    return custom(`Rebuild faithfully: an illustration is layered over the section's content (see decorations). ${section.role} with ${items} items, ${section.headings.map((h) => h.text).join(" / ").slice(0, 100)}`);
+  }
+  if (pixelClose && textOnPhoto) {
+    return custom(`Rebuild faithfully: the words sit on a photo — keep the photo behind them with the original's own dimming. ${section.role} with ${items} items, ${section.headings.map((h) => h.text).join(" / ").slice(0, 100)}`);
+  }
   if (pixelClose && needsAgent && !WELL_SERVED.includes(section.role)) {
     return custom(`Rebuild faithfully: ${section.role} with ${items} items, ${images} images, ${section.headings.map((h) => h.text).join(" / ").slice(0, 120)}`);
   }
+  return roleTargetFor(section);
+}
+
+/** The standard block for a role, with no agent and no recipe: the floor under everything else. */
+export function roleTargetFor(section: ExtractedSection): MigrationTarget {
+  const items = section.items.length;
+  const images = section.images.filter((img) => !img.isBackground && !img.decorative).length;
+  const backdrop = !!section.bgImage || section.images.some((img) => img.isBackground);
   switch (section.role) {
     case "hero": return { kind: "section", sectionType: "hero-section", variant: backdrop ? ((section.headingSize ?? 0) >= 48 && section.headings[0] && section.headings[0].text === section.headings[0].text.toUpperCase() ? "bold" : "centered") : images >= 1 && section.textAlign !== "center" ? "split" : "centered" };
     case "features": return items >= 3 ? { kind: "section", sectionType: "features-section" } : { kind: "component", componentType: "text-image" };
@@ -126,6 +161,53 @@ function backgroundStyles(section: ExtractedSection, allowed: Set<string>): Reco
   const bg = backgroundPath(section, allowed);
   return bg ? { backgroundImage: `url(${bg})`, backgroundSize: "cover", backgroundPosition: "center" } : {};
 }
+
+/** The source's own scrim as one flat colour, or nothing when it had none. */
+function scrimRgba(overlay: ExtractedSection["overlay"]): string | undefined {
+  if (!overlay) return undefined;
+  const alpha = Math.max(0, Math.min(1, overlay.alpha));
+  if (alpha <= 0.02) return undefined;
+  const rgb = rgbOf(overlay.color) ?? [0, 0, 0];
+  return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${Number(alpha.toFixed(2))})`;
+}
+
+function rgbOf(value: string | undefined): [number, number, number] | undefined {
+  const m = value?.match(/rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)/i);
+  if (m) return [Number(m[1]), Number(m[2]), Number(m[3])];
+  const hex = value?.match(/^#([0-9a-f]{6})$/i)?.[1] ?? (value?.match(/^#([0-9a-f]{3})$/i)?.[1]?.split("").map((c) => c + c).join(""));
+  return hex ? [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)] : undefined;
+}
+
+function isDark(value: string | undefined): boolean {
+  const rgb = rgbOf(value);
+  if (!rgb) return false;
+  return (0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]) / 255 < 0.55;
+}
+
+/**
+ * A band whose words sat on a photo, as one style value.
+ *
+ * Only the hero and the call to action have a scrim of their own in the
+ * renderers; every other section type drew the client's words straight onto
+ * the raw photo — or, before this, dropped the photo entirely. Baking the
+ * source's own scrim into the same `backgroundImage` value (a flat colour
+ * over the picture) gives all eighteen placements the faithful result with
+ * no renderer change. A source with no scrim still gets none: the photo
+ * shows exactly as the client had it.
+ */
+export function backdropStyles(section: ExtractedSection, allowed: Set<string>): Record<string, string> {
+  const bg = backgroundPath(section, allowed);
+  if (!bg) return {};
+  const scrim = scrimRgba(section.overlay);
+  return {
+    backgroundImage: scrim ? `linear-gradient(${scrim}, ${scrim}), url(${bg})` : `url(${bg})`,
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    // The source almost always states its own text colour; when it does not,
+    // a dark scrim means light text — anything else is unreadable.
+    ...(hexOf(section.textColor) || !scrim || !isDark(scrim) ? {} : { textColor: "#ffffff" }),
+  };
+}
 function altFor(section: ExtractedSection, src: string): string {
   return section.images.find((img) => img.src === src)?.alt ?? "";
 }
@@ -190,7 +272,13 @@ export function buildPlacementMutation(section: ExtractedSection, plan: Migratio
   const imgs = imagePaths(section, ctx.allowedImagePaths);
   const items = section.items;
   const itemId = (n: number) => uid(ctx.pageOrdinal, ctx.sectionIndex, n + 1);
-  const styles = sectionStyles(section);
+  // `base` is the band's own colours and rhythm; `styles` adds the photo it
+  // sat on. Sixteen of the eighteen placements used to pass `base` alone, so
+  // a services, team, stats or testimonial band on a photo came out as a flat
+  // coloured block. The hero and the call to action keep their own vehicle —
+  // `imageUrl` + `backgroundOpacity` — which both renderers draw themselves.
+  const base = sectionStyles(section);
+  const styles = { ...base, ...backdropStyles(section, ctx.allowedImagePaths) };
 
   if (target.kind === "section") {
     // add_section materialises the registry defaults for the type, then
@@ -224,7 +312,7 @@ export function buildPlacementMutation(section: ExtractedSection, plan: Migratio
           imageAlt: backdrop ? "" : picture?.alt ?? "",
           layout,
           alignment: section.textAlign === "left" ? "left" : section.textAlign === "right" ? "right" : "center",
-        }, backdrop ? { ...styles, ...scrimStyles(section) } : styles);
+        }, backdrop ? { ...base, ...scrimStyles(section) } : base);
       }
       case "features-section":
       case "services-section": {
@@ -234,12 +322,14 @@ export function buildPlacementMutation(section: ExtractedSection, plan: Migratio
           icon: item.icon && !/^svg$/.test(item.icon) ? item.icon.replace(/^(fa-|icon-|lucide-)/, "") : "",
           imageUrl: itemImage(item, ctx.allowedImagePaths), ...(item.price ? { price: item.price } : {}),
         }));
+        // Cards whose words sat on their photo keep them there.
+        const photoCards = items.length > 0 && items.filter((item) => item.imageBehindText).length >= Math.ceil(items.length / 2);
         return component(ctx, id, type, {
           styledTitle: { text: title ?? "" }, title: title ?? "",
           styledSubtitle: { text: subtitle ?? "" }, subtitle: subtitle ?? "",
           styledDescription: { text: description }, description,
           ...(type === "services" ? { services: list, columns: Math.min(Math.max(section.columns ?? 3, 2), 4), variant: "cards" } : { items: list }),
-        }, styles);
+        }, photoCards ? { ...styles, cardStyle: "photo" } : styles);
       }
       case "reviews-section":
       case "social-proof-section":
@@ -266,11 +356,18 @@ export function buildPlacementMutation(section: ExtractedSection, plan: Migratio
           items: qa.filter((x) => x.q).slice(0, 20).map((x, n) => ({ id: itemId(n), title: x.q, description: x.a })),
         }, styles);
       }
-      case "gallery-section":
+      case "gallery-section": {
+        const shown = imgs.slice(0, 24);
+        // A caption the source printed with a picture is content. Where it
+        // printed it — on the photo or under it — is part of the look.
+        const captions = shown.map((src) => section.items.find((item) => item.imageSrc === src)?.title ?? section.items.find((item) => item.imageSrc === src)?.text?.slice(0, 120) ?? altFor(section, src));
+        const overlay = section.items.some((item) => item.imageBehindText);
         return component(ctx, id, "gallery", {
           styledTitle: { text: title ?? "" }, title: title ?? "", description,
-          images: imgs.slice(0, 24), columns: Math.min(Math.max(section.columns ?? 3, 2), 4), layout: "grid",
+          images: shown, columns: Math.min(Math.max(section.columns ?? 3, 2), 4), layout: "grid",
+          ...(captions.some(Boolean) ? { captions, captionPlacement: overlay ? "overlay" : "below" } : {}),
         }, styles);
+      }
       case "contact-section": {
         const form = section.forms[0];
         const fields = (form?.fields ?? []).filter((f) => !/^(hidden|submit|button|checkbox)$/.test(f.type)).slice(0, 8).map((f, n) => ({
@@ -306,7 +403,7 @@ export function buildPlacementMutation(section: ExtractedSection, plan: Migratio
           styledDescription: { text: description }, description,
           buttonText: cta?.text ?? "", buttonLink: cta ? ctx.rewriteHref(cta.href) : "",
           secondaryButtonText: cta2?.text ?? "", secondaryButtonLink: cta2 ? ctx.rewriteHref(cta2.href) : "",
-        }, backgroundPath(section, ctx.allowedImagePaths) ? { ...styles, ...backgroundStyles(section, ctx.allowedImagePaths), ...scrimStyles(section) } : styles);
+        }, backgroundPath(section, ctx.allowedImagePaths) ? { ...base, ...backgroundStyles(section, ctx.allowedImagePaths), ...scrimStyles(section) } : base);
       case "timeline-section":
         return component(ctx, id, "timeline", {
           styledTitle: { text: title ?? "" }, title: title ?? "",
@@ -363,7 +460,7 @@ export function buildPlacementMutation(section: ExtractedSection, plan: Migratio
       return component(ctx, id, "spacer", { height: "40px" }, {});
     case "rich-text":
     default:
-      return component(ctx, id, "rich-text", { content: richHtml(section, ctx.allowedImagePaths), maxWidth: "820px", alignment: section.textAlign === "center" ? "center" : "left" }, { ...styles, ...backgroundStyles(section, ctx.allowedImagePaths) });
+      return component(ctx, id, "rich-text", { content: richHtml(section, ctx.allowedImagePaths), maxWidth: "820px", alignment: section.textAlign === "center" ? "center" : "left" }, styles);
   }
 }
 
@@ -375,7 +472,7 @@ function pairHeadings(section: ExtractedSection): Array<{ q: string; a: string }
   return out;
 }
 
-function sectionStyles(section: ExtractedSection): Record<string, string> {
+export function sectionStyles(section: ExtractedSection): Record<string, string> {
   const styles: Record<string, string> = {};
   const bg = hexOf(section.bgColor);
   const text = hexOf(section.textColor);
@@ -385,7 +482,7 @@ function sectionStyles(section: ExtractedSection): Record<string, string> {
   return styles;
 }
 
-function hexOf(rgb: string | undefined): string | undefined {
+export function hexOf(rgb: string | undefined): string | undefined {
   const m = rgb?.match(/rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)(?:[,\s/]+([\d.]+))?/i);
   if (!m) return rgb && /^#[0-9a-f]{3,8}$/i.test(rgb) ? rgb : undefined;
   if (m[4] !== undefined && Number(m[4]) < 0.2) return undefined;
@@ -412,24 +509,51 @@ function component(ctx: BuildContext, id: string, type: ComponentType, props: Re
 
 /* ─────────────────────────── chrome ─────────────────────────── */
 
-export function buildHeaderComponent(args: { brandText?: string; logoPath?: string; nav: Array<{ label: string; href: string }>; cta?: { text: string; href: string } }): { id: string; type: "header"; props: Record<string, unknown>; styles: Record<string, unknown> } {
+export function buildHeaderComponent(args: {
+  brandText?: string;
+  logoPath?: string;
+  nav: Array<{ label: string; href: string }>;
+  cta?: { text: string; href: string };
+  /** False when the original showed only its logo: no word beside it. */
+  showBrandText?: boolean;
+  /** The original header's own look. */
+  style?: { backgroundColor?: string; textColor?: string; sticky?: boolean; transparent?: boolean };
+}): { id: string; type: "header"; props: Record<string, unknown>; styles: Record<string, unknown> } {
   const definition = componentRegistry.header;
+  // A logo-only header stays logo-only. Writing the company name beside a
+  // logo the client never captioned is how every migrated site ended up
+  // saying whatever the admin typed into the form.
+  const title = args.showBrandText === false && args.logoPath ? "" : args.brandText ?? "";
+  const style = args.style ?? {};
   return {
     id: `${MIGRATION_ID_PREFIX}-header`,
     type: "header",
     props: {
       ...definition.defaultProps,
-      title: args.brandText ?? "",
+      title,
       imageUrl: args.logoPath ?? "",
       showCart: false,
       items: args.nav.slice(0, 12).map((link, n) => ({ id: `${MIGRATION_ID_PREFIX}-nav-${n}`, title: link.label, description: link.href })),
       ...(args.cta ? { buttonText: args.cta.text, buttonLink: args.cta.href } : {}),
     },
-    styles: { ...definition.defaultStyles },
+    styles: {
+      ...definition.defaultStyles,
+      ...(style.backgroundColor ? { backgroundColor: style.backgroundColor, scrolledBackgroundColor: style.backgroundColor } : {}),
+      ...(style.textColor ? { textColor: style.textColor } : {}),
+      ...(style.sticky ? { scrollBehavior: "sticky" } : {}),
+      ...(style.transparent ? { isTransparent: true, overlayMode: true } : {}),
+    },
   };
 }
 
-export function buildFooterComponent(args: { copyright?: string; contactText?: string; columns: Array<{ heading?: string; links: Array<{ text: string; href: string }> }>; social: Array<{ network: string; href: string }> }): { id: string; type: "footer"; props: Record<string, unknown>; styles: Record<string, unknown> } {
+export function buildFooterComponent(args: {
+  copyright?: string;
+  contactText?: string;
+  columns: Array<{ heading?: string; links: Array<{ text: string; href: string }> }>;
+  social: Array<{ network: string; href: string }>;
+  /** The original footer's own look: colours and the art behind it. */
+  styles?: Record<string, string>;
+}): { id: string; type: "footer"; props: Record<string, unknown>; styles: Record<string, unknown> } {
   const definition = componentRegistry.footer;
   return {
     id: `${MIGRATION_ID_PREFIX}-footer`,
@@ -438,11 +562,41 @@ export function buildFooterComponent(args: { copyright?: string; contactText?: s
       ...definition.defaultProps,
       title: args.copyright ?? definition.defaultProps.title,
       description: args.contactText ?? "",
+      // Both renderers read `footerColumns` and `copyright`; `columns` and
+      // `title` alone meant the client's own footer links never appeared.
+      copyright: args.copyright ?? "",
+      footerColumns: args.columns.slice(0, 4).map((column) => ({ heading: column.heading ?? "", links: column.links.slice(0, 12).map((link) => ({ label: link.text, href: link.href })) })),
       columns: args.columns.slice(0, 4).map((column, n) => ({ id: `${MIGRATION_ID_PREFIX}-fcol-${n}`, title: column.heading ?? "", links: column.links.slice(0, 12).map((link, m) => ({ id: `${MIGRATION_ID_PREFIX}-flink-${n}-${m}`, title: link.text, description: link.href })) })),
       socialLinks: args.social.slice(0, 8).map((social, n) => ({ id: `${MIGRATION_ID_PREFIX}-social-${n}`, platform: social.network, url: social.href })),
     },
-    styles: { ...definition.defaultStyles },
+    styles: { ...definition.defaultStyles, ...(args.styles ?? {}) },
   };
+}
+
+/** The footer's own colours and background art, as component styles. */
+export function footerSurfaceStyles(footer: { bgColor?: string; textColor?: string; bgImage?: string; bgSize?: string; bgPosition?: string; bgRepeat?: string; decorations?: ExtractedDecoration[] } | undefined, allowed: Set<string>): Record<string, string> {
+  if (!footer) return {};
+  const styles: Record<string, string> = {};
+  const bg = hexOf(footer.bgColor);
+  const text = hexOf(footer.textColor);
+  if (bg) styles.backgroundColor = bg;
+  if (text) styles.textColor = text;
+  if (footer.bgImage && allowed.has(footer.bgImage)) {
+    styles.backgroundImage = `url(${footer.bgImage})`;
+    styles.backgroundSize = footer.bgSize && footer.bgSize !== "auto" ? footer.bgSize : "cover";
+    styles.backgroundPosition = footer.bgPosition ?? "center";
+    if (footer.bgRepeat && footer.bgRepeat !== "repeat") styles.backgroundRepeat = footer.bgRepeat;
+    return styles;
+  }
+  // Art that filled the footer from behind is its background too.
+  const behind = decorationsOf(footer).find((deco) => deco.zOrder === "behind" && deco.edge === "fill" && deco.src && allowed.has(deco.src));
+  if (behind) {
+    styles.backgroundImage = `url(${behind.src})`;
+    styles.backgroundSize = behind.bgSize && behind.bgSize !== "auto" ? behind.bgSize : "cover";
+    styles.backgroundPosition = behind.bgPosition ?? "center";
+    styles.backgroundRepeat = behind.bgRepeat && behind.bgRepeat !== "repeat" ? behind.bgRepeat : "no-repeat";
+  }
+  return styles;
 }
 
 /** Everything a page's sections say, for the fidelity guard's evidence pool. */

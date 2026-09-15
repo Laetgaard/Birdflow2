@@ -126,10 +126,14 @@ const publishedRendererHealth = vi.fn(async () => ({ ok: true }) as { ok: true }
 vi.mock("../server/publisher/inProcessRenderer", () => ({ publishedRendererHealth: () => publishedRendererHealth() }));
 const finalizeMigratedSite = vi.fn(async ({ expectedRevision }: any) => ({ revision: expectedRevision + 1, snapshotId: 4242 }));
 vi.mock("../server/clientMigration/finish/finalize", () => ({ finalizeMigratedSite: (...args: unknown[]) => finalizeMigratedSite(...(args as [any])) }));
-vi.mock("../server/aiAgent", () => ({ runAgentLoop: vi.fn() }));
+// The corrective pass in verification runs through this; by default it is an
+// agent that looks at the list and changes nothing.
+const runAgentLoop = vi.fn(async (_args: any) => undefined as unknown);
+vi.mock("../server/aiAgent", () => ({ runAgentLoop: (...args: unknown[]) => runAgentLoop(...(args as [any])) }));
 vi.mock("../server/aiAgentTools", () => ({ buildToolCatalogue: () => [] }));
 const closeBrowser = vi.fn(async () => undefined);
-vi.mock("../server/visualReview", () => ({ resolveIssues: () => [], openReviewBrowser: async () => ({ close: closeBrowser }) }));
+const openBrowser = vi.fn(async () => ({ close: closeBrowser }) as unknown);
+vi.mock("../server/visualReview", () => ({ resolveIssues: () => [], openReviewBrowser: () => openBrowser() }));
 vi.mock("../server/onboardingDecision", () => ({ bumpSiteRevision: vi.fn(async () => undefined) }));
 vi.mock("../server/clientMigration/notify", () => ({ safeHost: (url: string) => new URL(url).host }));
 
@@ -144,7 +148,7 @@ function seedJob(over: Row = {}): string {
   const id = `job-${++seq}`;
   jobs.set(id, {
     id, createdBy: "admin-1", clientUserId: "client-1", websiteId: "site-1", company: "Klinik Ro", sourceUrl: SOURCE, canonicalOrigin: null,
-    language: "da", planSlug: "starter", respectRobots: true, status: "queued", phase: "discover", phaseAttempts: {}, pauseRequested: false, cancelRequested: false,
+    language: "da", planSlug: "starter", respectRobots: true, requirePlanReview: true, status: "queued", phase: "discover", phaseAttempts: {}, pauseRequested: false, cancelRequested: false,
     leaseOwner: null, leaseUntil: null, limits: { maxPages: 10, maxAssets: 20, ceilingUsd: 12 }, spentUsd: "0", spendByRole: {}, discovery: null, brand: null,
     assets: [], plan: null, planReviewedAt: null, fidelity: null, warnings: [], error: null, errorCode: null, builderRevision: null, snapshotId: null,
     createdAt: now(), updatedAt: now(), ...over,
@@ -186,11 +190,16 @@ beforeEach(() => {
   buildPage.mockClear();
   finalizeMigratedSite.mockClear();
   reviewPageFidelity.mockClear();
+  runAgentLoop.mockClear();
+  runAgentLoop.mockImplementation(async () => undefined);
+  delete process.env.MIGRATION_FIDELITY_TARGET;
   scorePageFidelity.mockClear();
   scorePageFidelity.mockImplementation((args: any) => realScore(args));
   publishedRendererHealth.mockClear();
   publishedRendererHealth.mockResolvedValue({ ok: true });
   closeBrowser.mockClear();
+  openBrowser.mockReset();
+  openBrowser.mockImplementation(async () => ({ close: closeBrowser }) as unknown);
   meteredChat.mockClear();
   updateBuilderState.mockClear();
   defaultDiscovery();
@@ -287,6 +296,62 @@ describe("a job from one link to the plan gate", () => {
  * phase, three of those and the job was dead with the real error replaced by
  * "unknown". Nothing here may cost more than the page it happened on.
  */
+/**
+ * A page of real text that reads as one or two blocks was read through a
+ * wrapper the segmentation could not open — every sub-page of the first
+ * real migration came back as exactly two sections. One thorough re-read
+ * before the plan has to live with it.
+ */
+describe("a page that reads as too little", () => {
+  /** The services page read as two fat blocks first, as four sections after. */
+  function thinCapture() {
+    capturePage.mockImplementation(async (_session: unknown, args: any) => {
+      if (args.pageOrdinal === 0) return { extraction: homeExtraction(), screenshots: {}, renderedHtmlPath: null, warnings: [] };
+      const full = servicesExtraction();
+      if (!args.thorough) {
+        const two = { ...full, sections: full.sections.map((section: any) => ({ ...section, textLength: 900 })) };
+        return { extraction: two, screenshots: {}, renderedHtmlPath: null, warnings: [] };
+      }
+      const more = {
+        ...full,
+        sections: [
+          ...full.sections,
+          ...full.sections.map((section: any, n: number) => ({ ...section, id: `p1-s${n + 2}` })),
+        ],
+      };
+      return { extraction: more, screenshots: {}, renderedHtmlPath: null, warnings: [] };
+    });
+  }
+
+  it("reads it again thoroughly and keeps the fuller reading", async () => {
+    const id = seedJob();
+    thinCapture();
+    await runToCompletion(id);
+    const thorough = capturePage.mock.calls.filter((call: any[]) => call[1]?.thorough);
+    expect(thorough).toHaveLength(1);
+    expect(pagesOf(id)[1].extraction.sections.map((s: Row) => s.id)).toEqual(["p1-s0", "p1-s1", "p1-s2", "p1-s3"]);
+  });
+
+  it("keeps the first reading, and says so, when the second finds no more", async () => {
+    const id = seedJob();
+    capturePage.mockImplementation(async (_session: unknown, args: any) => {
+      const full = args.pageOrdinal === 0 ? homeExtraction() : servicesExtraction();
+      if (args.pageOrdinal !== 1) return { extraction: full, screenshots: {}, renderedHtmlPath: null, warnings: [] };
+      const two = { ...full, sections: full.sections.slice(0, 2).map((section: any) => ({ ...section, textLength: 900 })) };
+      return { extraction: two, screenshots: {}, renderedHtmlPath: null, warnings: [] };
+    });
+    const job = await runToCompletion(id);
+    expect(pagesOf(id)[1].extraction.sections).toHaveLength(2);
+    expect(job.warnings.some((w: Row) => w.code === "page_thin")).toBe(true);
+  });
+
+  it("does not re-read a page that is simply short", async () => {
+    const id = seedJob();
+    await runToCompletion(id);
+    expect(capturePage.mock.calls.filter((call: any[]) => call[1]?.thorough)).toHaveLength(0);
+  });
+});
+
 describe("verification never costs more than the page it failed on", () => {
   async function runToFinish(id: string): Promise<Row> {
     await runToCompletion(id);
@@ -294,6 +359,56 @@ describe("verification never costs more than the page it failed on", () => {
     await vi.waitFor(() => expect(runner.isMigrationLive(id)).toBe(false), { timeout: 15_000, interval: 10 });
     return jobs.get(id)!;
   }
+
+  /** A score object of the shape the loop reads, at the level given. */
+  const scoreAt = (value: number, missing: Row[] = [{ sectionId: "p0-s0", kind: "decoration", detail: "bølgen i bunden af hero", decoration: 0 }]) => ({
+    score: value, textCoverage: value, headingCoverage: value, ctaCoverage: value, imageCoverage: value, decorationCoverage: value, orderScore: 1, sections: {}, missing,
+  });
+
+  it("corrects a page the measurement calls incomplete, and stops when a pass changes nothing", async () => {
+    const id = seedJob();
+    const job = await runToFinish(id);
+
+    // The stub build leaves a page with one headline on it: far below target,
+    // and the free measurement — not the vision model, which is unreachable
+    // here — is what sends the agent in.
+    expect(runAgentLoop).toHaveBeenCalledTimes(2);
+    const fix = runAgentLoop.mock.calls[0][0] as Row;
+    expect(fix.userMessage).toContain("Measured as missing");
+    expect(fix.role).toBe("migrationBuild");
+    // One pass only: an agent that applied nothing will apply nothing next time.
+    expect(pagesOf(id).map((p) => p.verify.corrections)).toEqual([1, 1]);
+    expect(pagesOf(id).every((p) => p.verify.belowTarget)).toBe(true);
+    expect(job.fidelity.target).toBe(0.95);
+    expect(job.fidelity.belowTarget).toEqual(["Forside", "Ydelser"]);
+    expect(job.warnings.filter((w: Row) => w.code === "below_target")).toHaveLength(2);
+  });
+
+  it("keeps correcting while the score climbs, and stops the moment it reaches the target", async () => {
+    const id = seedJob();
+    const steps = [0.6, 0.8, 0.97];
+    let call = 0;
+    scorePageFidelity.mockImplementation(() => scoreAt(steps[Math.min(call++, steps.length - 1)]));
+    runAgentLoop.mockImplementation(async (args: any) => { args.ctx.applied.push({ action: "update_component" }); });
+
+    const job = await runToFinish(id);
+    const home = pagesOf(id)[0];
+    expect(home.verify.corrections).toBe(2);
+    expect(home.verify.score.score).toBe(0.97);
+    expect(home.verify.belowTarget).toBe(false);
+    expect(job.fidelity.belowTarget).toEqual([]);
+  });
+
+  it("never buys a correction for a page that is already good enough", async () => {
+    const id = seedJob();
+    process.env.MIGRATION_FIDELITY_TARGET = "0.5";
+    scorePageFidelity.mockImplementation(() => scoreAt(0.9, []));
+
+    const job = await runToFinish(id);
+    expect(runAgentLoop).not.toHaveBeenCalled();
+    expect(job.fidelity.belowTarget).toEqual([]);
+    expect(job.warnings.filter((w: Row) => w.code === "below_target")).toHaveLength(0);
+  });
 
   it("records the page whose score throws and finishes the phase anyway", async () => {
     const id = seedJob();
@@ -326,6 +441,24 @@ describe("verification never costs more than the page it failed on", () => {
     expect(job.warnings.filter((w: Row) => w.code === "skipped_budget").length).toBe(0);
     // Every page still carries its deterministic score.
     expect(Object.keys(job.fidelity.pages)).toHaveLength(2);
+  });
+
+  it("records a Chromium that will not start, once, and keeps every score", async () => {
+    const id = seedJob();
+    openBrowser.mockRejectedValue(new Error("Timed out after 30000 ms while waiting for the WS endpoint URL to appear in stdout!"));
+
+    const job = await runToFinish(id);
+    expect(job.status).toBe("awaiting_final_review");
+    expect(pagesOf(id).map((p) => p.verifyStatus)).toEqual(["browser_unavailable", "browser_unavailable"]);
+    // Said once for the phase, not once per page — and never as "budget".
+    expect(job.warnings.filter((w: Row) => w.code === "browser_unavailable")).toHaveLength(1);
+    expect(job.warnings.filter((w: Row) => w.code === "skipped_budget")).toHaveLength(0);
+    // The deterministic score is the number the admin trusts; a browser that
+    // would not start must not cost it.
+    expect(Object.keys(job.fidelity.pages)).toHaveLength(2);
+    expect(job.fidelity.overall).toBeGreaterThan(0);
+    // One attempt, not one per page.
+    expect(openBrowser).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the phase alive when one page explodes, and banks the pages already attempted", async () => {

@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { MIGRATION_ACTIVE_STATUSES, MIGRATION_PHASES } from "../shared/clientMigration";
 import { PLATFORM_PLANS } from "../shared/schema";
-import { AI_ROLES, aiConfig } from "../server/aiConfig";
+import { AI_ROLES, aiConfig, chatParamsFor } from "../server/aiConfig";
 import { VERIFY_STATUS_LABELS } from "../client/src/components/admin/migration/api";
 import { CLIENT_MIGRATION_DDL } from "../server/clientMigration/migrationDbSchema";
 import { EXCLUDED_MIGRATION_TOOLS } from "../server/clientMigration/build/migrationToolCatalogue";
@@ -37,6 +37,20 @@ describe("every migration route is an admin route", () => {
     expect(src).toContain("requestPageExclude");
     expect(src).toContain('app.post("/api/admin/migrations/:id/resume-at"');
     for (const action of ["retry", "exclude"]) expect(src, action).toContain(`"${action}"`);
+  });
+
+  it("lets the admin work one section at a time, and see both sides of it", () => {
+    const src = read("server/clientMigration/routes.ts");
+    expect(src).toContain("/sections/:sectionId/rebuild");
+    expect(src).toContain("requestSectionRebuild");
+    // The compare view needs the rebuild, not only the original.
+    expect(src).toContain('["rebuild", "rebuildMobile"].includes(requested)');
+  });
+
+  it("refuses to rebuild a section while the job owns the site", () => {
+    const src = read("server/clientMigration/migrationJob.ts");
+    const fn = src.slice(src.indexOf("export async function requestSectionRebuild"));
+    expect(fn.slice(0, 1400)).toContain("isMigrationLive");
   });
 
   it("checks the source URL is public before anything is created", () => {
@@ -113,8 +127,12 @@ describe("what the migration agent may not do", () => {
   it("builds every page behind the fidelity guard", () => {
     const src = read("server/clientMigration/build/pageBuilder.ts");
     expect(src).toContain("makeFidelityGuard(");
-    expect(src).toMatch(/guard,?\s*\}/);
-    expect(src).toContain("migrationToolCatalogue()");
+    // The guard goes into the agent's context, so every mutation passes it.
+    expect(src).toMatch(/agentCtx: AgentContext = \{[\s\S]{0,600}?\bguard,/);
+    // The filtered catalogue, with or without the migration-only tools
+    // appended — never the unfiltered one.
+    expect(src).toMatch(/migrationToolCatalogue\(/);
+    expect(src).not.toContain("buildToolCatalogue(");
     expect(src).not.toMatch(/unsplash/i);
   });
 
@@ -124,16 +142,61 @@ describe("what the migration agent may not do", () => {
     }
   });
 
+  it("never lets a section's pass extend itself past the steps it was given", () => {
+    // A continuation turns a 3-step pass into 19 calls, spends the page's
+    // budget before anything has been looked at, and the sections after it
+    // are never rebuilt at all.
+    const src = read("server/clientMigration/build/pageBuilder.ts");
+    expect(src).toContain("allowContinuations: false");
+    expect(read("server/aiAgent.ts")).toContain("allowContinuations");
+  });
+
+  it("looks at what it built before accepting it, and keeps the pictures", () => {
+    const src = read("server/clientMigration/build/pageBuilder.ts");
+    expect(src).toContain("renderSectionCrops");
+    expect(src).toContain("reviewSectionFidelity");
+    expect(src).toContain("scoreSectionFidelity");
+    // The free measurement comes first: no reviewer is bought for a rebuild
+    // that already lost half the band.
+    expect(src.indexOf("scoreSectionFidelity(")).toBeLessThan(src.indexOf("reviewSectionFidelity("));
+  });
+
   it("shows the agent the screenshot as an image, and names only tools that exist", () => {
     const src = read("server/clientMigration/build/pageBuilder.ts");
-    const tools = read("server/aiAgentTools.ts");
+    const prompts = read("server/clientMigration/build/migrationPrompts.ts");
+    // A tool exists if the general catalogue has it or the migration adds it.
+    const tools = read("server/aiAgentTools.ts") + read("server/clientMigration/build/migrationTools.ts");
     expect(src).toContain('type: "image_url"');
     expect(src).not.toMatch(/<image>/);
     // Every tool the brief or the system prompt names must be registered.
-    for (const name of Array.from(src.matchAll(/`([a-z_]+)`/g)).map((m) => m[1]).filter((n) => /_/.test(n))) {
+    for (const name of Array.from(`${src}${prompts}`.matchAll(/`([a-z_]+)`/g)).map((m) => m[1]).filter((n) => /_/.test(n))) {
       expect(tools, name).toContain(`"${name}"`);
     }
     expect(src).not.toContain("add_custom_component");
+  });
+
+  it("tells the agent how to put the artwork back, and gives it the means to", () => {
+    const prompts = read("server/clientMigration/build/migrationPrompts.ts");
+    // The rules that were each learned from a rebuild getting it wrong.
+    expect(prompts).toContain("DECORATION_RULEBOOK");
+    for (const rule of ["overlapPx", "mobileStyles.position", "lineHeight", "zIndex", "backgroundImage"]) expect(prompts, rule).toContain(rule);
+    // Ways of getting artwork back, cheapest first.
+    for (const tool of ["generate_svg_shape", "crop_source_region", "get_source_decorations", "list_svg_assets"]) expect(prompts, tool).toContain(tool);
+    // And the brief carries the band's own decorations, so the rules apply to something.
+    const builder = read("server/clientMigration/build/pageBuilder.ts");
+    expect(builder).toContain("DECORATION_RULEBOOK");
+    expect(builder).toContain("decorations: (art.decorations");
+  });
+
+  it("keeps the scissors inside the migration and inside their budget", () => {
+    const src = read("server/clientMigration/build/migrationTools.ts");
+    expect(src).toContain("MAX_CROPS_PER_PAGE");
+    expect(src).toContain("MIN_CROP_PX");
+    // A crop is a real asset: the guard's own set gets the path, so the very
+    // next tool call may use it.
+    expect(src).toContain("deps.allowedImagePaths.add(");
+    // And the general assistant never sees these tools.
+    expect(read("server/aiAgentTools.ts")).not.toContain("crop_source_region");
   });
 });
 
@@ -204,8 +267,8 @@ describe("the job's durability", () => {
 });
 
 describe("the AI roles and the invite", () => {
-  it("defines the four migration roles", () => {
-    for (const role of ["migrationPlan", "migrationBuild", "migrationFidelity", "migrationExtract"]) {
+  it("defines the five migration roles", () => {
+    for (const role of ["migrationPlan", "migrationBuild", "migrationFidelity", "migrationExtract", "migrationSectionReview"]) {
       expect(AI_ROLES as readonly string[], role).toContain(role);
     }
   });
@@ -214,7 +277,7 @@ describe("the AI roles and the invite", () => {
     // A second provider is a second account, a second balance and a second
     // way for the whole phase to stop. A 429 for insufficient balance on the
     // comparison model is what killed the run this was written for.
-    for (const role of ["migrationPlan", "migrationBuild", "migrationFidelity", "migrationExtract"] as const) {
+    for (const role of ["migrationPlan", "migrationBuild", "migrationFidelity", "migrationExtract", "migrationSectionReview"] as const) {
       const config = aiConfig(role);
       expect(config.provider, role).toBe("openai");
       if (config.fallbackProvider) expect(config.fallbackProvider, role).toBe("openai");
@@ -222,12 +285,24 @@ describe("the AI roles and the invite", () => {
     expect(read("server/aiConfig.ts").slice(read("server/aiConfig.ts").indexOf("migrationPlan:"))).not.toContain('provider: "kimi"');
   });
 
-  it("never sends one provider's parameters to another", () => {
-    // reasoning_effort is an OpenAI parameter; a fallback used to inherit the
-    // primary's parameters wholesale and ship it to the other provider.
-    const src = read("server/aiConfig.ts");
-    expect(src).toContain("export function chatParamsFor(role: AiRole, provider");
-    expect(read("server/aiCall.ts")).toContain("chatParamsFor(role, config.fallbackProvider)");
+  it("never sends a parameter to a model that does not take it", () => {
+    // reasoning_effort belongs to the reasoning models. Gating it on the
+    // PROVIDER let an openai→openai fallback ship it to gpt-4o, and every
+    // such retry died as "400 Unrecognized request argument supplied".
+    for (const role of ["migrationPlan", "migrationBuild", "migrationFidelity"] as const) {
+      const config = aiConfig(role);
+      if (!config.fallbackModel) continue;
+      const fallback = chatParamsFor(role, config.fallbackProvider ?? config.provider, config.fallbackModel);
+      expect(fallback.model, role).toBe(config.fallbackModel);
+      if (!/^(gpt-5|o\d)/i.test(config.fallbackModel)) expect(fallback.reasoning_effort, role).toBeUndefined();
+    }
+    // And the primary still gets it when it is a reasoning model.
+    expect(chatParamsFor("migrationPlan").reasoning_effort).toBe("low");
+    expect(read("server/aiCall.ts")).toContain("chatParamsFor(role, config.fallbackProvider, config.fallbackModel)");
+  });
+
+  it("keeps the primary provider's error when the fallback fails too", () => {
+    expect(read("server/aiCall.ts")).toContain("(primary ${config.provider}/${request.model}:");
   });
 
   it("has the invitation template in both languages and sends it through the email service", () => {
@@ -284,6 +359,42 @@ describe("verification can never kill a job", () => {
     expect(review).not.toContain("warnings[0]");
   });
 
+  it("photographs the rebuild with its imported artwork in it", () => {
+    // An imported wave is a reference until something resolves it. Screenshots
+    // taken without that step showed blank space where every decoration was,
+    // and the reviewer dutifully reported the artwork as missing.
+    for (const rel of ["server/clientMigration/verify/fidelityReview.ts", "server/clientMigration/verify/sectionRender.ts"]) {
+      expect(read(rel), rel).toContain("stateForCapture(");
+      const src = read(rel);
+      expect(src.indexOf("stateForCapture("), rel).toBeLessThan(src.indexOf("capturePageScreenshots("));
+    }
+    expect(read("server/clientMigration/verify/renderState.ts")).toContain("resolveSvgAssetsInState(");
+  });
+
+  it("measures the artwork, names what is missing, and corrects until the page reaches its target", () => {
+    const score = read("server/clientMigration/verify/fidelityScore.ts");
+    expect(score).toContain("decorationCoverage");
+    expect(score).toContain("FIDELITY_WEIGHTS");
+    const src = read("server/clientMigration/migrationJob.ts");
+    expect(src).toContain("MIGRATION_FIDELITY_TARGET");
+    const verify = src.slice(src.indexOf("async function phaseVerify"), src.indexOf("async function phaseFinish"));
+    // The loop is driven by the free measurement, not only by a vision call
+    // that a job without budget or a working browser never gets to make.
+    expect(verify).toContain("score.score < target");
+    expect(verify).toContain("score.missing");
+    expect(verify).toContain('warn(rt, "verify", "below_target"');
+    // And the reviewer knows about the artwork it is meant to look for.
+    expect(read("server/clientMigration/verify/fidelityReview.ts")).toContain("fidelity_decoration");
+  });
+
+  it("asks before sending a client a site that did not reach the target", () => {
+    const routes = read("server/clientMigration/routes.ts");
+    const approve = routes.slice(routes.indexOf("const approveSchema"), routes.indexOf("resend-invite"));
+    expect(approve).toContain('code: "below_target"');
+    expect(approve).toContain("override");
+    expect(approve).toContain("409");
+  });
+
   it("keeps one stub map for the published renderer, so it cannot drift again", () => {
     // A map that forgot @/components/trustedRuntime rendered every review
     // screenshot blank, silently, for as long as nobody looked.
@@ -296,5 +407,44 @@ describe("verification can never kill a job", () => {
     }
     // And the server says so at boot rather than leaving blank screenshots.
     expect(read("server/index.ts")).toContain("publishedRendererHealth()");
+  });
+});
+
+describe("the customer's own header and their whole pages", () => {
+  it("does not throw away a sticky header before it has been read", () => {
+    const src = read("server/clientMigration/capture/domExtract.browser.ts");
+    // Almost every theme makes its header sticky; excluding every sticky
+    // element left the migration with no menu, no logo and no brand at all.
+    expect(src).toContain("isHeaderLike");
+    expect(src).toMatch(/isOverlay\(el\) && !isHeaderLike\(el\)/);
+  });
+
+  it("reads a menu that is hidden behind a burger", () => {
+    const src = read("server/clientMigration/capture/domExtract.browser.ts");
+    expect(src).toContain("aria-controls");
+    expect(src).toContain("rawLinkList");
+    expect(src).toContain("menuHidden");
+  });
+
+  it("opens a wrapper with one child instead of pushing the whole page as one section", () => {
+    const src = read("server/clientMigration/capture/domExtract.browser.ts");
+    const segment = src.slice(src.indexOf("const segment = (el: Element"), src.indexOf("for (const child of significantChildren(root))"));
+    // The 0.9-area gate is what made `body > #page > main` one section.
+    expect(segment).toContain("kids.length === 1 && depth < 16");
+    expect(segment).not.toContain("bigKids");
+  });
+
+  it("gives a page of real text that read as two blocks a second look", () => {
+    const src = read("server/clientMigration/migrationJob.ts");
+    expect(src).toContain("sections.length <= 2 && textLength > 1500");
+    expect(src).toContain("thorough: true");
+  });
+
+  it("builds the header from the menu the site actually has", () => {
+    const plan = read("server/clientMigration/plan/planAgent.ts");
+    expect(plan).toContain("nav_link_dropped");
+    expect(plan).toContain("navHints");
+    const discovery = read("server/clientMigration/capture/discovery.ts");
+    expect(discovery).toContain("readWordPressMenus");
   });
 });

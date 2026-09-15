@@ -43,6 +43,7 @@ import {
 } from "@shared/customComponents";
 
 import { buildBusinessContextPrompt } from "@shared/businessContext";
+import { asksForRedesign } from "@shared/redesignIntent";
 import { meteredChat } from "./aiCall";
 import { checkMutationClaims, scrubGeneratedComponent } from "./claimRules";
 import type { SpendMeter } from "./aiSpend";
@@ -754,7 +755,27 @@ The platform generates the image (brand colors and imagery style are added autom
 - Describe subject, composition, mood and lighting — NEVER ask for text, words or logos inside the image
 `;
 
-function getSystemPrompt(mode: 'safe' | 'creative', lang: SiteLanguage): string {
+/**
+ * The playbook above tells this model that "make it more modern" means
+ * apply_preset plus "update ALL component styles". On a site rebuilt from
+ * the customer's own website that is exactly the wrong move: the look was
+ * copied on purpose, band by band. So the whole-site tools are closed here
+ * until the customer asks for a redesign, and the refusal is enforced on the
+ * mutations as well — see dropSiteWideRestyles.
+ */
+function migratedSitePrompt(state: BuilderStateData): string {
+  const migration = state.migration;
+  if (!migration?.preserveFidelity) return '';
+  return `
+
+## THIS SITE WAS REBUILT FROM ${migration.sourceHost.toUpperCase()} (overrides the design playbook above)
+The colours, fonts, section order and the pictures behind the text were matched to the customer's existing website on purpose. This is a faithful copy, not a template waiting to be improved.
+- Do NOT emit apply_preset, update_global_styles or update_brand_guide, and do not restyle whole pages component by component. Those mutations are dropped before they reach the site.
+- The customer has to ask for a new design in so many words ("lav et nyt design", "modernisér siden") before the look may change. "Make it better", "add a section" and "change this text" are not that.
+- Edits to one section, one element or the copy are completely normal work — do those as usual.`;
+}
+
+function getSystemPrompt(mode: 'safe' | 'creative', lang: SiteLanguage, state?: BuilderStateData): string {
   const base = mode === 'creative'
     ? BASE_SYSTEM_PROMPT + AI_EXTENSIONS_PROMPT + CREATIVE_MODE_STYLES
     : BASE_SYSTEM_PROMPT + AI_EXTENSIONS_PROMPT + SAFE_MODE_STYLES;
@@ -764,7 +785,35 @@ function getSystemPrompt(mode: 'safe' | 'creative', lang: SiteLanguage): string 
 
 ## OUTPUT LANGUAGE (overrides every language rule above)
 ${copyLanguageInstruction(lang)}
-Write natural, idiomatic ${LANGUAGE_NAME_EN[lang]} — never translated-sounding text. Names, testimonials and examples must fit that language.`;
+Write natural, idiomatic ${LANGUAGE_NAME_EN[lang]} — never translated-sounding text. Names, testimonials and examples must fit that language.${state ? migratedSitePrompt(state) : ''}`;
+}
+
+/** Actions that repaint the whole site rather than edit a part of it. */
+const SITE_WIDE_STYLE_ACTIONS = new Set(['apply_preset', 'update_global_styles', 'update_brand_guide']);
+
+/**
+ * Drop the site-wide restyles from a one-shot response on a migrated site.
+ *
+ * The prompt asks the model not to emit them; this is what happens when it
+ * does anyway. Dropping rather than failing keeps the rest of the answer —
+ * the section the customer actually asked about still gets built — and the
+ * returned note tells them why the palette stayed as it was.
+ */
+export function dropSiteWideRestyles(
+  mutations: BuilderMutation[],
+  state: BuilderStateData,
+  prompt: string
+): { mutations: BuilderMutation[]; note?: string } {
+  const migration = state.migration;
+  if (!migration?.preserveFidelity || asksForRedesign(prompt)) return { mutations };
+  const kept = mutations.filter((m) => !SITE_WIDE_STYLE_ACTIONS.has(m.action));
+  if (kept.length === mutations.length) return { mutations };
+  return {
+    mutations: kept,
+    note:
+      `Designet er beholdt som på ${migration.sourceHost}: siden er bygget som en tro kopi, ` +
+      'så farver, skrifter og tema ændres kun, hvis du beder om et nyt design.',
+  };
 }
 
 /**
@@ -1203,7 +1252,7 @@ export async function processAIBuildRequest(
   meter?: SpendMeter
 ): Promise<AIResponse> {
   const stateContext = getCurrentStateContext(currentState);
-  const systemPrompt = getSystemPrompt(mode, language);
+  const systemPrompt = getSystemPrompt(mode, language, currentState);
 
   const response = await meteredChat("siteGeneration", {
     messages: [
@@ -1254,10 +1303,12 @@ Generate unique component IDs using: componenttype-${Date.now()}`
     
     // Apply style filtering for Safe Mode
     const filteredMutations = validated.mutations.map(m => filterMutationStyles(m, mode));
-    
+    const fidelity = dropSiteWideRestyles(filteredMutations as BuilderMutation[], currentState, prompt);
+
     return {
       ...validated,
-      mutations: filteredMutations,
+      mutations: fidelity.mutations as typeof filteredMutations,
+      explanation: fidelity.note ? `${validated.explanation}\n\n${fidelity.note}` : validated.explanation,
     };
   } catch (validationError: any) {
     if (validationError.message?.includes('reference invalid targets')) {
@@ -1448,7 +1499,7 @@ export async function processAIThinkingRequest(
   language: SiteLanguage = DEFAULT_SITE_LANGUAGE
 ): Promise<AIThinkingResponse> {
   const stateContext = getCurrentStateContext(currentState);
-  const systemPrompt = getSystemPrompt(mode, language);
+  const systemPrompt = getSystemPrompt(mode, language, currentState);
   
   const response = await meteredChat("siteThinking", {
     messages: [

@@ -750,7 +750,13 @@ function NodeRenderer({
  * generated ComponentRenderer template (see server/publisher/templates.ts) —
  * keep the two in visual parity.
  */
-export default /**
+/** A background value that is a path rather than CSS, and so needs `url()`. */
+function isBarePath(value: unknown): boolean {
+  const text = String(value ?? "").trim();
+  return /^(\/|https?:\/\/|data:)/i.test(text);
+}
+
+/**
  * A box with no children but a background, a border or a thin fixed height
  * is a decorative rule the agent drew on purpose, not an empty slot — the
  * "add elements" placeholder would paint over it and hide it.
@@ -762,7 +768,7 @@ function isDecorativeBox(node: { styles?: Record<string, unknown> }): boolean {
   return Number.isFinite(height) && height > 0 && height < 24;
 }
 
-function CustomComponentRenderer({
+export default function CustomComponentRenderer({
   websiteId,
   language,
   component,
@@ -812,6 +818,19 @@ function CustomComponentRenderer({
   // svgTokens is optional when the renderer is called without a token map.
   const wrapperStyle: React.CSSProperties = {
     backgroundColor: sectionStyles.backgroundColor || "transparent",
+    // A custom section can carry a photo the same way a standard one does.
+    // Without this the only vehicle was a node style, and a rebuild that put
+    // the backdrop on the section went blank.
+    ...(sectionStyles.backgroundImage
+      ? {
+          // Only a bare path is wrapped. A value that is already CSS — a
+          // scrim over a photo is `linear-gradient(...), url(...)` — becomes
+          // `url(linear-gradient(...))` if wrapped again, and renders nothing.
+          backgroundImage: isBarePath(sectionStyles.backgroundImage) ? `url(${sectionStyles.backgroundImage})` : String(sectionStyles.backgroundImage),
+          backgroundSize: (sectionStyles.backgroundSize as string) || "cover",
+          backgroundPosition: (sectionStyles.backgroundPosition as string) || "center",
+        }
+      : {}),
     padding: sectionStyles.padding || "0px",
     fontFamily: (svgTokens?.['font.body'] as string | undefined) || globalStyles?.fontFamily,
     color: globalStyles?.textColor,

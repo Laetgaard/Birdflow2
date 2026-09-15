@@ -33,10 +33,15 @@ export type DiscoveredPage = {
   discoveredFrom?: string;
 };
 
+/** One entry of the site's own menu, in the order the owner arranged it. */
+export type MenuLink = { label: string; url: string; order: number };
+
 export type DiscoveryResult = {
   canonicalOrigin: string;
   startUrl: string;
   pages: DiscoveredPage[];
+  /** The site's navigation menu when its CMS would tell us — the order the owner chose. */
+  menu?: MenuLink[];
   robots: { fetched: boolean; disallow: string[] };
   platform?: "wordpress";
   /** Media/attachment pages recognised and left out. */
@@ -222,6 +227,62 @@ async function readWordPressPages(origin: string): Promise<{ pages: CmsPage[]; d
   return { pages, detected };
 }
 
+/**
+ * The site's menu, as WordPress itself has it.
+ *
+ * The plan builds its navigation from the header it captured; a theme that
+ * hides its menu behind a burger, or draws it in an element the capture
+ * cannot reach, leaves that empty. WordPress knows the answer — when it is
+ * willing to say. The core endpoints need `edit_theme_options` and answer
+ * 401 to a stranger; the old wp-api-menus plugin answers anyone. Both are
+ * tried, neither is required.
+ */
+export function parseMenuItems(rows: unknown): MenuLink[] {
+  if (!Array.isArray(rows)) return [];
+  const out: MenuLink[] = [];
+  for (const row of rows.slice(0, 100) as Array<Record<string, unknown>>) {
+    const url = typeof row?.url === "string" ? row.url : typeof row?.link === "string" ? row.link : undefined;
+    const rendered = (row?.title as { rendered?: unknown } | undefined)?.rendered;
+    const label = typeof rendered === "string" ? decodeEntities(rendered) : typeof row?.title === "string" ? decodeEntities(row.title) : undefined;
+    if (!url || !label) continue;
+    // Only top-level items: a submenu becomes a second entry to the same
+    // page, and the rebuilt header has room for twelve links at most.
+    const parent = Number(row?.parent ?? row?.menu_item_parent ?? 0);
+    if (Number.isFinite(parent) && parent > 0) continue;
+    const order = Number.isFinite(Number(row?.menu_order)) ? Number(row.menu_order) : out.length;
+    out.push({ label: label.slice(0, 60), url, order });
+  }
+  return out.sort((a, b) => a.order - b.order);
+}
+
+async function readJson(url: string, origin: string): Promise<unknown | null> {
+  try {
+    const response = await fetchFollowing(url, origin, { timeoutMs: 8_000, maxBytes: 400_000 });
+    if (!response?.ok || !/json/i.test(response.headers.get("content-type") ?? "")) return null;
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+export async function readWordPressMenus(origin: string): Promise<MenuLink[]> {
+  // The plugin endpoint returns the menu with its items inline.
+  const plugin = (await readJson(new URL("/wp-json/wp-api-menus/v2/menus", origin).toString(), origin)) as Array<Record<string, unknown>> | null;
+  if (Array.isArray(plugin) && plugin.length) {
+    const id = plugin[0]?.ID ?? plugin[0]?.id ?? plugin[0]?.term_id;
+    const detail = id === undefined ? null : await readJson(new URL(`/wp-json/wp-api-menus/v2/menus/${id}`, origin).toString(), origin);
+    const items = parseMenuItems((detail as { items?: unknown } | null)?.items);
+    if (items.length) return items;
+  }
+  // Core, which usually refuses an anonymous caller.
+  const menus = (await readJson(new URL("/wp-json/wp/v2/menus?per_page=10", origin).toString(), origin)) as Array<Record<string, unknown>> | null;
+  if (!Array.isArray(menus) || !menus.length) return [];
+  const menuId = menus[0]?.id;
+  if (menuId === undefined) return [];
+  const rows = await readJson(new URL(`/wp-json/wp/v2/menu-items?menus=${menuId}&per_page=100&order=asc&orderby=menu_order`, origin).toString(), origin);
+  return parseMenuItems(rows);
+}
+
 type RenderedLinks = { nav: string[]; all: string[]; imageLinks: number; title: string; bodyClass: string };
 
 async function renderedLinks(page: Page): Promise<RenderedLinks> {
@@ -278,6 +339,7 @@ export async function discoverPages(session: BrowserSession, startUrl: string, o
   if (!sitemap.found) warnings.push("sitemap_missing:no sitemap answered; pages come from the crawl and the CMS only");
   const sitemapUrls = new Set(sitemap.urls.map((url) => normalizePageUrl(url, origin)).filter((v): v is string => !!v));
   const cms = await readWordPressPages(origin);
+  const menu = cms.detected ? await readWordPressMenus(origin) : [];
   const allowed = (url: string) => !(options.respectRobots && isDisallowed(url, robots.disallow));
 
   const found = new Map<string, DiscoveredPage>();
@@ -369,6 +431,7 @@ export async function discoverPages(session: BrowserSession, startUrl: string, o
     canonicalOrigin: origin,
     startUrl: start,
     pages: ordered.slice(0, options.maxPages),
+    menu: menu.length ? menu : undefined,
     robots: { fetched: robots.fetched, disallow: robots.disallow },
     platform: cms.detected ? "wordpress" : undefined,
     attachmentPagesSkipped,

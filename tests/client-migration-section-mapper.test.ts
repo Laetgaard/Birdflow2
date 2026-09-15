@@ -412,13 +412,109 @@ describe("site chrome from the plan", () => {
     expect(header.props.showCart).toBe(false);
   });
 
+  it("keeps a logo-only header logo-only, and wears the original's colours", () => {
+    const header = buildHeaderComponent({
+      brandText: undefined,
+      showBrandText: false,
+      logoPath: "/objects/uploads/logo.webp",
+      nav: [{ label: "Forside", href: "/" }],
+      style: { backgroundColor: "#14141e", textColor: "#ffffff", sticky: true, transparent: true },
+    });
+    // The company name typed into the admin form must not appear beside a
+    // logo the client never captioned.
+    expect(header.props.title).toBe("");
+    expect(header.styles).toMatchObject({ backgroundColor: "#14141e", scrolledBackgroundColor: "#14141e", textColor: "#ffffff", scrollBehavior: "sticky", isTransparent: true, overlayMode: true });
+  });
+
+  it("leaves a header without a captured style exactly as it was", () => {
+    const header = buildHeaderComponent({ brandText: "Klinik Ro", logoPath: "/objects/uploads/logo.webp", nav: [] });
+    expect(header.props.title).toBe("Klinik Ro");
+    expect(header.styles.scrollBehavior).toBe("static");
+    expect(header.styles.isTransparent).toBe(false);
+  });
+
   it("builds the footer with columns, contact text and social links", () => {
     const footer = buildFooterComponent({ copyright: "© 2025 Klinik Ro", contactText: "hej@klinikro.dk", columns: [{ heading: "Klinikken", links: [{ text: "Om mig", href: "/om" }] }], social: [{ network: "instagram", href: "https://instagram.com/klinikro" }] });
     expect(footer.id).toBe("mig-footer");
     expect(footer.props.title).toBe("© 2025 Klinik Ro");
     expect(footer.props.description).toBe("hej@klinikro.dk");
     expect((footer.props.columns as any[])[0].links[0]).toMatchObject({ title: "Om mig", description: "/om" });
+    // The names both renderers actually read, or the client's own footer
+    // links are written and never drawn.
+    expect((footer.props.footerColumns as any[])[0]).toMatchObject({ heading: "Klinikken", links: [{ label: "Om mig", href: "/om" }] });
+    expect(footer.props.copyright).toBe("© 2025 Klinik Ro");
     expect((footer.props.socialLinks as any[])[0]).toMatchObject({ platform: "instagram", url: "https://instagram.com/klinikro" });
+  });
+});
+
+/**
+ * Every other band with a photo behind its words.
+ *
+ * The hero and the call to action each had their own vehicle for a backdrop;
+ * the other sixteen placements emitted colour, text colour and padding and
+ * nothing else, so a testimonials band on a photo came out as flat grey. One
+ * composite backgroundImage now carries the photo and the source's own scrim
+ * into every placement, and both renderers read it.
+ */
+describe("a photo behind the words, in every kind of section", () => {
+  const onPhoto = (over: Record<string, unknown> = {}) => section({
+    id: "p0-s9", role: "team", confidence: 0.8, bbox: { x: 0, y: 0, w: 1440, h: 520 }, textLength: 120,
+    headings: [{ level: 2, text: "Menneskene bag" }], paragraphs: ["Vi står klar til at tage imod dig."],
+    bgImage: "/objects/uploads/rum.webp",
+    ...over,
+  } as never);
+
+  it("puts the backdrop on a team section, which had no way to carry one", () => {
+    const c = place(9, onPhoto(), { kind: "section", sectionType: "team-section" });
+    expect(c.styles.backgroundImage).toBe("url(/objects/uploads/rum.webp)");
+    expect(c.styles.backgroundSize).toBe("cover");
+    expect(c.styles.backgroundPosition).toBe("center");
+  });
+
+  it("writes the source's own scrim into the same value, as rgba with its alpha", () => {
+    const c = place(9, onPhoto({ overlay: { color: "rgba(30, 27, 75, 0.45)", alpha: 0.45 } }), { kind: "section", sectionType: "team-section" });
+    expect(c.styles.backgroundImage).toBe("linear-gradient(rgba(30, 27, 75, 0.45), rgba(30, 27, 75, 0.45)), url(/objects/uploads/rum.webp)");
+  });
+
+  it("paints no scrim of its own when the source had none", () => {
+    const c = place(9, onPhoto(), { kind: "section", sectionType: "team-section" });
+    expect(c.styles.backgroundImage).not.toContain("linear-gradient");
+  });
+
+  it("uses a photo path the job never imported for nothing", () => {
+    const c = place(9, onPhoto({ bgImage: "https://someoneelse.example/bg.jpg" }), { kind: "section", sectionType: "team-section" });
+    expect(c.styles.backgroundImage).toBeUndefined();
+  });
+
+  it("sends a band whose words sit on a photo to the agent, whatever its role", () => {
+    // "team" is in WELL_SERVED — before this, a photo behind its words was
+    // never a reason to look at it twice.
+    const target = defaultTargetFor(onPhoto(), true);
+    expect(target.kind).toBe("custom");
+    expect((target as { brief: string }).brief).toMatch(/photo/i);
+  });
+});
+
+describe("cards that carry their own picture", () => {
+  const cards = (imageBehindText: boolean) => section({
+    id: "p0-s9", role: "features", confidence: 0.8, bbox: { x: 0, y: 0, w: 1440, h: 600 }, textLength: 200, columns: 3,
+    headings: [{ level: 2, text: "Det tilbyder vi" }],
+    items: [
+      { title: "Samtaler", text: "Vi taler sammen i ro og mag.", imageSrc: "/objects/uploads/rum.webp", imageBehindText: imageBehindText || undefined },
+      { title: "Forløb", text: "Et forløb, der passer til dig.", imageSrc: "/objects/uploads/hero.webp", imageBehindText: imageBehindText || undefined },
+    ],
+  } as never);
+
+  it("passes each card's own photo through, instead of dropping it for an icon", () => {
+    const c = place(9, cards(false), { kind: "section", sectionType: "features-section" });
+    const items = c.props.items as Array<{ imageUrl?: string }>;
+    expect(items.map((i) => i.imageUrl)).toEqual(["/objects/uploads/rum.webp", "/objects/uploads/hero.webp"]);
+    expect(c.styles.cardStyle).toBeUndefined();
+  });
+
+  it("asks for photo cards when the source put the words on the picture", () => {
+    const c = place(9, cards(true), { kind: "section", sectionType: "features-section" });
+    expect(c.styles.cardStyle).toBe("photo");
   });
 });
 

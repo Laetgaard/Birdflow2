@@ -116,7 +116,7 @@ export async function meteredChat(
   const config = aiConfig(role);
   const useFallback = options.forceFallback === true && !!config.fallbackProvider && !!config.fallbackModel;
   const provider = useFallback ? config.fallbackProvider! : config.provider;
-  const request = { ...chatParamsFor(role, provider), ...params, ...(useFallback ? { model: config.fallbackModel! } : {}) };
+  const request = { ...chatParamsFor(role, provider, useFallback ? config.fallbackModel! : undefined), ...params, ...(useFallback ? { model: config.fallbackModel! } : {}) };
   const reserved = worstCaseCallCostUsd(request.model, request.max_completion_tokens ?? 0);
   reserveOrRefuse(role, meter, reserved);
 
@@ -165,15 +165,19 @@ export async function meteredChat(
 
     let fallbackCompletion: OpenAI.Chat.ChatCompletion;
     try {
-      const fallbackRequest = { ...chatParamsFor(role, config.fallbackProvider), ...params, model: config.fallbackModel };
+      const fallbackRequest = { ...chatParamsFor(role, config.fallbackProvider, config.fallbackModel), ...params, model: config.fallbackModel };
       fallbackCompletion = await clientFor(config.fallbackProvider).chat.completions.create({
         ...fallbackRequest,
         stream: false,
       } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
     } catch (fallbackErr) {
       // Both providers failed. Give back the fallback reservation so the meter
-      // stays accurate and re-throw the fallback error (it is the freshest signal).
+      // stays accurate and re-throw the fallback error — carrying the primary's
+      // message with it. Without that, a warning naming only the fallback's
+      // failure hides why the real call went wrong in the first place.
       meter.release(fallbackWorstCase);
+      const primary = err instanceof Error ? err.message : String(err);
+      if (fallbackErr instanceof Error && primary) fallbackErr.message = `${fallbackErr.message} (primary ${config.provider}/${request.model}: ${primary.slice(0, 200)})`;
       throw fallbackErr;
     }
 

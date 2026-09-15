@@ -58,10 +58,13 @@ export const MIGRATION_ACTIVE_STATUSES: MigrationStatus[] = [
   "awaiting_final_review",
 ];
 
+/** Every component a migration places carries this id prefix, so a rebuild can find and replace its own. */
+export const MIGRATION_ID_PREFIX = "mig";
+
 export const MAX_MIGRATION_PAGES = 60;
 export const DEFAULT_MIGRATION_PAGES = 30;
-export const MAX_MIGRATION_CEILING_USD = 150;
-export const DEFAULT_MIGRATION_CEILING_USD = 20;
+export const MAX_MIGRATION_CEILING_USD = 200;
+export const DEFAULT_MIGRATION_CEILING_USD = 25;
 export const MAX_MIGRATION_ASSETS = 300;
 export const DEFAULT_MIGRATION_ASSETS = 160;
 export const MAX_SECTIONS_PER_PAGE = 24;
@@ -73,20 +76,31 @@ export const MAX_SECTIONS_PER_PAGE = 24;
  * A flat ceiling is the wrong shape: it is generous for a five-page site and
  * starves a thirty-page one. Every section is placed deterministically first,
  * so the ceiling never decides whether the site is complete — only how many
- * sections get the agent's faithful upgrade on top. Costed for the reasoning
- * model with a screenshot in every call: about $0.15 a call, four calls per
- * upgraded section, three upgrades per page, plus the plan and the vision
- * review. The admin can still override it per job.
+ * sections get the agent's faithful upgrade on top, and how many rounds of
+ * look-and-correct each of those gets. Costed for the reasoning model with a
+ * screenshot in every call: about $0.15 a call, three calls to build a
+ * section, a cent to look at it, two calls to correct it — so roughly
+ * $0.16 for a section that lands first time and $0.40 for one that takes two
+ * corrections, three to five such sections per page, plus the plan and the
+ * page review. The admin can still override it per job.
  */
 export function recommendedCeilingUsd(maxPages: number): number {
   const pages = Math.max(1, Math.min(MAX_MIGRATION_PAGES, Math.round(maxPages || DEFAULT_MIGRATION_PAGES)));
-  return Math.min(MAX_MIGRATION_CEILING_USD, Math.max(DEFAULT_MIGRATION_CEILING_USD, Math.round(10 + 2.2 * pages)));
+  return Math.min(MAX_MIGRATION_CEILING_USD, Math.max(DEFAULT_MIGRATION_CEILING_USD, Math.round(12 + 4.5 * pages)));
 }
 
 export const migrationLimitsSchema = z.object({
   maxPages: z.number().int().min(1).max(MAX_MIGRATION_PAGES).default(DEFAULT_MIGRATION_PAGES),
   maxAssets: z.number().int().min(0).max(MAX_MIGRATION_ASSETS).default(DEFAULT_MIGRATION_ASSETS),
   ceilingUsd: z.number().min(1).max(MAX_MIGRATION_CEILING_USD).default(DEFAULT_MIGRATION_CEILING_USD),
+  /** How many times one section may be built, looked at and corrected. */
+  sectionIterations: z.number().int().min(1).max(5).default(3),
+  /** The score, out of 100, at which a section is left alone. */
+  sectionPassScore: z.number().int().min(60).max(100).default(85),
+  /** The most one section's rebuild may cost. */
+  sectionCapUsd: z.number().min(0.3).max(2).default(0.9),
+  /** The most one page's rebuild may cost, across all its sections. */
+  pageAgentCapUsd: z.number().min(0.5).max(6).default(3),
 });
 export type MigrationLimits = z.infer<typeof migrationLimitsSchema>;
 
@@ -176,6 +190,63 @@ export const extractedImageSchema = z.object({
 });
 export type ExtractedImage = z.infer<typeof extractedImageSchema>;
 
+/* ─────────────────────────── decorative layers ─────────────────────────── */
+
+/**
+ * Decoration = artwork that is not content: wave dividers between sections,
+ * illustrations behind or beside the text, background art on a section or the
+ * footer. Captured with enough geometry (edge, overlap, z-order) that the
+ * rebuild can place the same artwork the same way.
+ */
+export const DECORATION_KINDS = ["svg", "image", "background", "pseudo"] as const;
+export type DecorationKind = (typeof DECORATION_KINDS)[number];
+export const DECORATION_EDGES = ["top", "bottom", "left", "right", "fill", "float"] as const;
+export type DecorationEdge = (typeof DECORATION_EDGES)[number];
+
+const rectSchema = z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() });
+
+export const extractedDecorationSchema = z.object({
+  kind: z.enum(DECORATION_KINDS),
+  /** Source URL, rewritten to the imported /objects path once imported. */
+  src: z.string().max(2000).optional(),
+  sourceUrl: z.string().max(2000).optional(),
+  /** Normalised inline <svg> markup (xmlns added, sprites inlined, computed fills baked in). */
+  svgMarkup: z.string().max(50_000).optional(),
+  mediaId: z.string().optional(),
+  svgAssetId: z.string().optional(),
+  /** Page-absolute, like section.bbox. */
+  bbox: rectSchema,
+  /** Relative to the host's bbox as fractions; may fall outside 0–1 when the art bleeds. */
+  rel: rectSchema,
+  edge: z.enum(DECORATION_EDGES),
+  /** Whether the art crosses into the neighbouring section, and by how much. */
+  overlap: z.enum(["none", "prev", "next"]).default("none"),
+  overlapPx: z.number().nonnegative().optional(),
+  /** Behind the host's content or layered above it. */
+  zOrder: z.enum(["behind", "above"]),
+  /** Distinct fill/stroke colours found in the art (svg only). */
+  fills: z.array(z.string().max(60)).max(6).default([]),
+  opacity: z.number().min(0).max(1).optional(),
+  flipX: z.boolean().optional(),
+  flipY: z.boolean().optional(),
+  ariaHidden: z.boolean().optional(),
+  pseudo: z.enum(["before", "after"]).optional(),
+  bgSize: z.string().max(60).optional(),
+  bgPosition: z.string().max(60).optional(),
+  bgRepeat: z.string().max(20).optional(),
+  domPath: z.string().max(400).optional(),
+  displayWidth: z.number().nonnegative().optional(),
+  displayHeight: z.number().nonnegative().optional(),
+  naturalWidth: z.number().int().nonnegative().optional(),
+  naturalHeight: z.number().int().nonnegative().optional(),
+});
+export type ExtractedDecoration = z.infer<typeof extractedDecorationSchema>;
+
+export const MAX_DECORATIONS_PER_SECTION = 12;
+export const MAX_DECORATIONS_PER_CHROME = 8;
+/** Extractions written before decorations existed carry version 1. */
+export const CURRENT_EXTRACTION_VERSION = 2 as const;
+
 export const extractedCtaSchema = z.object({
   text: z.string().max(120),
   href: z.string().max(2000).optional(),
@@ -187,12 +258,26 @@ export const extractedItemSchema = z.object({
   text: z.string().max(1500).optional(),
   imageSrc: z.string().max(2000).optional(),
   imageMediaId: z.string().optional(),
+  /** The card's words sat ON its photo — a card backdrop, not a picture above a caption. */
+  imageBehindText: z.boolean().optional(),
+  /** The photo was a CSS background; without this the card came through with no picture at all. */
+  imageIsCssBackground: z.boolean().optional(),
+  imageRect: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }).optional(),
   href: z.string().max(2000).optional(),
   price: z.string().max(60).optional(),
   icon: z.string().max(80).optional(),
   personName: z.string().max(120).optional(),
   role: z.string().max(160).optional(),
   quote: z.string().max(1500).optional(),
+  /** An inline <svg> illustration inside the card, normalised like a decoration. */
+  svgMarkup: z.string().max(50_000).optional(),
+  imageSvgAssetId: z.string().optional(),
+  /** Where the illustration sits inside the card, as fractions of the card. */
+  imageRel: rectSchema.optional(),
+  /** True when the quote text is drawn on top of the illustration. */
+  quoteInsideImage: z.boolean().optional(),
+  /** Where the quote sits inside the illustration, as fractions of the illustration. */
+  quoteRel: rectSchema.optional(),
 });
 export type ExtractedItem = z.infer<typeof extractedItemSchema>;
 
@@ -212,11 +297,20 @@ export const extractedSectionSchema = z.object({
   bbox: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }),
   bgColor: z.string().max(60).optional(),
   bgImage: z.string().max(2000).optional(),
+  bgSize: z.string().max(60).optional(),
+  bgPosition: z.string().max(60).optional(),
+  bgRepeat: z.string().max(20).optional(),
+  clipPath: z.string().max(300).optional(),
+  maskImage: z.string().max(300).optional(),
   textColor: z.string().max(60).optional(),
   textAlign: z.string().max(20).optional(),
   headingFont: z.string().max(120).optional(),
   bodyFont: z.string().max(120).optional(),
   headingSize: z.number().optional(),
+  headingWeight: z.number().optional(),
+  headingTransform: z.string().max(20).optional(),
+  headingLetterSpacing: z.string().max(20).optional(),
+  bodyLineHeight: z.string().max(20).optional(),
   paddingY: z.number().optional(),
   headings: z.array(z.object({ level: z.number().int().min(1).max(6), text: z.string().max(500) })).max(10),
   paragraphs: z.array(z.string().max(1500)).max(25),
@@ -232,6 +326,8 @@ export const extractedSectionSchema = z.object({
   embeds: z.array(z.object({ kind: z.enum(["iframe", "video", "audio", "map"]), src: z.string().max(2000) })).max(6),
   tables: z.array(z.array(z.array(z.string().max(200)).max(12)).max(20)).max(2),
   items: z.array(extractedItemSchema).max(40),
+  /** Artwork attributed to this section (waves, background art, illustrations). Absent on version-1 extractions. */
+  decorations: z.array(extractedDecorationSchema).max(MAX_DECORATIONS_PER_SECTION).default([]),
   columns: z.number().int().min(0).max(8).optional(),
   hasCarousel: z.boolean().optional(),
   hiddenContent: z.boolean().optional(),
@@ -248,12 +344,34 @@ export const extractedSectionSchema = z.object({
 });
 export type ExtractedSection = z.infer<typeof extractedSectionSchema>;
 
+/** Background art and box of the header or footer; all optional so version-1 rows still parse. */
+const chromeSurfaceSchema = {
+  bgImage: z.string().max(2000).optional(),
+  bgSize: z.string().max(60).optional(),
+  bgPosition: z.string().max(60).optional(),
+  bgRepeat: z.string().max(20).optional(),
+  bbox: rectSchema.optional(),
+  decorations: z.array(extractedDecorationSchema).max(MAX_DECORATIONS_PER_CHROME).default([]),
+};
+
 export const extractedChromeSchema = z.object({
   header: z.object({
     logo: extractedImageSchema.optional(),
     brandText: z.string().max(120).optional(),
+    /** Whether the original showed a logo, a word, or both — a logo-only header must stay logo-only. */
+    brandShown: z.enum(["logo", "text", "both"]).optional(),
     nav: z.array(z.object({ text: z.string().max(80), href: z.string().max(2000) })).max(20),
+    /** The menu was read from a burger/off-canvas menu rather than from the visible bar. */
+    menuHidden: z.boolean().optional(),
+    bgColor: z.string().max(60).optional(),
+    textColor: z.string().max(60).optional(),
+    sticky: z.boolean().optional(),
+    /** The first band runs under the header: the original drew it over the photo. */
+    transparent: z.boolean().optional(),
+    height: z.number().optional(),
+    logoHeight: z.number().optional(),
     cta: extractedCtaSchema.optional(),
+    ...chromeSurfaceSchema,
   }).optional(),
   footer: z.object({
     columns: z.array(z.object({
@@ -264,14 +382,24 @@ export const extractedChromeSchema = z.object({
     contactText: z.string().max(600).optional(),
     social: z.array(z.object({ network: z.string().max(40), href: z.string().max(2000) })).max(10),
     copyright: z.string().max(200).optional(),
+    bgColor: z.string().max(60).optional(),
+    textColor: z.string().max(60).optional(),
+    ...chromeSurfaceSchema,
   }).optional(),
 });
 export type ExtractedChrome = z.infer<typeof extractedChromeSchema>;
 
+/** Decorations of a section or chrome surface, tolerant of version-1 rows that predate the field. */
+export function decorationsOf(host: { decorations?: ExtractedDecoration[] } | undefined): ExtractedDecoration[] {
+  return host?.decorations ?? [];
+}
+
 export const pageExtractionSchema = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   url: z.string().max(2000),
   title: z.string().max(500).optional(),
+  /** The name the site gives itself (og:site_name), for the header's brand text. */
+  siteName: z.string().max(120).optional(),
   description: z.string().max(1000).optional(),
   lang: z.string().max(20).optional(),
   ogImage: z.string().max(2000).optional(),
@@ -339,7 +467,16 @@ export const MigrationTargetSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("component"), componentType: z.enum(MIGRATION_COMPONENT_TYPES) }),
   /** The agent rebuilds this one as a custom component from the source crop. */
-  z.object({ kind: z.literal("custom"), brief: z.string().max(400) }),
+  z.object({
+    kind: z.literal("custom"),
+    brief: z.string().max(400),
+    /**
+     * A layout the deterministic builder can draw as a custom tree before
+     * the agent is asked: the hero whose picture sits on the wave that
+     * starts the next band, or review cards drawn around an illustration.
+     */
+    recipe: z.enum(["hero-over-wave", "illustrated-reviews"]).optional(),
+  }),
   z.object({ kind: z.literal("skip"), reason: z.string().max(300) }),
   /** Unsupported on purpose: recorded for the admin, nothing is built. */
   z.object({ kind: z.literal("note"), message: z.string().max(500) }),
@@ -356,6 +493,12 @@ export const MigrationSectionPlanSchema = z.object({
   /** Subset of the job's imported assets. */
   imageMediaIds: z.array(z.string()).max(30),
   order: z.number().int().nonnegative(),
+  /** What the rebuild agent should know about this band, from the plan model. */
+  brief: z.string().max(400).optional(),
+  /** The admin's own directive for this section, kept across re-runs. */
+  instruction: z.string().max(400).optional(),
+  /** Settled by the admin: no agent, no correction, no later run touches it. */
+  keepAsOriginal: z.boolean().optional(),
 }).strict();
 export type MigrationSectionPlan = z.infer<typeof MigrationSectionPlanSchema>;
 
@@ -386,8 +529,17 @@ export const MigrationPlanSchema = z.object({
     header: z.object({
       logoMediaId: z.string().optional(),
       brandText: z.string().max(120).optional(),
+      /** False when the original showed only a logo: the rebuild shows only the logo too. */
+      showBrandText: z.boolean().optional(),
       nav: z.array(z.object({ label: z.string().max(40), targetSlug: z.string().max(60) })).max(12),
       cta: z.object({ text: z.string().max(40), href: z.string().max(2000) }).optional(),
+      /** The original header's own look, so the rebuilt one is not a white bar by default. */
+      style: z.object({
+        backgroundColor: z.string().max(40).optional(),
+        textColor: z.string().max(40).optional(),
+        sticky: z.boolean().optional(),
+        transparent: z.boolean().optional(),
+      }).optional(),
     }),
     footer: z.object({
       columns: z.array(z.object({
@@ -424,7 +576,7 @@ export const ROLE_TARGET_COMPATIBILITY: Record<SectionRole, Array<string>> = {
   video: ["component:video-embed", "custom"],
   "comparison-table": ["component:comparison-table", "section:pricing-section", "custom"],
   "rich-text": ["component:rich-text", "component:text-image", "custom"],
-  divider: ["component:divider", "skip"],
+  divider: ["component:divider", "custom"],
 };
 
 export function targetKey(target: MigrationTarget): string {
@@ -623,6 +775,8 @@ export const migrationWarningSchema = z.object({
 });
 export type MigrationWarning = z.infer<typeof migrationWarningSchema>;
 
+export type MigrationAssetRole = "logo" | "background" | "content" | "ornament" | "decoration" | "illustration";
+
 export type MigrationAssetRecord = {
   sourceUrl: string;
   storagePath: string;
@@ -632,6 +786,35 @@ export type MigrationAssetRecord = {
   height?: number;
   sha256: string;
   usedBy: string[];
+  /** What was stored: a bitmap, a vector (with a bitmap twin at storagePath), or a document. */
+  kind?: "image" | "svg" | "document";
+  /** What it was on the source page. */
+  role?: MigrationAssetRole;
+  /** For svg: the recolourable paint slots, so a rebuild can bind them to brand colours. */
+  colorSlots?: Array<{ id: string; original: string; label: string }>;
+};
+
+/** One thing the rebuild left out, in words the corrective agent can act on. */
+export type MigrationFidelityMissing = {
+  /** The planned section it belongs to, or "chrome-footer". */
+  sectionId: string;
+  kind: "text" | "heading" | "cta" | "image" | "decoration";
+  /** What is missing: a quoted line, an imported path, or "wave on the bottom edge". */
+  detail: string;
+  /** For a decoration: its index in the host's `decorations`. */
+  decoration?: number;
+  /** The component the section became, when the caller knows it. */
+  componentId?: string;
+};
+
+/** What one planned section kept, axis by axis; 1 when nothing was expected. */
+export type MigrationSectionFidelity = {
+  text: number;
+  headings: number;
+  ctas: number;
+  images: number;
+  decorations: number;
+  missing: MigrationFidelityMissing[];
 };
 
 export type MigrationFidelity = {
@@ -640,19 +823,75 @@ export type MigrationFidelity = {
   headingCoverage: number;
   ctaCoverage: number;
   imageCoverage: number;
+  /** Waves, dividers, illustrations and background art: 1 when the page had none. */
+  decorationCoverage: number;
   orderScore: number;
+  /** Per planned section (plus "chrome-footer"), so the admin and the agent see WHICH band fell short. */
+  sections?: Record<string, MigrationSectionFidelity>;
+  /** The page's missing items, worst first, at most 40. */
+  missing?: MigrationFidelityMissing[];
+  /** How many there were, for the job-level copy that leaves the list on the page row. */
+  missingCount?: number;
+};
+
+/** What a page's verification recorded, beyond the score. */
+export type MigrationVerifySummary = {
+  score: MigrationFidelity;
+  iterations: number;
+  correctivePasses?: number;
+  reviewed: boolean;
+  target?: number;
+  belowTarget?: boolean;
 };
 
 /**
  * What became of each planned section. `placed` is the deterministic floor;
- * `upgraded` means the agent replaced or refined it; `upgrade_failed` and
- * `upgrade_skipped` mean the floor stays. (`agent` is the older name for
- * `upgraded`, still found on rows built before the floor existed.)
+ * `upgraded` means the agent replaced or refined it; `upgrade_failed`,
+ * `upgrade_rejected` (the rebuild lost the section's photo, pictures or
+ * headline and was undone) and `upgrade_skipped` mean the floor stays.
+ * (`agent` is the older name for `upgraded`, still found on rows built
+ * before the floor existed.)
  */
-export type MigrationSectionBuildStatus = "placed" | "upgraded" | "upgrade_failed" | "upgrade_skipped" | "agent" | "failed" | "skipped" | "noted";
+export type MigrationSectionBuildStatus = "placed" | "upgraded" | "upgrade_partial" | "upgrade_failed" | "upgrade_rejected" | "upgrade_skipped" | "agent" | "failed" | "skipped" | "noted";
+/** What one section's rebuild was worth, and what the admin can look at. */
+export type MigrationSectionReviewRecord = {
+  iterations: number;
+  /** 0-100: the deterministic coverage and the reviewer's verdict combined. */
+  score?: number;
+  deterministic?: number;
+  visual?: number;
+  verdict?: string;
+  model?: string;
+  /** Why no picture was compared, when none was. */
+  reason?: string;
+  crops?: { desktop?: string; mobile?: string };
+  /** The one difference the reviewer thought mattered most. */
+  topIssue?: string;
+  /** What this section cost, against what it was allowed. */
+  spendUsd?: number;
+  allowanceUsd?: number;
+};
 export type MigrationPageBuildProgress = {
-  sections: Record<string, { status: MigrationSectionBuildStatus; componentId?: string; attempts: number; note?: string }>;
+  sections: Record<string, {
+    status: MigrationSectionBuildStatus;
+    componentId?: string;
+    attempts: number;
+    note?: string;
+    /** 0-100 for this section alone; the page's Troskab is the average. */
+    score?: number;
+    review?: MigrationSectionReviewRecord;
+    /** The section's artwork: which decorations were placed (by index) and as what, and which could not be. */
+    decorations?: {
+      placed: Array<{ index: number; componentId: string }>;
+      missing: number[];
+      recipe?: string;
+      /** Artwork an agent drew or cut out for a decoration it could not import: index → paths, svg signatures or asset ids. */
+      recreated?: Record<string, string[]>;
+    };
+  }>;
   agentSpendUsd: number;
+  /** The part of agentSpendUsd that went on looking at the rebuilds. */
+  reviewSpendUsd?: number;
 };
 
 export type MigrationJobSummary = {
