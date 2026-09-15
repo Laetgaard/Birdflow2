@@ -12,12 +12,16 @@ import { syncNavigationWithPages, migrateSiteStructure, withBrandLogo } from "@s
 import { addLegalPagesToBuilderState } from "@shared/legalPages";
 import { applyBusinessContext } from "../build/businessFacts";
 import { createBuilderSnapshot } from "../../planStore";
-import { buildHeaderComponent, buildFooterComponent } from "../plan/sectionMapper";
+import { buildHeaderComponent, buildFooterComponent, footerSurfaceStyles } from "../plan/sectionMapper";
 
 export { applyBusinessContext };
 import type { MigrationAssetRecord, MigrationPlan, PageExtraction } from "@shared/clientMigration";
 
-export function applyChromeAndNavigation(state: BuilderStateData, plan: MigrationPlan, assets: MigrationAssetRecord[]): BuilderStateData {
+/**
+ * @param footerSurface The home page's captured footer, for its colours and
+ * the art behind it; the plan carries its links and words only.
+ */
+export function applyChromeAndNavigation(state: BuilderStateData, plan: MigrationPlan, assets: MigrationAssetRecord[], footerSurface?: PageExtraction["chrome"]["footer"]): BuilderStateData {
   const next = structuredClone(state);
   const slugToPath = (slug: string) => (slug ? `/${slug}` : "/");
   const logoPath = plan.chrome.header.logoMediaId ? assets.find((a) => a.mediaId === plan.chrome.header.logoMediaId)?.storagePath : next.brandGuide?.logoUrl;
@@ -37,6 +41,7 @@ export function applyChromeAndNavigation(state: BuilderStateData, plan: Migratio
     contactText: plan.chrome.footer.contactText,
     columns: plan.chrome.footer.columns,
     social: plan.chrome.footer.social,
+    styles: footerSurfaceStyles(footerSurface, new Set(assets.map((asset) => asset.storagePath))),
   });
   next.siteChrome = { header: withBrandLogo(header as any, next.brandGuide?.logoUrl), footer: footer as any };
 
@@ -115,7 +120,7 @@ export async function finalizeMigratedSite(args: {
   sourceHost: string;
   jobId: string;
 }): Promise<{ state: BuilderStateData; revision: number; snapshotId: string }> {
-  let state = applyChromeAndNavigation(args.state, args.plan, args.assets);
+  let state = applyChromeAndNavigation(args.state, args.plan, args.assets, args.extractions[0]?.chrome.footer);
   state = applyBusinessContext(state, { businessName: args.plan.siteName, language: args.language, extractions: args.extractions });
   state = addLegalPagesIfMissing(state, args.plan, args.language, args.plan.siteName);
   state = migrateSiteStructure(state);

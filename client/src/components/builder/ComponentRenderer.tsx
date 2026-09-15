@@ -551,6 +551,7 @@ function backgroundLayer(styles: ComponentStyles): React.CSSProperties {
     backgroundImage: styles.backgroundImage,
     backgroundSize: styles.backgroundSize || 'cover',
     backgroundPosition: styles.backgroundPosition || 'center',
+    ...(styles.backgroundRepeat && { backgroundRepeat: styles.backgroundRepeat }),
   };
 }
 
@@ -573,6 +574,7 @@ function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: b
       backgroundImage: styles.backgroundImage,
       backgroundSize: styles.backgroundSize || 'cover',
       backgroundPosition: styles.backgroundPosition || 'center',
+      ...(styles.backgroundRepeat && { backgroundRepeat: styles.backgroundRepeat }),
     }),
     ...(styles.letterSpacing && { letterSpacing: styles.letterSpacing }),
     ...(styles.lineHeight && { lineHeight: styles.lineHeight }),

@@ -58,6 +58,9 @@ export const MIGRATION_ACTIVE_STATUSES: MigrationStatus[] = [
   "awaiting_final_review",
 ];
 
+/** Every component a migration places carries this id prefix, so a rebuild can find and replace its own. */
+export const MIGRATION_ID_PREFIX = "mig";
+
 export const MAX_MIGRATION_PAGES = 60;
 export const DEFAULT_MIGRATION_PAGES = 30;
 export const MAX_MIGRATION_CEILING_USD = 200;
@@ -464,7 +467,16 @@ export const MigrationTargetSchema = z.discriminatedUnion("kind", [
   }),
   z.object({ kind: z.literal("component"), componentType: z.enum(MIGRATION_COMPONENT_TYPES) }),
   /** The agent rebuilds this one as a custom component from the source crop. */
-  z.object({ kind: z.literal("custom"), brief: z.string().max(400) }),
+  z.object({
+    kind: z.literal("custom"),
+    brief: z.string().max(400),
+    /**
+     * A layout the deterministic builder can draw as a custom tree before
+     * the agent is asked: the hero whose picture sits on the wave that
+     * starts the next band, or review cards drawn around an illustration.
+     */
+    recipe: z.enum(["hero-over-wave", "illustrated-reviews"]).optional(),
+  }),
   z.object({ kind: z.literal("skip"), reason: z.string().max(300) }),
   /** Unsupported on purpose: recorded for the admin, nothing is built. */
   z.object({ kind: z.literal("note"), message: z.string().max(500) }),
@@ -827,6 +839,8 @@ export type MigrationPageBuildProgress = {
     /** 0-100 for this section alone; the page's Troskab is the average. */
     score?: number;
     review?: MigrationSectionReviewRecord;
+    /** The section's artwork: which decorations were placed (by index) and as what, and which could not be. */
+    decorations?: { placed: Array<{ index: number; componentId: string }>; missing: number[]; recipe?: string };
   }>;
   agentSpendUsd: number;
   /** The part of agentSpendUsd that went on looking at the rebuilds. */

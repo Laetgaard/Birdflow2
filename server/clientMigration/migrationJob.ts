@@ -664,7 +664,7 @@ async function phaseVerify(rt: Runtime): Promise<void> {
         // Comparing it against a rebuild with neither made every page look
         // like it had lost its chrome. The finish phase installs them for
         // real; here they are added to a copy, for the picture only.
-        const dressed = () => { try { return applyChromeAndNavigation(structuredClone(state), plan, assets); } catch { return state; } };
+        const dressed = () => { try { return applyChromeAndNavigation(structuredClone(state), plan, assets, items[0]?.extraction.chrome.footer); } catch { return state; } };
         const page = state.pages.find((p) => p.id === row.targetPageId);
         if (!page) {
           await store.updatePage(row.id, { verifyStatus: "failed", verify: { reason: "failed", detail: "The rebuilt page is no longer in the builder." } as unknown as Record<string, unknown> });

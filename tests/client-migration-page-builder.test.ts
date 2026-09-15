@@ -25,7 +25,7 @@ vi.mock("../server/clientMigration/capture/pageCapture", () => ({
 const { buildPage } = await import("../server/clientMigration/build/pageBuilder");
 const { deterministicPlan } = await import("../server/clientMigration/plan/planAgent");
 const { createSpendMeter } = await import("../server/aiSpend");
-const { homeExtraction, servicesExtraction, assets, allowedPaths, HERO_TEXT, STRESS_TEXT } = await import("./fixtures/clientMigration");
+const { homeExtraction, servicesExtraction, assets, allowedPaths, illustratedHomeExtraction, illustratedAssets, illustratedAllowed, HERO_TEXT, STRESS_TEXT, QUOTE_1 } = await import("./fixtures/clientMigration");
 
 const STOCK_RE = /unsplash|picsum|placeholder\.com|placehold\.co|pexels|ai:\/\//i;
 
@@ -134,6 +134,64 @@ describe("deterministic pages", () => {
     expect(result.page.components.map((c) => c.type)).toEqual(["hero", "services", "pricing-table", "faq", "contact-form"]);
     expect(result.progress.sections["p0-s2"]).toBeUndefined();
     expect(result.progress.sections["p0-s1"].status).toBe("placed");
+  });
+});
+
+/**
+ * The artwork the page was dressed in, placed for free. A wave under a band
+ * is a strip after it; a hero with a wave and an illustration, and review
+ * cards around their illustrations, are drawn as recipes in place of the
+ * standard floor; the footer's wave ends every page. With the agent off,
+ * that is the whole build — the bench runs this way.
+ */
+describe("decorations, without the agent", () => {
+  function illustrated(over: Partial<Parameters<typeof buildPage>[0]> = {}) {
+    const sources = [{ pageId: "page-home", ordinal: 0, url: illustratedHomeExtraction().url, extraction: illustratedHomeExtraction() }];
+    const plan = deterministicPlan({ sources, assets: illustratedAssets(), siteName: "Klinik Ro", language: "da", pixelClose: true });
+    return input({ plan, pagePlan: plan.pages[0], extraction: illustratedHomeExtraction(), allowedImagePaths: illustratedAllowed().paths, allowedSvgAssetIds: illustratedAllowed().svgIds, slugByPageId: new Map(plan.pages.map((p) => [p.sourcePageId, p.targetSlug])), agentMode: "off", ...over });
+  }
+
+  it("draws the hero and the reviews as recipes, the divider as a strip after its band, and the footer's wave last", async () => {
+    const result = await buildPage(illustrated());
+    expect(runAgentLoop).not.toHaveBeenCalled();
+    const ids = result.page.components.map((c) => c.id);
+    expect(ids).toEqual(["mig-0-0-r0", "mig-0-1-0", "mig-0-1-d0", "mig-0-2-r0", "mig-0-3-0", "mig-0-4-0", "mig-0-5-0", "mig-0-footer-d0"]);
+    expect(result.page.components.map((c) => c.type)).toEqual(["custom", "services", "custom", "custom", "pricing-table", "faq", "contact-form", "custom"]);
+    const json = JSON.stringify(result.page);
+    expect(json).toContain("svg-hero-wave");
+    expect(json).toContain("svg-divider");
+    expect(json).toContain("svg-review-art");
+    expect(json).toContain("svg-footer-wave");
+    expect(json).toContain("/objects/uploads/hero-art.webp");
+    expect(json).toContain(HERO_TEXT);
+    expect(json).toContain(QUOTE_1);
+    expect(result.progress.sections["p0-s0"]).toMatchObject({ status: "placed", componentId: "mig-0-0-r0", decorations: { placed: [], missing: [], recipe: "hero-over-wave" } });
+    expect(result.progress.sections["p0-s1"]).toMatchObject({ status: "placed", componentId: "mig-0-1-0", decorations: { placed: [{ index: 0, componentId: "mig-0-1-d0" }], missing: [] } });
+    expect(result.progress.sections["p0-s2"]).toMatchObject({ status: "placed", componentId: "mig-0-2-r0", decorations: { recipe: "illustrated-reviews" } });
+    // Every placed decoration remembers where it came from.
+    expect((result.page.components[2].props as any).migration).toEqual({ sourceSectionId: "p0-s1", decoration: 0, edge: "bottom", recipe: "strip" });
+    expect((result.page.components[7].props as any).migration).toMatchObject({ sourceSectionId: "chrome-footer", recipe: "footer-strip" });
+  });
+
+  it("lists the artwork it could not draw, and keeps the standard section when a recipe cannot be drawn", async () => {
+    const base = illustrated();
+    const svgIds = new Set<string>();
+    const paths = new Set(Array.from(illustratedAllowed().paths).filter((p) => !p.includes("divider") && !p.includes("review-art")));
+    const stripped = illustratedHomeExtraction();
+    stripped.sections[1].decorations[0].svgMarkup = undefined;
+    stripped.sections[2].items = stripped.sections[2].items.map((item) => ({ ...item, svgMarkup: undefined }));
+    const result = await buildPage({ ...base, extraction: stripped, allowedImagePaths: paths, allowedSvgAssetIds: svgIds });
+    expect(result.progress.sections["p0-s1"]).toMatchObject({ decorations: { placed: [], missing: [0] } });
+    expect(result.page.components.map((c) => c.id)).not.toContain("mig-0-1-d0");
+    // No illustration could be drawn, so the reviews are the standard block.
+    expect(result.page.components.find((c) => c.id === "mig-0-2-0")?.type).toBe("testimonials");
+    expect(result.notes.join(" ")).toContain("illustrated-reviews layout could not be drawn");
+  });
+
+  it("replaces its own strips and recipes on a rebuild instead of doubling them", async () => {
+    const first = await buildPage(illustrated());
+    const again = await buildPage(illustrated({ state: first.state }));
+    expect(again.page.components.map((c) => c.id)).toEqual(first.page.components.map((c) => c.id));
   });
 });
 

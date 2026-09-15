@@ -547,6 +547,8 @@ export type ComponentStyles = {
   backgroundImage?: string;
   backgroundSize?: string;
   backgroundPosition?: string;
+  /** `no-repeat` for one illustration placed in a corner; the default repeats. */
+  backgroundRepeat?: string;
   opacity?: string;
   transform?: string;
   transition?: string;

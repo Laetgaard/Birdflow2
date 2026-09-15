@@ -12,15 +12,19 @@ import type { ComponentType } from "@shared/componentRegistry";
 import { componentRegistry } from "@shared/componentRegistry";
 import {
   targetKey,
+  decorationsOf,
   ROLE_TARGET_COMPATIBILITY,
+  MIGRATION_ID_PREFIX,
+  type ExtractedDecoration,
   type ExtractedSection,
   type MigrationSectionPlan,
   type MigrationTarget,
   type PageExtraction,
   type SectionRole,
 } from "@shared/clientMigration";
+import { heroOverWaveCue, illustratedReviewsCue } from "./decorationMapper";
 
-export const MIGRATION_ID_PREFIX = "mig";
+export { MIGRATION_ID_PREFIX };
 
 /** The default target for a role, before the model or the admin weighs in. */
 export function defaultTargetFor(section: ExtractedSection, pixelClose: boolean): MigrationTarget {
@@ -39,12 +43,35 @@ export function defaultTargetFor(section: ExtractedSection, pixelClose: boolean)
   // a section now carries the photo and the source's own scrim, so sending it
   // to the agent can only improve it — and its role no longer shields it.
   const textOnPhoto = (backdrop && section.role !== "hero" && section.role !== "cta") || section.items.some((item) => item.imageBehindText);
+  // Artwork no standard block can draw: a hero whose picture rides the wave
+  // into the next band, review cards drawn around their illustrations, art
+  // layered over a band's words. The first two have a deterministic recipe;
+  // the third goes to the agent with the decorations in its brief.
+  if (section.role === "hero") {
+    const cue = heroOverWaveCue(section);
+    if (cue.wave || cue.art) return { kind: "custom", recipe: "hero-over-wave", brief: `Rebuild faithfully: the hero${cue.art ? " has an illustration beside its words" : ""}${cue.wave ? `, and its bottom edge is a wave that runs ${cue.wave.deco.overlapPx ?? 0}px into the next section` : ""}. ${section.headings.map((h) => h.text).join(" / ").slice(0, 100)}` };
+  }
+  if (section.role === "testimonials" && illustratedReviewsCue(section)) {
+    return { kind: "custom", recipe: "illustrated-reviews", brief: `Rebuild faithfully: each review is drawn around an illustration${section.items.some((item) => item.quoteInsideImage) ? ", with the quote on top of it" : ""}. ${section.headings.map((h) => h.text).join(" / ").slice(0, 100)}` };
+  }
+  const layeredArt = decorationsOf(section).some((deco) => deco.zOrder === "above" && (deco.edge === "float" || deco.edge === "left" || deco.edge === "right"));
+  if (pixelClose && layeredArt && section.role !== "contact") {
+    return custom(`Rebuild faithfully: an illustration is layered over the section's content (see decorations). ${section.role} with ${items} items, ${section.headings.map((h) => h.text).join(" / ").slice(0, 100)}`);
+  }
   if (pixelClose && textOnPhoto) {
     return custom(`Rebuild faithfully: the words sit on a photo — keep the photo behind them with the original's own dimming. ${section.role} with ${items} items, ${section.headings.map((h) => h.text).join(" / ").slice(0, 100)}`);
   }
   if (pixelClose && needsAgent && !WELL_SERVED.includes(section.role)) {
     return custom(`Rebuild faithfully: ${section.role} with ${items} items, ${images} images, ${section.headings.map((h) => h.text).join(" / ").slice(0, 120)}`);
   }
+  return roleTargetFor(section);
+}
+
+/** The standard block for a role, with no agent and no recipe: the floor under everything else. */
+export function roleTargetFor(section: ExtractedSection): MigrationTarget {
+  const items = section.items.length;
+  const images = section.images.filter((img) => !img.isBackground && !img.decorative).length;
+  const backdrop = !!section.bgImage || section.images.some((img) => img.isBackground);
   switch (section.role) {
     case "hero": return { kind: "section", sectionType: "hero-section", variant: backdrop ? ((section.headingSize ?? 0) >= 48 && section.headings[0] && section.headings[0].text === section.headings[0].text.toUpperCase() ? "bold" : "centered") : images >= 1 && section.textAlign !== "center" ? "split" : "centered" };
     case "features": return items >= 3 ? { kind: "section", sectionType: "features-section" } : { kind: "component", componentType: "text-image" };
@@ -445,7 +472,7 @@ function pairHeadings(section: ExtractedSection): Array<{ q: string; a: string }
   return out;
 }
 
-function sectionStyles(section: ExtractedSection): Record<string, string> {
+export function sectionStyles(section: ExtractedSection): Record<string, string> {
   const styles: Record<string, string> = {};
   const bg = hexOf(section.bgColor);
   const text = hexOf(section.textColor);
@@ -519,7 +546,14 @@ export function buildHeaderComponent(args: {
   };
 }
 
-export function buildFooterComponent(args: { copyright?: string; contactText?: string; columns: Array<{ heading?: string; links: Array<{ text: string; href: string }> }>; social: Array<{ network: string; href: string }> }): { id: string; type: "footer"; props: Record<string, unknown>; styles: Record<string, unknown> } {
+export function buildFooterComponent(args: {
+  copyright?: string;
+  contactText?: string;
+  columns: Array<{ heading?: string; links: Array<{ text: string; href: string }> }>;
+  social: Array<{ network: string; href: string }>;
+  /** The original footer's own look: colours and the art behind it. */
+  styles?: Record<string, string>;
+}): { id: string; type: "footer"; props: Record<string, unknown>; styles: Record<string, unknown> } {
   const definition = componentRegistry.footer;
   return {
     id: `${MIGRATION_ID_PREFIX}-footer`,
@@ -535,8 +569,34 @@ export function buildFooterComponent(args: { copyright?: string; contactText?: s
       columns: args.columns.slice(0, 4).map((column, n) => ({ id: `${MIGRATION_ID_PREFIX}-fcol-${n}`, title: column.heading ?? "", links: column.links.slice(0, 12).map((link, m) => ({ id: `${MIGRATION_ID_PREFIX}-flink-${n}-${m}`, title: link.text, description: link.href })) })),
       socialLinks: args.social.slice(0, 8).map((social, n) => ({ id: `${MIGRATION_ID_PREFIX}-social-${n}`, platform: social.network, url: social.href })),
     },
-    styles: { ...definition.defaultStyles },
+    styles: { ...definition.defaultStyles, ...(args.styles ?? {}) },
   };
+}
+
+/** The footer's own colours and background art, as component styles. */
+export function footerSurfaceStyles(footer: { bgColor?: string; textColor?: string; bgImage?: string; bgSize?: string; bgPosition?: string; bgRepeat?: string; decorations?: ExtractedDecoration[] } | undefined, allowed: Set<string>): Record<string, string> {
+  if (!footer) return {};
+  const styles: Record<string, string> = {};
+  const bg = hexOf(footer.bgColor);
+  const text = hexOf(footer.textColor);
+  if (bg) styles.backgroundColor = bg;
+  if (text) styles.textColor = text;
+  if (footer.bgImage && allowed.has(footer.bgImage)) {
+    styles.backgroundImage = `url(${footer.bgImage})`;
+    styles.backgroundSize = footer.bgSize && footer.bgSize !== "auto" ? footer.bgSize : "cover";
+    styles.backgroundPosition = footer.bgPosition ?? "center";
+    if (footer.bgRepeat && footer.bgRepeat !== "repeat") styles.backgroundRepeat = footer.bgRepeat;
+    return styles;
+  }
+  // Art that filled the footer from behind is its background too.
+  const behind = decorationsOf(footer).find((deco) => deco.zOrder === "behind" && deco.edge === "fill" && deco.src && allowed.has(deco.src));
+  if (behind) {
+    styles.backgroundImage = `url(${behind.src})`;
+    styles.backgroundSize = behind.bgSize && behind.bgSize !== "auto" ? behind.bgSize : "cover";
+    styles.backgroundPosition = behind.bgPosition ?? "center";
+    styles.backgroundRepeat = behind.bgRepeat && behind.bgRepeat !== "repeat" ? behind.bgRepeat : "no-repeat";
+  }
+  return styles;
 }
 
 /** Everything a page's sections say, for the fidelity guard's evidence pool. */

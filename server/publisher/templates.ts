@@ -3221,6 +3221,7 @@ type ComponentStyles = {
   backgroundImage?: string;
   backgroundSize?: string;
   backgroundPosition?: string;
+  backgroundRepeat?: string;
   opacity?: string;
   transform?: string;
   transition?: string;
@@ -3282,6 +3283,7 @@ function getBaseStyle(styles: ComponentStyles): React.CSSProperties {
       backgroundImage: styles.backgroundImage,
       backgroundSize: styles.backgroundSize || 'cover',
       backgroundPosition: styles.backgroundPosition || 'center',
+      ...(styles.backgroundRepeat && { backgroundRepeat: styles.backgroundRepeat }),
     }),
     ...(styles.letterSpacing && { letterSpacing: styles.letterSpacing }),
     ...(styles.lineHeight && { lineHeight: styles.lineHeight }),

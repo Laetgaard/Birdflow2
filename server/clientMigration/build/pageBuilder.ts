@@ -30,7 +30,9 @@ import { scoreSectionFidelity } from "../verify/fidelityScore";
 import { makeFidelityGuard, imagePathsIn } from "./fidelityGuard";
 import { applyBusinessContext } from "./businessFacts";
 import { migrationToolCatalogue } from "./migrationToolCatalogue";
-import { backgroundPath, buildPlacementMutation, defaultTargetFor, ornaments, sectionEvidence, MIGRATION_ID_PREFIX } from "../plan/sectionMapper";
+import { backgroundPath, buildPlacementMutation, defaultTargetFor, roleTargetFor, ornaments, sectionEvidence, MIGRATION_ID_PREFIX } from "../plan/sectionMapper";
+import { backgroundDecorationStyles, decorationRenderable, edgeDecorations, edgeStripMutation, footerStripMutation, heroOverWaveMutation, illustratedReviewsMutation, type DecorationContext, type DecorationMarker } from "../plan/decorationMapper";
+import { decorationsOf } from "@shared/clientMigration";
 import { cropSection, readMigrationFile } from "../capture/pageCapture";
 import type { ExtractedSection, MigrationPageBuildProgress, MigrationPagePlan, MigrationPlan, MigrationTarget, PageExtraction } from "@shared/clientMigration";
 
@@ -74,6 +76,12 @@ export type PageBuildInput = {
   onlySectionIds?: Set<string>;
   /** What the page's earlier build recorded, carried through a partial run. */
   previousProgress?: MigrationPageBuildProgress;
+  /**
+   * `"off"`: never call the agent — the deterministic floor, recipes and
+   * strips are the whole build. The bench and the tests run this way; a real
+   * job leaves it on.
+   */
+  agentMode?: "on" | "off";
   log?: (message: string) => void;
 };
 
@@ -143,6 +151,24 @@ function place(state: BuilderStateData, mutation: BuilderMutation): { state: Bui
   return { state: applyMutation(state, mutation) };
 }
 
+/**
+ * Place a custom tree the deterministic builder drew (a wave strip, a recipe)
+ * and stamp it with our id and with where it came from, so a rebuild can
+ * clear it and the scorer can find it.
+ */
+function placeDecoration(state: BuilderStateData, pageId: string, mutation: BuilderMutation, id: string, marker: DecorationMarker): { state: BuilderStateData; componentId?: string; error?: string } {
+  const page = state.pages.find((p) => p.id === pageId);
+  const before = new Set(page?.components.map((c) => c.id) ?? []);
+  const result = place(state, mutation);
+  if (result.error) return { state, error: result.error };
+  const after = result.state.pages.find((p) => p.id === pageId);
+  const added = after?.components.find((c) => !before.has(c.id));
+  if (!added) return { state, error: "nothing was placed" };
+  added.id = id;
+  (added.props as Record<string, unknown>).migration = marker;
+  return { state: result.state, componentId: id };
+}
+
 function mergedSection(extraction: PageExtraction, plan: MigrationPagePlan["sections"][number]): ExtractedSection | undefined {
   const base = extraction.sections.find((s) => s.id === plan.sourceSectionId);
   if (!base) return undefined;
@@ -166,7 +192,11 @@ function mergedSection(extraction: PageExtraction, plan: MigrationPagePlan["sect
 export function floorTargetFor(section: ExtractedSection, planned: MigrationTarget): MigrationTarget {
   if (planned.kind === "section" || planned.kind === "component") return planned;
   const guess = defaultTargetFor(section, false);
-  return guess.kind === "section" || guess.kind === "component" ? guess : { kind: "component", componentType: "rich-text" };
+  if (guess.kind === "section" || guess.kind === "component") return guess;
+  // A role that always wants a recipe (a hero over its wave) still has a
+  // standard block to stand on.
+  const plain = roleTargetFor(section);
+  return plain.kind === "section" || plain.kind === "component" ? plain : { kind: "component", componentType: "rich-text" };
 }
 
 async function sectionCropBuffer(input: PageBuildInput, section: ExtractedSection): Promise<Buffer | undefined> {
@@ -332,6 +362,7 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
     if (target.kind === "note") { progress.sections[key] = { status: "noted", attempts: 0, note: target.message }; notes.push(`${key}: ${target.message}`); continue; }
 
     const ctx = { pageId: page.id, pageOrdinal: input.pageOrdinal, sectionIndex: index, position, allowedImagePaths: input.allowedImagePaths, rewriteHref };
+    const decoCtx: DecorationContext = { ...ctx, allowedSvgAssetIds: input.allowedSvgAssetIds ?? new Set() };
     let attempts = 0;
     let lastError: string | undefined;
     /** What an earlier pass lost, so the next one can be told. */
@@ -347,6 +378,14 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
       attempts++;
       const mutation = buildPlacementMutation(section, { ...sectionPlan, target: floorTarget }, ctx);
       if (!mutation) { lastError = "No placement for this target"; continue; }
+      // Art behind the band's words — a filling pattern, a corner
+      // illustration — is the standard section's own background, unless the
+      // section already carries the photo it was read with.
+      const component = (mutation as { component?: { styles?: Record<string, unknown> } }).component;
+      if (component && !component.styles?.backgroundImage) {
+        const behind = backgroundDecorationStyles(section, decoCtx);
+        if (Object.keys(behind).length) component.styles = { ...(component.styles ?? {}), ...behind };
+      }
       const result = place(state, mutation);
       if (result.error) { lastError = result.error; log(`[${key}] placement refused: ${result.error}`); continue; }
       state = result.state;
@@ -357,17 +396,77 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
       notes.push(`${key}: not rebuilt — ${lastError}`);
       continue;
     }
-    position = pageState().components.findIndex((c) => c.id === floorId) + 1 || pageState().components.length;
+
+    // ── 1b. A recipe: the floor drawn as the source drew it, for free ──────
+    // A hero whose picture rides the wave into the next band, or review cards
+    // around their illustrations, is a custom tree the builder can draw
+    // itself. It replaces the standard floor and stands under the agent.
+    let recipeUsed: string | undefined;
+    if (target.kind === "custom" && target.recipe) {
+      const recipe = target.recipe === "hero-over-wave" ? heroOverWaveMutation(section, sectionPlan, decoCtx) : illustratedReviewsMutation(section, sectionPlan, decoCtx);
+      if (recipe) {
+        const floorIndex = pageState().components.findIndex((c) => c.id === floorId);
+        const placed = placeDecoration(state, page.id, { ...recipe, position: floorIndex } as BuilderMutation, `${MIGRATION_ID_PREFIX}-${input.pageOrdinal}-${index}-r0`, { sourceSectionId: key, decoration: -1, edge: "fill", recipe: target.recipe });
+        if (placed.componentId) {
+          state = placed.state;
+          const removed = place(state, { action: "remove_component", pageId: page.id, componentId: floorId } as BuilderMutation);
+          if (!removed.error) state = removed.state;
+          floorId = placed.componentId;
+          recipeUsed = target.recipe;
+        } else {
+          log(`[${key}] recipe ${target.recipe} refused: ${placed.error}`);
+          notes.push(`${key}: the ${target.recipe} layout could not be drawn (${placed.error}); the standard section stands under the agent.`);
+        }
+      } else {
+        notes.push(`${key}: the ${target.recipe} layout could not be drawn (none of its artwork was imported); the standard section stands under the agent.`);
+      }
+    }
+
+    // ── 1c. Edge artwork: the waves above and below, as strips of their own ──
+    const edges = edgeDecorations(section);
+    const decorationRecord: NonNullable<MigrationPageBuildProgress["sections"][string]["decorations"]> = { placed: [], missing: [], ...(recipeUsed ? { recipe: recipeUsed } : {}) };
+    const stripIds: string[] = [];
+    const recipeOwnsWave = recipeUsed === "hero-over-wave";
+    for (const [side, list] of [["top", edges.top], ["bottom", edges.bottom]] as const) {
+      for (const { deco, index: decoIndex } of list) {
+        if (side === "bottom" && recipeOwnsWave && decoIndex === decorationsOf(section).findIndex((d) => d.edge === "bottom" && (d.overlap === "next" || d.zOrder === "behind"))) continue; // drawn inside the hero
+        if (!decorationRenderable(deco, decoCtx)) { decorationRecord.missing.push(decoIndex); continue; }
+        const strip = edgeStripMutation(section, deco, decoIndex, decoCtx);
+        if (!strip) { decorationRecord.missing.push(decoIndex); continue; }
+        const floorIndex = pageState().components.findIndex((c) => c.id === floorId);
+        const at = side === "top" ? floorIndex : Math.max(floorIndex + 1, ...stripIds.map((id) => pageState().components.findIndex((c) => c.id === id) + 1));
+        const stripId = `${MIGRATION_ID_PREFIX}-${input.pageOrdinal}-${index}-d${decoIndex}`;
+        const placed = placeDecoration(state, page.id, { ...strip, position: at } as BuilderMutation, stripId, { sourceSectionId: key, decoration: decoIndex, edge: deco.edge, recipe: "strip" });
+        if (placed.componentId) { state = placed.state; stripIds.push(stripId); decorationRecord.placed.push({ index: decoIndex, componentId: stripId }); }
+        else { decorationRecord.missing.push(decoIndex); log(`[${key}] decoration ${decoIndex} refused: ${placed.error}`); }
+      }
+    }
+    // Art the strips and the background could not carry is the agent's, and
+    // the scorer's, to know about.
+    decorationsOf(section).forEach((deco, decoIndex) => {
+      if (deco.edge === "top" || deco.edge === "bottom") return;
+      if (recipeUsed === "hero-over-wave" && deco.zOrder === "above") return; // the hero recipe drew it
+      if (deco.zOrder === "behind" && deco.src && input.allowedImagePaths.has(deco.src)) return; // the floor's background
+      if (!decorationRecord.missing.includes(decoIndex)) decorationRecord.missing.push(decoIndex);
+    });
+    const hasDecorations = decorationRecord.placed.length || decorationRecord.missing.length || recipeUsed;
+    /** Where the next section starts: after the floor and every strip below it. */
+    const afterSection = () => {
+      const components = pageState().components;
+      const last = Math.max(components.findIndex((c) => c.id === floorId), ...stripIds.map((id) => components.findIndex((c) => c.id === id)));
+      return last + 1 || components.length;
+    };
+    position = afterSection();
 
     // ── 2. The upgrade: the agent replaces the floor with a faithful build ──
-    if (target.kind !== "custom" || sectionPlan.keepAsOriginal) {
-      progress.sections[key] = { status: "placed", componentId: floorId, attempts };
+    if (target.kind !== "custom" || sectionPlan.keepAsOriginal || input.agentMode === "off") {
+      progress.sections[key] = { status: "placed", componentId: floorId, attempts, ...(hasDecorations ? { decorations: decorationRecord } : {}) };
       await input.onSectionDone?.(state, progress);
       continue;
     }
     const room = input.agentBudgetUsd - progress.agentSpendUsd;
     if (room < MIN_AGENT_STEPS * callCost) {
-      progress.sections[key] = { status: "upgrade_skipped", componentId: floorId, attempts, note: "The page's agent budget was used up; the standard section stays." };
+      progress.sections[key] = { status: "upgrade_skipped", componentId: floorId, attempts, note: "The page's agent budget was used up; the standard section stays.", ...(hasDecorations ? { decorations: decorationRecord } : {}) };
       notes.push(`${key}: kept the standard section because the page's agent budget was used up.`);
       continue;
     }
@@ -375,7 +474,7 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
     const imagePaths = section.images.filter((img) => !img.isBackground && !img.decorative).map((img) => img.src).filter((src) => input.allowedImagePaths.has(src));
     const ornamentPaths = ornaments(section, input.allowedImagePaths).map((img) => img.src);
     const background = backgroundPath(section, input.allowedImagePaths);
-    const floorPosition = position - 1;
+    const floorPosition = Math.max(0, pageState().components.findIndex((c) => c.id === floorId));
     // What the plan model saw in this band, and what the admin asked for,
     // on top of the target's own brief.
     const brief = [target.brief, sectionPlan.brief, sectionPlan.instruction ? `The administrator asks: ${sectionPlan.instruction}` : ""].filter(Boolean).join(" ").slice(0, 900);
@@ -494,7 +593,9 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
           ? await renderSectionCrops({
               state,
               pageId: page.id,
-              componentIds,
+              // The strips above and below are part of the band the reviewer
+              // compares with the original, though the agent did not draw them.
+              componentIds: [...stripIds, ...componentIds],
               language: input.language,
               browser: input.browser,
               store: input.store ? { ...input.store, name: `${key}-rebuild-${iteration + 1}` } : undefined,
@@ -564,12 +665,14 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
     if (best) {
       state = best.state;
       const componentId = best.componentId;
-      position = pageState().components.findIndex((c) => c.id === componentId) + 1 || pageState().components.length;
+      floorId = componentId;
+      position = afterSection();
       const passed = best.passed;
       progress.sections[key] = {
         status: passed ? "upgraded" : "upgrade_partial",
         componentId,
         attempts,
+        ...(hasDecorations ? { decorations: decorationRecord } : {}),
         ...(best.detail.score !== undefined ? { score: best.detail.score } : {}),
         review: {
           ...best.detail,
@@ -581,14 +684,31 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
       };
       if (!passed) notes.push(`${key}: the rebuild is close but not exact (${best.detail.visual ?? best.detail.score}/100); the best version was kept.`);
     } else if (rejected.length) {
-      position = pageState().components.findIndex((c) => c.id === floorId) + 1 || pageState().components.length;
-      progress.sections[key] = { status: "upgrade_rejected", componentId: floorId, attempts, note: lastError, review: spentOnSection() };
+      position = afterSection();
+      progress.sections[key] = { status: "upgrade_rejected", componentId: floorId, attempts, note: lastError, review: spentOnSection(), ...(hasDecorations ? { decorations: decorationRecord } : {}) };
       notes.push(`${key}: the rebuild was rejected (${lastError}); the standard section with its images stays.`);
     } else {
-      progress.sections[key] = { status: "upgrade_failed", componentId: floorId, attempts, note: lastError, review: spentOnSection() };
+      position = afterSection();
+      progress.sections[key] = { status: "upgrade_failed", componentId: floorId, attempts, note: lastError, review: spentOnSection(), ...(hasDecorations ? { decorations: decorationRecord } : {}) };
       notes.push(`${key}: the agent could not rebuild it (${lastError}); the standard section stays.`);
     }
     await input.onSectionDone?.(state, progress);
+  }
+
+  // ── The footer's top edge, drawn above the shared footer on every page ──
+  // The footer itself is a standard component and cannot carry a wave; the
+  // strip is the page's last section, so it meets the footer wherever the
+  // page ends.
+  if (!input.onlySectionIds) {
+    const footer = input.extraction.chrome.footer;
+    const strip = footerStripMutation(footer, { pageId: page.id, pageOrdinal: input.pageOrdinal, sectionIndex: -1, allowedImagePaths: input.allowedImagePaths, allowedSvgAssetIds: input.allowedSvgAssetIds ?? new Set(), rewriteHref });
+    if (strip) {
+      const decoIndex = decorationsOf(footer).findIndex((deco) => deco.edge === "top");
+      const stripId = `${MIGRATION_ID_PREFIX}-${input.pageOrdinal}-footer-d${Math.max(0, decoIndex)}`;
+      const placed = placeDecoration(state, page.id, strip, stripId, { sourceSectionId: "chrome-footer", decoration: Math.max(0, decoIndex), edge: "top", recipe: "footer-strip" });
+      if (placed.componentId) state = placed.state;
+      else log(`[footer] decoration refused: ${placed.error}`);
+    }
   }
 
   const finalPage = pageState();

@@ -140,6 +140,7 @@ export const ComponentStylesSchema = z.object({
   backgroundImage: z.string().optional(),
   backgroundSize: z.string().optional(),
   backgroundPosition: z.string().optional(),
+  backgroundRepeat: z.string().optional(),
   opacity: z.string().optional(),
   transform: z.string().optional(),
   transition: z.string().optional(),
