@@ -564,7 +564,7 @@ export const ROLE_TARGET_COMPATIBILITY: Record<SectionRole, Array<string>> = {
   video: ["component:video-embed", "custom"],
   "comparison-table": ["component:comparison-table", "section:pricing-section", "custom"],
   "rich-text": ["component:rich-text", "component:text-image", "custom"],
-  divider: ["component:divider", "custom", "skip"],
+  divider: ["component:divider", "custom"],
 };
 
 export function targetKey(target: MigrationTarget): string {
@@ -763,6 +763,8 @@ export const migrationWarningSchema = z.object({
 });
 export type MigrationWarning = z.infer<typeof migrationWarningSchema>;
 
+export type MigrationAssetRole = "logo" | "background" | "content" | "ornament" | "decoration" | "illustration";
+
 export type MigrationAssetRecord = {
   sourceUrl: string;
   storagePath: string;
@@ -772,6 +774,12 @@ export type MigrationAssetRecord = {
   height?: number;
   sha256: string;
   usedBy: string[];
+  /** What was stored: a bitmap, a vector (with a bitmap twin at storagePath), or a document. */
+  kind?: "image" | "svg" | "document";
+  /** What it was on the source page. */
+  role?: MigrationAssetRole;
+  /** For svg: the recolourable paint slots, so a rebuild can bind them to brand colours. */
+  colorSlots?: Array<{ id: string; original: string; label: string }>;
 };
 
 export type MigrationFidelity = {

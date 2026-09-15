@@ -21,7 +21,7 @@ import sharp from "sharp";
 import { objectStorageClient, ObjectStorageService } from "./replit_integrations/object_storage/objectStorage";
 import { storage } from "./storage";
 import { assertPublicUrl, fetchPublicUrlPinned } from "./websiteImportCrawler";
-import { validateSvgAssetMarkup } from "@shared/svgAssets";
+import { validateSvgAssetMarkup, type SvgColorSlot } from "@shared/svgAssets";
 import { createSvgAssetSafe } from "./svgAssetStore";
 
 export const MAX_IMAGE_BYTES = 8_000_000;
@@ -42,6 +42,8 @@ export type ImportedAsset = {
   sha256: string;
   /** Set for svg: the sanitised markup's asset row id. */
   svgAssetId?: string;
+  /** Set for svg: the recolourable paint slots the asset store found. */
+  colorSlots?: SvgColorSlot[];
 };
 
 export type SkippedAsset = { ok: false; reason: string; duplicateOf?: string };
@@ -131,6 +133,8 @@ export async function importAssetToMedia(args: {
   referer?: string;
   /** Pre-fetched bytes (e.g. a data: URI or an inline SVG) skip the network. */
   bytes?: { bytes: Buffer; mime: string };
+  /** The name an svg gets in the graphics library ("Importeret logo" when unset). */
+  name?: string;
 }): Promise<ImportedAsset | SkippedAsset> {
   try {
     const fetched = args.bytes ?? await fetchApprovedAsset(args.sourceUrl, args.expectedOrigin, args.kind, {
@@ -146,7 +150,7 @@ export async function importAssetToMedia(args: {
       const hash = createHash("sha256").update(validation.svg).digest("hex");
       const seen = args.seenHashes?.get(hash);
       if (seen) return { ok: false, reason: "duplicate", duplicateOf: seen };
-      const stored = await createSvgAssetSafe({ websiteId: args.websiteId, svg: validation.svg, name: "Importeret logo", origin: "customer" });
+      const stored = await createSvgAssetSafe({ websiteId: args.websiteId, svg: validation.svg, name: args.name ?? "Importeret logo", origin: "customer" });
       if (!stored.ok) return { ok: false, reason: stored.message };
       // A bitmap twin for the places that cannot draw markup (the brand
       // guide's logo slot, social previews).
@@ -165,7 +169,7 @@ export async function importAssetToMedia(args: {
         altText: (args.alt || "Importeret logo").slice(0, 250),
       });
       args.seenHashes?.set(hash, storagePath);
-      return { ok: true, kind: "svg", storagePath, mediaId: media.id, mime: "image/webp", size: raster.length, width: meta.width, height: meta.height, sha256: hash, svgAssetId: stored.asset.id };
+      return { ok: true, kind: "svg", storagePath, mediaId: media.id, mime: "image/webp", size: raster.length, width: meta.width, height: meta.height, sha256: hash, svgAssetId: stored.asset.id, colorSlots: (stored.asset.colorSlots as SvgColorSlot[] | null) ?? undefined };
     }
 
     let stored = fetched.bytes;

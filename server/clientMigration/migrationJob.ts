@@ -244,6 +244,11 @@ async function checkControl(rt: Runtime): Promise<void> {
  * spent, or it is a per-call cap rather than a budget — and the build phase
  * could quietly consume the plan's and the verification's money too.
  */
+/** The stored vectors a rebuilt tree may reference by id. */
+function svgAssetIdsOf(assets: MigrationAssetRecord[]): Set<string> {
+  return new Set(assets.flatMap((asset) => (asset.svgAssetId ? [asset.svgAssetId] : [])));
+}
+
 function roomFor(rt: Runtime, slice: keyof typeof SLICES): number {
   const spentOnSlice = SLICE_ROLES[slice].reduce((total, role) => total + (rt.spendByRole[role] ?? 0), 0);
   const sliceLeft = rt.limits.ceilingUsd * SLICES[slice] - spentOnSlice;
@@ -505,6 +510,7 @@ async function phaseBuild(rt: Runtime): Promise<void> {
   const pages = await store.listPages(rt.job.id);
   const assets = rt.job.assets as MigrationAssetRecord[];
   const allowed = new Set(assets.map((asset) => asset.storagePath));
+  const allowedSvgAssetIds = svgAssetIdsOf(assets);
   const slugByPageId = new Map(plan.pages.map((p) => [p.sourcePageId, p.targetSlug]));
   const orderedPlans = [...plan.pages].sort((a, b) => (a.role === "home" ? -1 : b.role === "home" ? 1 : (a.navOrder ?? 999) - (b.navOrder ?? 999)));
   const pending = orderedPlans.filter((pagePlan) => pages.find((p) => p.id === pagePlan.sourcePageId)?.buildStatus !== "built");
@@ -549,6 +555,7 @@ async function phaseBuild(rt: Runtime): Promise<void> {
       extraction: item.extraction,
       pageOrdinal: row.ordinal,
       allowedImagePaths: allowed,
+      allowedSvgAssetIds,
       slugByPageId,
       desktopScreenshotPath: (row.screenshots as any)?.desktop?.storagePath,
       meter: rt.meter,
@@ -717,7 +724,7 @@ async function phaseVerify(rt: Runtime): Promise<void> {
           if (!actionable.length || iterations >= MAX_FIDELITY_ITERATIONS || roomFor(rt, "verify") < assumedCallCostUsd("migrationBuild")) break;
 
           // One corrective pass, behind the same guard as the build.
-          const guard = makeFidelityGuard({ evidence: sectionEvidence(item.extraction), allowedImagePaths: allowed, label: pagePlan.targetName });
+          const guard = makeFidelityGuard({ evidence: sectionEvidence(item.extraction), allowedImagePaths: allowed, allowedSvgAssetIds: svgAssetIdsOf(assets), label: pagePlan.targetName });
           const ctx: AgentContext = { websiteId: rt.job.websiteId, state: structuredClone(state), applied: [], notes: [], createdImages: [], imageCache: new Map(Array.from({ length: 8 }, (_, i) => [`blocked-${i}`, ""])), spendMeter: rt.meter, approvedLargeChanges: true, guard };
           const fixBefore = rt.meter.spentUsd;
           try {
@@ -1011,6 +1018,7 @@ export async function requestSectionRebuild(args: {
       extraction,
       pageOrdinal: row.ordinal,
       allowedImagePaths: new Set(assets.map((asset) => asset.storagePath)),
+      allowedSvgAssetIds: svgAssetIdsOf(assets),
       slugByPageId: new Map(nextPlan.pages.map((page) => [page.sourcePageId, page.targetSlug])),
       desktopScreenshotPath: (row.screenshots as any)?.desktop?.storagePath,
       meter,

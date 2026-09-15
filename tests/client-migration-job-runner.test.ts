@@ -145,7 +145,7 @@ function seedJob(over: Row = {}): string {
   const id = `job-${++seq}`;
   jobs.set(id, {
     id, createdBy: "admin-1", clientUserId: "client-1", websiteId: "site-1", company: "Klinik Ro", sourceUrl: SOURCE, canonicalOrigin: null,
-    language: "da", planSlug: "starter", respectRobots: true, status: "queued", phase: "discover", phaseAttempts: {}, pauseRequested: false, cancelRequested: false,
+    language: "da", planSlug: "starter", respectRobots: true, requirePlanReview: true, status: "queued", phase: "discover", phaseAttempts: {}, pauseRequested: false, cancelRequested: false,
     leaseOwner: null, leaseUntil: null, limits: { maxPages: 10, maxAssets: 20, ceilingUsd: 12 }, spentUsd: "0", spendByRole: {}, discovery: null, brand: null,
     assets: [], plan: null, planReviewedAt: null, fidelity: null, warnings: [], error: null, errorCode: null, builderRevision: null, snapshotId: null,
     createdAt: now(), updatedAt: now(), ...over,

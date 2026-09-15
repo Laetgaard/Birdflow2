@@ -41,6 +41,8 @@ export type PageBuildInput = {
   extraction: PageExtraction;
   pageOrdinal: number;
   allowedImagePaths: Set<string>;
+  /** Imported svg asset ids a rebuilt tree may draw by reference. */
+  allowedSvgAssetIds?: Set<string>;
   slugByPageId: Map<string, string>;
   desktopScreenshotPath?: string;
   meter: SpendMeter;
@@ -299,7 +301,7 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
   };
   const notes: string[] = [];
   const evidence = sectionEvidence(input.extraction);
-  const guard = makeFidelityGuard({ evidence, allowedImagePaths: input.allowedImagePaths, label: input.pagePlan.targetName });
+  const guard = makeFidelityGuard({ evidence, allowedImagePaths: input.allowedImagePaths, allowedSvgAssetIds: input.allowedSvgAssetIds, label: input.pagePlan.targetName });
   const tools = migrationToolCatalogue();
   const ordered = orderedPlans;
   const callCost = assumedCallCostUsd("migrationBuild");

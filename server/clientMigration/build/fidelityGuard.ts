@@ -13,10 +13,13 @@ import type { BuilderMutation } from "@shared/aiBuilderSchema";
 import type { AgentContext, GuardVerdict, MutationGuard } from "../../aiAgentTools";
 import { buildEvidencePool, normalizeForEvidence, type EvidencePool } from "../../claimRules";
 import { guardResponsive } from "../../responsiveGuard";
+import { collectReferencedSvgAssetIds } from "@shared/svgAssets";
 
 const FORBIDDEN_IMAGE_RE = /^ai:\/\/|unsplash\.com|images\.unsplash|picsum\.photos|placeholder\.com|via\.placeholder|placehold\.co|pexels\.com|dummyimage/i;
 const IMAGE_KEY_RE = /(image|img|src|logo|background|photo|avatar|poster|thumbnail)/i;
-const TECHNICAL_KEY_RE = /^(id|ids|type|action|pageId|componentId|href|link|url|target|variant|icon|layout|alignment|align|columns|position|styles?|css|fontFamily|color|colour|.*Color|.*Colour|className|key|nodeId|nodeType|nth|styleKey|keys|itemLabel|itemFields|schema|customSchema|videoProvider|autoPlay|speed|grayscale|highlighted|required|placeholder|period|prefix|suffix|value|year|maxWidth|showCart|imageSide|kind|capability|config)$/;
+const TECHNICAL_KEY_RE = /^(id|ids|type|action|pageId|componentId|href|link|url|target|variant|icon|layout|alignment|align|columns|position|styles?|css|fontFamily|color|colour|.*Color|.*Colour|className|key|nodeId|nodeType|nth|styleKey|keys|itemLabel|itemFields|schema|customSchema|videoProvider|autoPlay|speed|grayscale|highlighted|required|placeholder|period|prefix|suffix|value|year|maxWidth|showCart|imageSide|kind|capability|config|svgColors|viewBox|clipPath|transform|inset|zIndex|backgroundSize|backgroundPosition|backgroundRepeat|shapeId)$/;
+/** Markup that can carry words or pictures of its own; a drawing never needs these. */
+const SVG_CONTENT_RE = /<(image|text|foreignObject|a)\b/i;
 /**
  * Keys that name or describe a thing for the editor and for screen readers,
  * never text the visitor reads on the page. A component's `name` is required
@@ -103,12 +106,18 @@ export type FidelityGuardOptions = {
   evidence: string[];
   /** Imported image paths (/objects/…) the mutation may reference. */
   allowedImagePaths: Set<string>;
+  /**
+   * Imported svg asset ids the mutation may reference. When given, an
+   * `svgAssetId` must be one of these or already drawn somewhere on the
+   * site; when absent, ids are not checked.
+   */
+  allowedSvgAssetIds?: Set<string>;
   label: string;
 };
 
 export function makeFidelityGuard(options: FidelityGuardOptions): MutationGuard {
   const pool = buildEvidencePool(options.evidence);
-  return (mutation: BuilderMutation, _ctx: AgentContext): GuardVerdict => {
+  return (mutation: BuilderMutation, ctx: AgentContext): GuardVerdict => {
     const notes: string[] = [];
     const m = mutation as unknown as Record<string, unknown>;
     if (m.action === "remove_page" || m.action === "apply_preset" || m.action === "update_global_styles") {
@@ -116,6 +125,21 @@ export function makeFidelityGuard(options: FidelityGuardOptions): MutationGuard 
     }
 
     for (const { key, text } of strings(mutation, "root")) {
+      // Stored illustrations are referenced by id: an imported one, or one
+      // the site already draws. Inline markup is a drawing, never copy —
+      // unless it smuggles words or pictures in through <text> or <image>.
+      if (key === "svgAssetId") {
+        if (options.allowedSvgAssetIds && !options.allowedSvgAssetIds.has(text) && !collectReferencedSvgAssetIds(ctx.state as Parameters<typeof collectReferencedSvgAssetIds>[0]).has(text)) {
+          return { ok: false, reason: `Illustrationen "${text.slice(0, 40)}" er ikke importeret fra kundens hjemmeside. Brug kun de svg-id'er, opgaven nævner — eller tegn formen selv med generate_svg_shape.` };
+        }
+        continue;
+      }
+      if (key === "svg") {
+        if (SVG_CONTENT_RE.test(text)) {
+          return { ok: false, reason: "SVG-markup må kun tegne former: <image>, <text>, <a> og <foreignObject> er ikke tilladt. Brug tekst-noder til ord og billed-noder til fotos." };
+        }
+        continue;
+      }
       // A background written as CSS: check the paths inside it, then move on.
       // `none` and a pure gradient carry no path and are simply styling.
       if (isCssImageValue(key, text)) {
