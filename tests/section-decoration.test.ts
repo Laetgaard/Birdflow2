@@ -89,6 +89,14 @@ describe('the shape divider block', () => {
     expect(markup).toContain('transform="scale(-1,1)');
     expect(markup).toContain('fill="#111111"');
   });
+
+  it('flips inside the viewBox — a percentage is not a valid SVG transform', () => {
+    const flipped = shapeDividerMarkup({ shapeId: 'wave-gentle', flipY: true }, {});
+    expect(flipped).toContain('scale(1,-1) translate(0,-80)');
+    expect(flipped).not.toContain('-100%');
+    const mirrored = shapeDividerMarkup({ shapeId: 'arch-divider', flipX: true }, {});
+    expect(mirrored).toContain('scale(-1,1) translate(-1440,0)');
+  });
 });
 
 describe('the published bundle carries the same decoration code', () => {

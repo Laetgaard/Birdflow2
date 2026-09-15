@@ -129,7 +129,8 @@ export function makeFidelityGuard(options: FidelityGuardOptions): MutationGuard 
       // the site already draws. Inline markup is a drawing, never copy —
       // unless it smuggles words or pictures in through <text> or <image>.
       if (key === "svgAssetId") {
-        if (options.allowedSvgAssetIds && !options.allowedSvgAssetIds.has(text) && !collectReferencedSvgAssetIds(ctx.state as Parameters<typeof collectReferencedSvgAssetIds>[0]).has(text)) {
+        const drawnAlready = ctx?.state ? collectReferencedSvgAssetIds(ctx.state as Parameters<typeof collectReferencedSvgAssetIds>[0]) : new Set<string>();
+        if (options.allowedSvgAssetIds && !options.allowedSvgAssetIds.has(text) && !drawnAlready.has(text)) {
           return { ok: false, reason: `Illustrationen "${text.slice(0, 40)}" er ikke importeret fra kundens hjemmeside. Brug kun de svg-id'er, opgaven nævner — eller tegn formen selv med generate_svg_shape.` };
         }
         continue;

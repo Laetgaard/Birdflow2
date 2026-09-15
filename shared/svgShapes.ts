@@ -227,9 +227,12 @@ export function renderSvgShape(def: SvgShapeDefinition, opts?: RenderSvgShapeOpt
   const getColor = (slotId: string): string =>
     colorMap[slotId] ?? def.colorSlots.find((s) => s.id === slotId)?.defaultValue ?? '#000000';
 
+  // Flips mirror inside the viewBox: a percentage is not valid in an SVG
+  // transform, and 1440 is only the width of the full-width dividers.
+  const [, , viewW = 1440, viewH = 80] = def.viewBox.split(/\s+/).map((n) => Number(n));
   const transforms: string[] = [];
-  if (opts?.flipX) transforms.push('scale(-1,1)', 'translate(-1440,0)');
-  if (opts?.flipY) transforms.push('scale(1,-1)', 'translate(0,-100%)');
+  if (opts?.flipX) transforms.push('scale(-1,1)', `translate(${-viewW},0)`);
+  if (opts?.flipY) transforms.push('scale(1,-1)', `translate(0,${-viewH})`);
 
   const pathsMarkup = def.paths
     .map((p) => {

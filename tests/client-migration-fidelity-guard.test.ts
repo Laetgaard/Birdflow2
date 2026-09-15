@@ -166,3 +166,41 @@ describe("actions outside a section rebuild", () => {
     }
   });
 });
+
+/**
+ * Artwork is drawn, not said. A stored illustration is referenced by id —
+ * an imported one, or one the site already draws — and inline markup is a
+ * drawing unless it carries words or pictures of its own.
+ */
+describe("svg artwork", () => {
+  const strict = makeFidelityGuard({ evidence: sectionEvidence(homeExtraction()), allowedImagePaths: allowedPaths(), allowedSvgAssetIds: new Set(["svg-wave"]), label: "Forside" });
+  const svgTree = (node: Record<string, unknown>) => ({ action: "add_custom_component", pageId: "home", name: "Bølge", tree: { id: "r", type: "box", styles: { lineHeight: "0" }, children: [{ id: "w", type: "svg", ...node }] } }) as any;
+
+  it("accepts an imported illustration by id and one the site already draws", () => {
+    expect(strict(svgTree({ svgAssetId: "svg-wave", svgColors: { c1: "{color.primary}" } }), ctx).ok).toBe(true);
+    const drawing = { pages: [{ id: "home", components: [{ type: "custom", props: { customTree: { type: "box", children: [{ type: "svg", svgAssetId: "svg-older" }] } } }] }] };
+    expect(strict(svgTree({ svgAssetId: "svg-older" }), { state: drawing } as any).ok).toBe(true);
+  });
+
+  it("refuses an illustration id the job never imported, and points at the generator", () => {
+    const verdict = strict(svgTree({ svgAssetId: "svg-invented" }), ctx);
+    expect(verdict.ok).toBe(false);
+    expect((verdict as any).reason).toContain("ikke importeret");
+    expect((verdict as any).reason).toContain("generate_svg_shape");
+    // Without an allowed set, ids are not judged at all.
+    expect(guard(svgTree({ svgAssetId: "svg-invented" }), ctx).ok).toBe(true);
+  });
+
+  it("treats inline markup as a drawing, never as copy", () => {
+    const wave = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 80"><path d="M0,40 C360,80 1080,0 1440,40 L1440,80 L0,80 Z" fill="#f5f3ff"/></svg>';
+    expect(strict(svgTree({ svg: wave }), ctx).ok).toBe(true);
+  });
+
+  it("refuses markup that smuggles words or pictures in", () => {
+    for (const smuggled of ['<svg viewBox="0 0 10 10"><text>Vi er de bedste psykologer i hele landet, book nu</text></svg>', '<svg viewBox="0 0 10 10"><image href="https://unsplash.com/x.jpg"/></svg>']) {
+      const verdict = strict(svgTree({ svg: smuggled }), ctx);
+      expect(verdict.ok).toBe(false);
+      expect((verdict as any).reason).toContain("SVG-markup");
+    }
+  });
+});

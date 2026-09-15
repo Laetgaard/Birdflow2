@@ -15,6 +15,7 @@ import {
   type AgentTool,
   type ToolResult,
 } from "./aiAgentTools";
+import { loadSvgAssetSummaries } from "./svgAssetSummaries";
 
 /* ─────────────────────────────────────────────────────────────
    The builder agent.
@@ -236,7 +237,9 @@ Usage example: { id: '...', type: 'box', behavior: { type: 'accordion', multiple
 
 ## Standard section tools
 - set_motion — entrance animations ("load" above the fold, "scroll" below, staggered delays) or parallax ("parallax" with scrollSpeed 0.05–0.9).
-- insert_svg_shape — add a decorative built-in SVG shape: wave-gentle, wave-bold, wave-asymmetric, curve-bottom, curve-top, blob-soft, blob-wide, organic-divider, circle-deco, arch-divider. Pass colors: { fill: '{color.primary}' } to tint with brand tokens.
+- insert_svg_shape — add a decorative built-in SVG shape: wave-gentle, wave-bold, wave-asymmetric, curve-bottom, curve-top, blob-soft, blob-wide, organic-divider, circle-deco, arch-divider. Pass colors: { fill: '{color.primary}' } to tint with brand tokens; get_svg_shape_info lists a shape's colour slots.
+- generate_svg_shape — draw a wave/curve/blob/arch/tilt from numbers (amplitude, periods, phase, up to four layers with colour + opacity, flipX/flipY) when the look must match something specific: redraw an existing svg node (nodeId), add one under a box (parentNodeId), insert it as its own section (pageId only), or just get the markup back (no target) for a component you are creating. Put a bottom-edge wave in a box with lineHeight 0; flipY for a top edge.
+- list_svg_assets — the site's stored illustrations (imported artwork, earlier drawings). Draw one with an svg node carrying svgAssetId (and svgColors: { c1: '{color.primary}' } to recolour a slot) instead of pasting its markup.
 - Responsive overrides on standard sections: styles.responsive.tablet / styles.responsive.mobile — padding, gap, minHeight, maxWidth, titleFontSize, bodyFontSize, textAlign, alignItems, justifyContent, flexDirection, gridTemplateColumns, display, borderRadius. Layout/spacing only — never colours or font-family.
 - batch_update_components: filter by pageIds, componentType, stylePath + styleValue; update.stylePath is a dotted path (e.g. 'motion.effect'). Default safety cap: 20 matches. Always preview first: find_text → batch_update_components mode='preview' → mode='apply'.
 - Motion validation: a motion object MUST include effect (e.g. 'fade-in'). Use set_motion instead of raw update_component for motion changes.
@@ -928,6 +931,7 @@ export async function runBuilderAgent(args: {
     websiteId,
     ownerId,
     state: structuredClone(state),
+    svgAssets: await loadSvgAssetSummaries(websiteId),
     applied: [],
     notes: [],
     createdImages: [],

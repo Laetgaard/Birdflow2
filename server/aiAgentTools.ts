@@ -22,6 +22,9 @@ import {
   UpdateBrandGuideMutation,
 } from "@shared/aiBuilderSchema";
 import type { DesignDirection } from "@shared/creativeTypes";
+import { generateSvgShape, SvgShapeSpecSchema } from "@shared/svgShapeGenerator";
+import type { SvgAssetSummary } from "./svgAssetSummaries";
+export type { SvgAssetSummary } from "./svgAssetSummaries";
 import {
   storeProposal,
   deriveBrandDeviationLevel,
@@ -107,6 +110,12 @@ export type AgentContext = {
   websiteId: string;
   /** Mutated in place as tools apply mutations. */
   state: BuilderStateData;
+  /**
+   * The site's stored illustrations (svg_assets), so a tree can draw one by
+   * `svgAssetId` instead of pasting markup. Filled by the caller; absent
+   * means "none known", not "none exist".
+   */
+  svgAssets?: SvgAssetSummary[];
   /** Ordered record of what was applied — feeds buildReport. */
   applied: BuilderMutation[];
   /** Danish notes surfaced in the final report. */
@@ -691,6 +700,55 @@ export function buildReadTools(): AgentTool[] {
         ...(e.version ? { version: e.version } : {}),
       })),
     }),
+  });
+
+  tools.push({
+    name: "list_svg_assets",
+    description:
+      "List the website's stored SVG illustrations (svg_assets): id, name, colour slots and, for imported art, where it came from. " +
+      "Reference one from an svg node with svgAssetId (plus svgColors to recolour a slot) instead of pasting markup.",
+    parameters: z.object({}),
+    mutates: false,
+    run: (_args, ctx) => {
+      const assets = ctx.svgAssets ?? [];
+      return {
+        ok: true,
+        summary: assets.length ? `Læste ${assets.length} gemte illustrationer` : "Ingen gemte illustrationer",
+        data: assets.map((asset) => ({
+          id: asset.id,
+          name: asset.name,
+          ...(asset.role ? { role: asset.role } : {}),
+          ...(asset.colorSlots?.length ? { colorSlots: asset.colorSlots.map((slot) => ({ id: slot.id, original: slot.original })) } : {}),
+          ...(asset.width ? { width: asset.width, height: asset.height } : {}),
+          ...(asset.usedBy?.length ? { usedBy: asset.usedBy } : {}),
+        })),
+      };
+    },
+  });
+
+  tools.push({
+    name: "get_svg_shape_info",
+    description:
+      "Describe one built-in SVG shape: its viewBox, colour slot ids (for insert_svg_shape's colors) and what can be configured. " +
+      "Omit shapeId to list every shape.",
+    parameters: z.object({ shapeId: z.string().max(40).optional() }),
+    mutates: false,
+    run: (args) => {
+      const describe = (def: (typeof SVG_SHAPES)[string]) => ({
+        id: def.id,
+        name: def.name,
+        viewBox: def.viewBox,
+        preserveAspectRatio: def.preserveAspectRatio,
+        colorSlots: def.colorSlots.map((slot) => ({ id: slot.id, label: slot.label, defaultValue: slot.defaultValue })),
+        configurable: def.configurable,
+      });
+      if (args.shapeId) {
+        const def = SVG_SHAPES[args.shapeId];
+        if (!def) return { ok: false, error: `Ukendt shape ID '${args.shapeId}'. Kendte former: ${Object.keys(SVG_SHAPES).join(", ")}.` };
+        return { ok: true, summary: `Læste formen "${def.name}"`, data: describe(def) };
+      }
+      return { ok: true, summary: `Læste ${Object.keys(SVG_SHAPES).length} indbyggede former`, data: Object.values(SVG_SHAPES).map(describe) };
+    },
   });
 
   tools.push({
@@ -1366,7 +1424,8 @@ export function buildToolCatalogue(): AgentTool[] {
       "organic-divider, circle-deco, arch-divider. " +
       "Dividers (wave-*, curve-*, organic-divider, arch-divider) look best at height '60px'–'120px'. " +
       "Blobs and circles work as decorative highlights at '200px'–'400px'. " +
-      "Check each shape's colorSlots to know which slot IDs are available for colour overrides.",
+      "Call get_svg_shape_info to see a shape's colour slot ids before overriding colours. " +
+      "For a wave that must match a specific look (amplitude, layers, colours), use generate_svg_shape instead.",
     parameters: z.object({
       pageId: z.string(),
       shapeId: z.enum([
@@ -1442,6 +1501,96 @@ export function buildToolCatalogue(): AgentTool[] {
       } as BuilderMutation;
 
       return applyWrite(mutation, ctx, () => `Indsatte SVG-form "${shapeDef.name}"`);
+    },
+  });
+
+  tools.push({
+    name: "generate_svg_shape",
+    description:
+      "Draw a decorative shape from parameters — a wave, curve, blob, arch or tilt — matched to a look rather than picked from the registry: " +
+      "amplitude, periods, phase, up to four layers with their own colour/opacity/offset, flips. " +
+      "Where it goes: (a) pageId + componentId + nodeId — replace that svg node's drawing; " +
+      "(b) pageId + componentId + parentNodeId — add a new svg node under that box (full-width, `height` px tall); " +
+      "(c) pageId only — insert as its own full-width section (a divider between two sections); " +
+      "(d) nothing — just return the markup to put in an svg node of a component you are about to create. " +
+      "A wave on a section's bottom edge is drawn as-is; on a top edge pass flipY. Colours accept brand tokens like {color.primary}.",
+    parameters: SvgShapeSpecSchema.extend({
+      pageId: z.string().optional(),
+      componentId: z.string().optional(),
+      nodeId: z.string().optional().describe("Existing svg node to redraw"),
+      parentNodeId: z.string().optional().describe("Box node that receives a new svg node"),
+      index: z.number().int().min(0).optional().describe("Position among the parent's children (0 = first). Omit to append."),
+      position: z.number().int().min(0).optional().describe("Section index when inserting as its own section. Omit to append."),
+      styles: z.record(z.string()).optional().describe("Extra styles for the svg node, e.g. { position: 'absolute', bottom: '-40px', zIndex: '1' }"),
+      name: z.string().max(80).optional().describe("Display name for the node or section"),
+    }),
+    mutates: true,
+    run: async (args, ctx) => {
+      let drawn: ReturnType<typeof generateSvgShape>;
+      try {
+        drawn = generateSvgShape(args);
+      } catch (error: any) {
+        return { ok: false, error: error?.message ?? String(error) };
+      }
+      const nodeStyles = { width: "100%", height: `${args.height ?? 80}px`, display: "block", ...(sanitizeStyleRecord(args.styles ?? {}) ?? {}) };
+      const svgNode = (id: string): PrimitiveNode => ({
+        ...createPrimitiveNode("svg"),
+        id,
+        name: args.name ?? `${args.kind}-form`,
+        svg: drawn.svg,
+        ...(drawn.svgColors ? { svgColors: drawn.svgColors } : {}),
+        styles: nodeStyles,
+      });
+
+      if (args.pageId && args.componentId && args.nodeId) {
+        const found = findCustomTree(ctx, args.pageId, args.componentId);
+        if ("error" in found) return { ok: false, error: found.error };
+        const target = findPrimitiveNode(found.tree, args.nodeId);
+        if (!target) return { ok: false, error: `Node "${args.nodeId}" findes ikke.` };
+        if (target.type !== "svg") return { ok: false, error: `Node "${args.nodeId}" er af typen "${target.type}" — kun svg-noder kan tegnes om.` };
+        const newTree = updatePrimitiveNode(found.tree, args.nodeId, (node) => {
+          const next = { ...node, svg: drawn.svg, svgColors: drawn.svgColors, styles: { ...(node.styles ?? {}), ...(sanitizeStyleRecord(args.styles ?? {}) ?? {}) } };
+          delete (next as { svgAssetId?: string }).svgAssetId;
+          if (!drawn.svgColors) delete (next as { svgColors?: unknown }).svgColors;
+          return next;
+        });
+        const mutation = { action: "update_custom_component" as const, pageId: args.pageId, componentId: args.componentId, tree: newTree } as BuilderMutation;
+        return applyWrite(mutation, ctx, () => `Tegnede ${drawn.description} i node "${args.nodeId}"`);
+      }
+
+      if (args.pageId && args.componentId && args.parentNodeId) {
+        const found = findCustomTree(ctx, args.pageId, args.componentId);
+        if ("error" in found) return { ok: false, error: found.error };
+        const parent = findPrimitiveNode(found.tree, args.parentNodeId);
+        if (!parent) return { ok: false, error: `Forældrenode "${args.parentNodeId}" findes ikke.` };
+        if (parent.type !== "box") return { ok: false, error: `Forældrenode "${args.parentNodeId}" er af typen "${parent.type}" — kun box-noder kan have børn.` };
+        const node = svgNode(`shape-${Date.now().toString(36)}`);
+        const newTree = insertPrimitiveChild(found.tree, args.parentNodeId, node, args.index);
+        const mutation = { action: "update_custom_component" as const, pageId: args.pageId, componentId: args.componentId, tree: newTree } as BuilderMutation;
+        const written = await applyWrite(mutation, ctx, () => `Tegnede ${drawn.description} under "${args.parentNodeId}"`);
+        return written.ok ? { ...written, data: { ...((written as { data?: Record<string, unknown> }).data ?? {}), nodeId: node.id, ...(drawn.svgColors ? { svgColors: drawn.svgColors } : {}) } } : written;
+      }
+
+      if (args.pageId) {
+        const uid = Date.now().toString(36);
+        const mutation = {
+          action: "add_custom_component" as const,
+          pageId: args.pageId,
+          name: args.name || `${args.kind}-deler`,
+          position: args.position,
+          styles: { backgroundColor: "transparent", padding: "0" },
+          tree: {
+            id: `shape-box-${uid}`,
+            type: "box" as const,
+            styles: { padding: "0", lineHeight: "0", fontSize: "0", overflow: "hidden" },
+            children: [svgNode(`shape-svg-${uid}`)],
+          },
+          schema: { fields: [{ key: "bg", label: "Baggrundsfarve", type: "color" as const, nodeId: `shape-box-${uid}`, styleKey: "backgroundColor" as const }] },
+        } as BuilderMutation;
+        return applyWrite(mutation, ctx, () => `Indsatte ${drawn.description} som sektion`);
+      }
+
+      return { ok: true, summary: `Tegnede ${drawn.description}`, data: { svg: drawn.svg, ...(drawn.svgColors ? { svgColors: drawn.svgColors } : {}), description: drawn.description, suggestedStyles: nodeStyles } };
     },
   });
 
