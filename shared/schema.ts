@@ -6,10 +6,13 @@ import type { CustomComponentEntry, BrandGuide, PrimitiveNode } from "./customCo
 import type { SvgColorSlot } from "./svgAssets";
 import type { BusinessContext } from "./businessContext";
 import type { SiteLanguage } from "./siteLanguage";
+import type { ConsentStatus, JournalEntryType } from "./journal";
 
 export type { BusinessContext, BusinessFact } from "./businessContext";
 
 export type { CustomComponentEntry, BrandGuide } from "./customComponents";
+
+export type { ConsentStatus, JournalEntryType } from "./journal";
 
 // Platform subscription plans
 export type PlatformPlanSlug = 'basic' | 'starter' | 'professional';
@@ -1059,6 +1062,129 @@ export type CustomerWithStats = {
   bookingsCount: number;
   lastActivityAt: string | null;
 };
+
+/* ─────────────────────── clinical journal ───────────────────────
+ * Health records for practitioner sites. Separate from `customers` on
+ * purpose: a customer row is an operational shopper identity that any
+ * webshop has, while these four tables are GDPR Article 9 health data with
+ * an append-only history, an access log and a statutory retention period.
+ *
+ * The DDL — including the triggers that make the append-only guarantee hold
+ * below the application — lives in server/journalSchema.ts, which this
+ * project applies at boot rather than through db:push. These Drizzle
+ * definitions exist so types and queries line up with it.
+ */
+
+// One clinical record per customer: the context a practitioner needs that has
+// no business being in `customers.metadata`. `emergencyContactCipher` and the
+// entry bodies are the only encrypted columns; everything else must stay
+// queryable for the timeline, the consent chip and the retention sweep.
+export const journalClients = pgTable(
+  "journal_clients",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    websiteId: varchar("website_id").notNull(),
+    customerId: varchar("customer_id").notNull(),
+    dateOfBirth: text("date_of_birth"),
+    /** Last four digits of the CPR number. The full number is never stored. */
+    civilRegistrationLast4: varchar("civil_registration_last4", { length: 4 }),
+    gpName: text("gp_name"),
+    /** AES-256-CBC via server/storage.ts encrypt(). */
+    emergencyContactCipher: text("emergency_contact_cipher"),
+    consentStatus: text("consent_status").$type<ConsentStatus>().notNull().default("unknown"),
+    consentGivenAt: timestamp("consent_given_at"),
+    consentWithdrawnAt: timestamp("consent_withdrawn_at"),
+    consentBasis: text("consent_basis"),
+    /** Five years from the most recent entry; recomputed on every append. */
+    retainUntil: timestamp("retain_until"),
+    /** Set during a complaint or a case: erasure is refused indefinitely. */
+    legalHold: boolean("legal_hold").notNull().default(false),
+    archivedAt: timestamp("archived_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("journal_clients_website_customer_idx").on(table.websiteId, table.customerId),
+  ]
+);
+
+// An entry is metadata only — it carries no body. Saving a body appends a row
+// to journal_entry_revisions and repoints currentRevisionId, so the entry is
+// stable and its content is a history rather than a value.
+export const journalEntries = pgTable("journal_entries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  journalClientId: varchar("journal_client_id").notNull(),
+  /** The appointment this entry documents, when it documents one. */
+  bookingId: varchar("booking_id"),
+  entryType: text("entry_type").$type<JournalEntryType>().notNull(),
+  authorUserId: varchar("author_user_id").notNull(),
+  /** Author name at the time of writing — a later rename must not rewrite history. */
+  authorName: text("author_name").notNull(),
+  /** When the clinical event happened. Editable; createdAt is not. */
+  occurredAt: timestamp("occurred_at").notNull(),
+  /** Countersigned: the entry is closed and takes no further revisions. */
+  signedAt: timestamp("signed_at"),
+  signedBy: varchar("signed_by"),
+  /** Set when a later entry corrects this one. Both stay visible. */
+  supersededByEntryId: varchar("superseded_by_entry_id"),
+  redactedAt: timestamp("redacted_at"),
+  redactionReason: text("redaction_reason"),
+  currentRevisionId: varchar("current_revision_id"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Append-only bodies. A trigger rejects UPDATE and DELETE on this table, so a
+// revision is permanent even if application code is wrong.
+export const journalEntryRevisions = pgTable(
+  "journal_entry_revisions",
+  {
+    id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+    websiteId: varchar("website_id").notNull(),
+    entryId: varchar("entry_id").notNull(),
+    revision: integer("revision").notNull(),
+    /** Encrypted JSON of the JournalEntryBody. Never logged, never prompted. */
+    bodyCipher: text("body_cipher").notNull(),
+    /** Plaintext length, so the UI can show "empty" without decrypting. */
+    bodyLength: integer("body_length").notNull().default(0),
+    authorUserId: varchar("author_user_id").notNull(),
+    /** Why this revision exists. Required for every revision after the first. */
+    changeReason: text("change_reason"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    uniqueIndex("journal_revisions_entry_revision_idx").on(table.entryId, table.revision),
+  ]
+);
+
+// Who looked at, or changed, a record. Written before a read returns, so a
+// failure to log is a failure to read. Append-only by trigger.
+export const journalAccessLog = pgTable("journal_access_log", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  websiteId: varchar("website_id").notNull(),
+  journalClientId: varchar("journal_client_id"),
+  entryId: varchar("entry_id"),
+  actorUserId: varchar("actor_user_id").notNull(),
+  /** owner | admin | team — admin means platform staff acting on the site. */
+  actorMode: text("actor_mode").notNull(),
+  action: text("action").notNull(),
+  route: text("route"),
+  /** Salted hash, never the address itself. */
+  ipHash: varchar("ip_hash", { length: 64 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertJournalClientSchema = createInsertSchema(journalClients).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type InsertJournalClient = z.infer<typeof insertJournalClientSchema>;
+export type JournalClient = typeof journalClients.$inferSelect;
+export type JournalEntry = typeof journalEntries.$inferSelect;
+export type JournalEntryRevision = typeof journalEntryRevisions.$inferSelect;
+export type JournalAccessLogRow = typeof journalAccessLog.$inferSelect;
 
 // Product variant types
 export type ProductVariantOption = {

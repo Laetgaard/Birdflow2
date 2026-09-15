@@ -25,6 +25,7 @@ import { publishedRendererHealth } from "./publisher/inProcessRenderer";
 import { storage as appStorage } from "./storage";
 import { registerSeoRoutes } from "./seo";
 import { ensureBookingSchema } from "./bookingSchema";
+import { startJournalSchema } from "./journalSchema";
 
 const app = express();
 const httpServer = createServer(app);
@@ -310,6 +311,9 @@ app.use((req, res, next) => {
   void startSvgAssetSchema(db);
   void startAccountComponentSchema(db);
   void startInvoiceSchema(db);
+  // Clinical journal tables and their append-only triggers. Journal routes
+  // refuse to serve until this reports ready, rather than degrade.
+  void startJournalSchema(db);
   // Booking extensions are idempotent because deployments do not run db:push.
   void ensureBookingSchema(db).catch(err => console.warn("[BookingSchema] setup skipped:", err?.message || err));
   startPublishJobSchema(db).then(ready => {
