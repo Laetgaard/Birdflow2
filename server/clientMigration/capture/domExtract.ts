@@ -7,7 +7,10 @@
 
 import {
   pageExtractionSchema,
+  decorationsOf,
+  CURRENT_EXTRACTION_VERSION,
   MAX_SECTIONS_PER_PAGE,
+  type ExtractedDecoration,
   type ExtractedSection,
   type PageExtraction,
   type SectionRole,
@@ -82,7 +85,9 @@ export function guessRole(section: Omit<ExtractedSection, "role" | "confidence" 
     return w >= section.bbox.w * 0.3 && w <= section.bbox.w * 0.6 && section.textLength > 60;
   })();
 
-  if (index === 0 && (h1 || bigHeading) && (backdrop || tallImage || section.bbox.h >= viewportHeight * 0.6)) return { role: "hero", confidence: 0.9 };
+  // Artwork on the first band's bottom edge or behind it is a hero cue too.
+  const bottomArt = decorationsOf(section as { decorations?: ExtractedDecoration[] }).some((d) => d.edge === "bottom" || d.edge === "fill");
+  if (index === 0 && (h1 || bigHeading) && (backdrop || tallImage || bottomArt || section.bbox.h >= viewportHeight * 0.6)) return { role: "hero", confidence: 0.9 };
   if (index === 0 && h1) return { role: "hero", confidence: 0.7 };
   // A first band whose words sit on a photo is a hero even when the theme
   // wrote them as a paragraph or a small heading — the standard hero is the
@@ -113,6 +118,11 @@ export function guessRole(section: Omit<ExtractedSection, "role" | "confidence" 
   return { role: "rich-text", confidence: 0.5 };
 }
 
+/** One line per decoration, for briefs and the plan manifest. */
+export function decorationSummary(section: { decorations?: ExtractedDecoration[] }): string[] {
+  return decorationsOf(section).map((d) => `${d.edge} ${d.kind}${d.overlap !== "none" ? ` overlapping ${d.overlap}${d.overlapPx ? ` by ${d.overlapPx}px` : ""}` : ""}${d.zOrder === "above" ? " above content" : ""}${d.fills.length ? ` (${d.fills.slice(0, 3).join(", ")})` : ""}`);
+}
+
 /** Turn the raw in-page result into a validated PageExtraction. */
 export function finalizeExtraction(raw: RawExtraction, pageOrdinal: number, viewport: { width: number; height: number }, consent: { detected: boolean; dismissed: boolean }, warnings: string[]): PageExtraction {
   const sections = raw.sections.slice(0, MAX_SECTIONS_PER_PAGE).map((section, index) => {
@@ -122,6 +132,7 @@ export function finalizeExtraction(raw: RawExtraction, pageOrdinal: number, view
       ...rest,
       paragraphs,
       images: (rest.images ?? []).map((img) => ({ ...img, sourceUrl: img.src || undefined })),
+      decorations: (rest.decorations ?? []).map((d) => ({ ...d, sourceUrl: d.src || undefined })),
     } as any);
     const guess = guessRole(base as any, index, viewport.height);
     // A page-root fallback is honest about what it is: rich-text, low
@@ -133,8 +144,13 @@ export function finalizeExtraction(raw: RawExtraction, pageOrdinal: number, view
       ...(isFallback ? { role: "rich-text" as const, confidence: 0.2, fallback: true } : guess),
     };
   });
+  const allWarnings = [...warnings, ...((raw as { warnings?: string[] }).warnings ?? []).filter((w) => !warnings.includes(w))];
+  const chrome = {
+    header: raw.chrome.header ? { ...raw.chrome.header, decorations: (raw.chrome.header.decorations ?? []).map((d) => ({ ...d, sourceUrl: d.src || undefined })) } : undefined,
+    footer: raw.chrome.footer ? { ...raw.chrome.footer, decorations: (raw.chrome.footer.decorations ?? []).map((d) => ({ ...d, sourceUrl: d.src || undefined })) } : undefined,
+  };
   const candidate = {
-    version: 1 as const,
+    version: CURRENT_EXTRACTION_VERSION,
     url: raw.url,
     title: raw.title,
     description: raw.description,
@@ -147,14 +163,14 @@ export function finalizeExtraction(raw: RawExtraction, pageOrdinal: number, view
     consentDismissed: consent.dismissed,
     viewport,
     documentHeight: raw.documentHeight,
-    chrome: raw.chrome,
+    chrome,
     sections,
     paletteSamples: raw.paletteSamples,
     fontSamples: raw.fontSamples,
     ctaRadiusPx: raw.ctaRadiusPx,
     medianSectionPaddingY: raw.medianSectionPaddingY,
     cardShadow: raw.cardShadow,
-    warnings,
+    warnings: allWarnings,
   };
   const parsed = pageExtractionSchema.safeParse(candidate);
   if (parsed.success) return parsed.data;

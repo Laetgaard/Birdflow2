@@ -18,6 +18,7 @@ import {
   migrationLimitsSchema,
   MigrationPlanSchema,
   validateMigrationPlan,
+  decorationsOf,
   MAX_MIGRATION_CEILING_USD,
   MIGRATION_PHASES,
   type MigrationJobSummary,
@@ -28,7 +29,7 @@ import {
 import { AccountExistsError, attachExistingAccount, createClientAccount, grantManualPlan, markOnboardingHandled } from "./adminAccounts";
 import { createMigratedWebsite } from "./siteProvisioning";
 import * as store from "./migrationStore";
-import { approvePlanAndContinue, isMigrationLive, requestCancel, requestPageExclude, requestPageRetry, requestPause, requestResume, requestResumeAtPhase, requestRetry, requestReverify, requestSectionRebuild, runMigrationJob } from "./migrationJob";
+import { approvePlanAndContinue, isMigrationLive, requestCancel, requestPageExclude, requestPageRetry, requestPause, requestRecapture, requestResume, requestResumeAtPhase, requestRetry, requestReverify, requestSectionRebuild, runMigrationJob } from "./migrationJob";
 import { sendClientInvite } from "./notify";
 import { readMigrationFile, cropSection } from "./capture/pageCapture";
 import { updateDecisionByUser } from "../onboardingDecision";
@@ -89,7 +90,9 @@ function pageView(page: store.MigrationPage) {
     hasRebuildScreenshot: !!(page.screenshots as { rebuild?: unknown } | null)?.rebuild,
     // Nothing readable, or only the page-root fallback: the admin should look.
     needsAttention: !extraction?.sections.length || extraction.sections.every((section) => section.fallback === true),
-    sections: extraction?.sections.map((section) => ({ id: section.id, role: section.role, confidence: section.confidence, fallback: section.fallback === true, headings: section.headings.map((h) => h.text).slice(0, 3), items: section.items.length, images: section.images.length, bbox: section.bbox })) ?? [],
+    /** 1 = captured before decorations existed; recapture to pick them up. */
+    extractionVersion: extraction ? (extraction.version ?? 1) : null,
+    sections: extraction?.sections.map((section) => ({ id: section.id, role: section.role, confidence: section.confidence, fallback: section.fallback === true, headings: section.headings.map((h) => h.text).slice(0, 3), items: section.items.length, images: section.images.length, decorations: decorationsOf(section).length, bbox: section.bbox })) ?? [],
     buildProgress: page.buildProgress,
     verify: page.verify ? { score: (page.verify as any).score, issues: ((page.verify as any).issues ?? []).slice(0, 12), resolutions: (page.verify as any).resolutions ?? [], iterations: (page.verify as any).iterations, reviewed: (page.verify as any).reviewed } : null,
     updatedAt: page.updatedAt.toISOString(),
@@ -285,6 +288,7 @@ export function registerClientMigrationRoutes(app: Express, guards: { requireAut
     ["retry", requestRetry, "client_migration.retried"],
     ["cancel", requestCancel, "client_migration.cancelled"],
     ["verify", requestReverify, "client_migration.reverified"],
+    ["recapture", requestRecapture, "client_migration.recaptured"],
   ];
   for (const [action, handler, auditAction] of lifecycle) {
     app.post(`/api/admin/migrations/:id/${action}`, requireAuth, requireAdmin, async (req, res) => {

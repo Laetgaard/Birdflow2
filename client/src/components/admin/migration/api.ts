@@ -47,7 +47,9 @@ export type MigrationPageView = {
   hasScreenshots: boolean;
   hasRebuildScreenshot: boolean;
   needsAttention: boolean;
-  sections: Array<{ id: string; role: string; confidence: number; fallback: boolean; headings: string[]; items: number; images: number; bbox: { x: number; y: number; w: number; h: number } }>;
+  /** 1 = captured before decorations (waves, illustrations, backgrounds) were read; null before capture. */
+  extractionVersion?: number | null;
+  sections: Array<{ id: string; role: string; confidence: number; fallback: boolean; headings: string[]; items: number; images: number; decorations?: number; bbox: { x: number; y: number; w: number; h: number } }>;
   buildProgress: MigrationPageBuildProgress | null;
   verify: { score?: { score: number; textCoverage: number; headingCoverage: number; ctaCoverage: number; imageCoverage: number; orderScore: number }; issues?: Array<{ id: string; severity: string; description: string; suggestedAction: string; componentId?: string }>; resolutions?: Array<{ issueId: string; description: string; status: string }>; iterations?: number; reviewed?: boolean } | null;
   updatedAt: string;

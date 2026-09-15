@@ -5,10 +5,11 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { guessRole, finalizeExtraction, allSectionIds, classifyBackdrops, hasBackdrop } from "../server/clientMigration/capture/domExtract";
+import { guessRole, finalizeExtraction, allSectionIds, classifyBackdrops, hasBackdrop, decorationSummary } from "../server/clientMigration/capture/domExtract";
 import { normalizePageUrl, isDisallowed } from "../server/clientMigration/capture/discovery";
 import { sameSite } from "../server/clientMigration/capture/browserSession";
-import { section, homeExtraction, servicesExtraction } from "./fixtures/clientMigration";
+import { pageExtractionSchema, decorationsOf } from "../shared/clientMigration";
+import { section, decoration, homeExtraction, servicesExtraction } from "./fixtures/clientMigration";
 
 const VH = 900;
 const guess = (over: Parameters<typeof section>[0], index = 1) => guessRole(section(over), index, VH);
@@ -177,6 +178,30 @@ describe("finalizeExtraction", () => {
 
   it("collects every section id across pages for plan validation", () => {
     expect(allSectionIds([homeExtraction(), servicesExtraction()])).toEqual(["p0-s0", "p0-s1", "p0-s2", "p0-s3", "p0-s4", "p0-s5", "p1-s0", "p1-s1"]);
+  });
+
+  it("writes version 2 with decorations carried through, and merges the in-page warnings", () => {
+    const raw = rawFrom();
+    raw.sections[0].decorations = [decoration({ src: "https://klinikro.dk/img/wave.svg", svgMarkup: undefined, kind: "image" })];
+    raw.chrome.footer.decorations = [decoration({ kind: "pseudo", pseudo: "before", edge: "top", src: "https://klinikro.dk/img/foot.svg" })];
+    raw.warnings = ["decoration_markup_budget"];
+    const result = finalizeExtraction(raw, 0, { width: 1440, height: 900 }, { detected: false, dismissed: false }, ["load_timeout: x"]);
+    expect(result.version).toBe(2);
+    expect(result.sections[0].decorations[0]).toMatchObject({ kind: "image", edge: "bottom", sourceUrl: "https://klinikro.dk/img/wave.svg" });
+    expect(result.chrome.footer?.decorations[0]).toMatchObject({ pseudo: "before", edge: "top" });
+    expect(result.warnings).toEqual(["load_timeout: x", "decoration_markup_budget"]);
+    expect(decorationSummary(result.sections[0])).toEqual(["bottom image (#f5f3ff)"]);
+  });
+
+  it("still accepts a version-1 extraction that predates decorations", () => {
+    const stored = JSON.parse(JSON.stringify(homeExtraction()));
+    for (const section of stored.sections) delete section.decorations;
+    delete stored.chrome.footer.decorations;
+    const parsed = pageExtractionSchema.parse(stored);
+    expect(parsed.version).toBe(1);
+    expect(parsed.sections[0].decorations).toEqual([]);
+    expect(parsed.chrome.footer?.decorations).toEqual([]);
+    expect(decorationsOf({})).toEqual([]);
   });
 });
 

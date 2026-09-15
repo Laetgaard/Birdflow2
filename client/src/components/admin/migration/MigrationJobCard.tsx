@@ -321,6 +321,9 @@ export function MigrationJobCard({ jobId, getAuthHeaders, onClose }: Props) {
             <p className="text-sm text-muted-foreground">Åbn siden i builderen, ret hvad der skal rettes, og godkend. Først da får kunden en invitation til at vælge adgangskode. Husk at kontrollere billedrettigheder.</p>
             <div className="flex flex-wrap gap-2">
               {isFinalGate && <Button variant="outline" disabled={!!busy} onClick={() => act("verify")}><RefreshCw className="mr-1 h-4 w-4" />Kør kontrol igen</Button>}
+              {isFinalGate && pages.some((page) => page.extractionVersion !== null && page.extractionVersion !== undefined && page.extractionVersion < 2) && (
+                <Button variant="outline" disabled={!!busy} onClick={() => act("recapture")} title="Siderne blev gemt før bølger, illustrationer og baggrunde blev læst med. Genindlæs for at hente dem."><RefreshCw className="mr-1 h-4 w-4" />Genindlæs sider for at hente dekorationer</Button>
+              )}
               {isFinalGate && <Button disabled={!!busy} onClick={() => act("approve", { sendInvite: true })} data-testid="button-approve-migration"><Send className="mr-1 h-4 w-4" />Godkend og send invitation</Button>}
               {job.status === "done" && <Button variant="outline" disabled={!!busy} onClick={() => act("resend-invite")}><Send className="mr-1 h-4 w-4" />Send invitation igen</Button>}
             </div>

@@ -34,15 +34,17 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
   // The pseudo-element argument matters: a theme's gold rule is usually
   // drawn in ::before, not in an element of its own.
   const cs = (el: Element, pseudo?: string) => win.getComputedStyle(el, pseudo);
-  const isHidden = (el: Element) => {
+  const isVisuallyHidden = (el: Element) => {
     const style = cs(el);
     if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return true;
-    if (el.getAttribute("aria-hidden") === "true") return true;
     const r = el.getBoundingClientRect();
     if (r.width <= 0 || r.height <= 0) return true;
     if (r.right < 0 || r.left > vw) return true;
     return false;
   };
+  // aria-hidden marks decoration as well as hidden UI; text extraction skips
+  // both, the decoration pass below picks the artwork back up.
+  const isHidden = (el: Element) => isVisuallyHidden(el) || el.getAttribute("aria-hidden") === "true";
   const isExcludedTag = (el: Element) => /^(SCRIPT|STYLE|NOSCRIPT|TEMPLATE|LINK|META|IFRAME|OBJECT|EMBED)$/.test(el.tagName);
   const idClass = (el: Element) => `${el.id || ""} ${typeof el.className === "string" ? el.className : ""}`;
   const isOverlay = (el: Element) => {
@@ -107,6 +109,207 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     const l = (max + min) / 2;
     return max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
   };
+
+  // 1b. decoration candidates — artwork that is not content. Found before
+  // anything is segmented so an aria-hidden wave, a background div or a
+  // ::before ornament is kept as geometry instead of being thrown away.
+  const DECO_CLASS_RE = /wave|divider|shape|deco|separator|curve|blob|ornament|swoosh|\bbg\b|background|pattern/i;
+  const SVG_NS = "http://www.w3.org/2000/svg";
+  const MIN_DECO_PX = 120;
+  const MAX_MARKUP = 50_000;
+  const MARKUP_BUDGET = 400_000;
+  type Rect = { x: number; y: number; w: number; h: number };
+  type DecoCandidate = {
+    el: Element;
+    rect: Rect;
+    kind: "svg" | "image" | "background" | "pseudo";
+    svgMarkup?: string;
+    src?: string;
+    pseudo?: "before" | "after";
+    fills: string[];
+    opacity?: number;
+    flipX?: boolean;
+    flipY?: boolean;
+    ariaHidden?: boolean;
+    bgSize?: string;
+    bgPosition?: string;
+    bgRepeat?: string;
+    naturalWidth?: number;
+    naturalHeight?: number;
+    zIndex: number;
+    absolute: boolean;
+    consumed?: boolean;
+  };
+  const decoCandidates: DecoCandidate[] = [];
+  const decorativeSet = new Set<Element>();
+  const rawWarnings: string[] = [];
+  let markupBudget = MARKUP_BUDGET;
+
+  const ariaHiddenWithin = (el: Element, levels: number) => {
+    let cur: Element | null = el;
+    for (let i = 0; cur && i <= levels; i++, cur = cur.parentElement) if (cur.getAttribute("aria-hidden") === "true") return true;
+    return false;
+  };
+  const inOverlayOrHidden = (el: Element) => {
+    for (let cur: Element | null = el; cur && cur !== doc.body; cur = cur.parentElement) {
+      if (isExcludedTag(cur) || (isOverlay(cur) && !isHeaderLike(cur)) || cur.getAttribute("role") === "dialog" || CONSENT_RE.test(idClass(cur)) || /\bmodal\b/i.test(idClass(cur))) return true;
+      const style = cs(cur);
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return true;
+    }
+    return false;
+  };
+  /** Width of the box an absolutely positioned element is placed against. */
+  const containingBlockWidth = (el: Element) => {
+    for (let cur = el.parentElement; cur && cur !== doc.body; cur = cur.parentElement) {
+      if (cs(cur).position !== "static") return rectOf(cur).w;
+    }
+    return vw;
+  };
+  const noText = (el: Element) => text(el).length < 2;
+  const round3 = (n: number) => Math.round(n * 1000) / 1000;
+  const flipsOf = (el: Element) => {
+    let flipX = false;
+    let flipY = false;
+    for (let cur: Element | null = el, i = 0; cur && i < 3; cur = cur.parentElement, i++) {
+      const m = cs(cur).transform.match(/matrix\(([^)]+)\)/);
+      if (!m) continue;
+      const [a, , , d] = m[1].split(",").map((n) => parseFloat(n));
+      if (a < 0) flipX = !flipX;
+      if (d < 0) flipY = !flipY;
+    }
+    return { flipX: flipX || undefined, flipY: flipY || undefined };
+  };
+  const fillsIn = (markup: string) => {
+    const out: string[] = [];
+    const re = /(?:fill|stroke|stop-color)\s*[=:]\s*["']?(rgba?\([^)]*\)|hsla?\([^)]*\)|[^"';)\s]+)/gi;
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(markup)) && out.length < 6) {
+      const v = m[1].trim();
+      if (!v || /^(none|currentcolor|inherit|transparent|url\(|context-)/i.test(v) || out.includes(v)) continue;
+      out.push(v.slice(0, 60));
+    }
+    return out;
+  };
+  /** Inline markup that renders the same outside the page: xmlns, sprites, computed colours. */
+  const svgMarkupOf = (svg: Element): string | undefined => {
+    const clone = svg.cloneNode(true) as Element;
+    if (!clone.getAttribute("xmlns")) clone.setAttribute("xmlns", SVG_NS);
+    if (!clone.getAttribute("viewBox")) {
+      const w = parseFloat(clone.getAttribute("width") || "") || rectOf(svg).w;
+      const h = parseFloat(clone.getAttribute("height") || "") || rectOf(svg).h;
+      if (w > 0 && h > 0) clone.setAttribute("viewBox", `0 0 ${Math.round(w)} ${Math.round(h)}`);
+    }
+    let uses = 0;
+    for (const use of Array.from(clone.querySelectorAll("use"))) {
+      if (uses++ >= 20) break;
+      const href = use.getAttribute("href") || use.getAttribute("xlink:href") || "";
+      const ref = href.startsWith("#") ? doc.getElementById(href.slice(1)) : null;
+      if (!ref) continue;
+      const wrap = doc.createElementNS(SVG_NS, ref.tagName.toLowerCase() === "symbol" ? "svg" : "g");
+      for (const attr of ["viewBox", "preserveAspectRatio"]) if (ref.getAttribute(attr)) wrap.setAttribute(attr, ref.getAttribute(attr)!);
+      for (const attr of ["x", "y", "width", "height", "transform", "fill", "stroke"]) if (use.getAttribute(attr)) wrap.setAttribute(attr, use.getAttribute(attr)!);
+      for (const child of Array.from(ref.childNodes)) wrap.appendChild(child.cloneNode(true));
+      use.replaceWith(wrap);
+    }
+    // Colours that come from the page's stylesheet or currentColor would be
+    // lost outside the page: bake the computed values in as attributes.
+    const original = Array.from(svg.querySelectorAll("*"));
+    const copies = Array.from(clone.querySelectorAll("*"));
+    const paintable = /^(path|circle|ellipse|rect|polygon|polyline|line|g|text|use)$/i;
+    for (let i = 0; i < original.length && i < copies.length && i < 400; i++) {
+      const source = original[i];
+      const target = copies[i];
+      if (!paintable.test(source.tagName) || source.tagName !== target.tagName) continue;
+      const style = cs(source);
+      for (const prop of ["fill", "stroke"] as const) {
+        const attr = target.getAttribute(prop);
+        const computed = style[prop];
+        if ((!attr || /currentcolor/i.test(attr)) && computed && computed !== "none" && !/^url\(/.test(computed)) target.setAttribute(prop, computed);
+        else if (!attr && computed === "none" && prop === "fill" && /^(path|circle|ellipse|rect|polygon)$/i.test(source.tagName)) target.setAttribute(prop, "none");
+      }
+      const opacity = style.fillOpacity;
+      if (opacity && opacity !== "1" && !target.getAttribute("fill-opacity")) target.setAttribute("fill-opacity", opacity);
+    }
+    for (const el of Array.from(clone.querySelectorAll("script, style, foreignObject"))) el.remove();
+    const markup = clone.outerHTML;
+    return markup.length <= MAX_MARKUP ? markup : undefined;
+  };
+  const withinBudget = (markup: string | undefined) => {
+    if (!markup) return undefined;
+    if (markup.length > markupBudget) { if (!rawWarnings.includes("decoration_markup_budget")) rawWarnings.push("decoration_markup_budget"); return undefined; }
+    markupBudget -= markup.length;
+    return markup;
+  };
+  const pushCandidate = (c: DecoCandidate) => {
+    if (decoCandidates.length >= 200) return;
+    decoCandidates.push(c);
+    // A pseudo-element's host (a footer, say) is still content; only real
+    // artwork elements leave the content passes.
+    if (c.kind === "pseudo") return;
+    decorativeSet.add(c.el);
+    for (const child of Array.from(c.el.querySelectorAll("*"))) decorativeSet.add(child);
+  };
+  const decorativeReason = (el: Element, kind: "svg" | "image" | "background") => {
+    const style = cs(el);
+    const r = rectOf(el);
+    const strong = ariaHiddenWithin(el, 3) || el.getAttribute("role") === "presentation" || DECO_CLASS_RE.test(idClass(el) + " " + (el.parentElement ? idClass(el.parentElement) : "")) || style.pointerEvents === "none";
+    const absolute = style.position === "absolute" && containingBlockWidth(el) >= vw * 0.6;
+    const wide = kind !== "image" && r.w >= vw * 0.6 && r.h <= 320;
+    return strong || absolute || wide;
+  };
+  let scanned = 0;
+  for (const el of Array.from(doc.body.querySelectorAll("*"))) {
+    if (scanned++ > 6000) break;
+    if (decorativeSet.has(el)) continue;
+    const tag = el.tagName.toLowerCase();
+    const style = cs(el);
+    // ::before / ::after artwork on a host that may itself carry text (a footer).
+    for (const which of ["before", "after"] as const) {
+      const ps = win.getComputedStyle(el, `::${which}`);
+      const bg = ps.backgroundImage && ps.backgroundImage !== "none" ? ps.backgroundImage.match(/url\((['"]?)(.*?)\1\)/) : null;
+      const content = ps.content && ps.content !== "none" ? ps.content.match(/url\((['"]?)(.*?)\1\)/) : null;
+      const url = abs((bg ?? content)?.[2] ?? null);
+      if (!url || inOverlayOrHidden(el) || tag === "svg") continue;
+      const host = rectOf(el);
+      const pw = parseFloat(ps.width);
+      const ph = parseFloat(ps.height);
+      const w = Number.isFinite(pw) ? pw : host.w;
+      const h = Number.isFinite(ph) ? ph : host.h;
+      if (w < 40 || h < 40) continue;
+      const top = parseFloat(ps.top);
+      const left = parseFloat(ps.left);
+      const bottom = parseFloat(ps.bottom);
+      const y = ps.position === "absolute" ? (Number.isFinite(top) ? host.y + top : Number.isFinite(bottom) ? host.y + host.h - bottom - h : host.y) : host.y;
+      const x = ps.position === "absolute" && Number.isFinite(left) ? host.x + left : host.x;
+      pushCandidate({ el, rect: { x, y, w, h }, kind: "pseudo", pseudo: which, src: url, fills: [], opacity: parseFloat(ps.opacity) || undefined, zIndex: parseInt(ps.zIndex, 10) || 0, absolute: ps.position === "absolute", bgSize: ps.backgroundSize, bgPosition: ps.backgroundPosition, bgRepeat: ps.backgroundRepeat });
+    }
+    if (tag === "picture" || tag === "source") continue;
+    const isSvg = tag === "svg";
+    const isImg = tag === "img";
+    const bgUrl = !isSvg && !isImg ? bgImageUrl(el) : undefined;
+    if (!isSvg && !isImg && !bgUrl) continue;
+    if (isSvg && el.parentElement?.closest("svg")) continue;
+    if (inOverlayOrHidden(el) || isVisuallyHidden(el)) continue;
+    const r = rectOf(el);
+    if (r.w < MIN_DECO_PX && r.h < MIN_DECO_PX) continue;
+    const kind: "svg" | "image" | "background" = isSvg ? "svg" : isImg ? "image" : "background";
+    if (!isImg && !noText(el)) continue;
+    if (!decorativeReason(el, kind)) continue;
+    const flips = flipsOf(el);
+    const base = { el, rect: r, fills: [] as string[], opacity: parseFloat(style.opacity) < 1 ? parseFloat(style.opacity) : undefined, ...flips, ariaHidden: ariaHiddenWithin(el, 3) || undefined, zIndex: parseInt(style.zIndex, 10) || 0, absolute: style.position === "absolute" };
+    if (isSvg) {
+      const markup = withinBudget(svgMarkupOf(el));
+      pushCandidate({ ...base, kind: "svg", svgMarkup: markup, fills: markup ? fillsIn(markup) : [] });
+    } else if (isImg) {
+      const img = el as HTMLImageElement;
+      pushCandidate({ ...base, kind: "image", src: abs(img.currentSrc || img.getAttribute("src")), naturalWidth: img.naturalWidth || undefined, naturalHeight: img.naturalHeight || undefined });
+    } else {
+      pushCandidate({ ...base, kind: "background", src: bgUrl, bgSize: style.backgroundSize, bgPosition: style.backgroundPosition, bgRepeat: style.backgroundRepeat });
+    }
+  }
+  const isDeco = (el: Element) => decorativeSet.has(el);
+  /** First image-like descendant that is content, not decoration. */
+  const contentMedia = (root: Element, selector: string) => Array.from(root.querySelectorAll(selector)).find((n) => !isEx(n) && !isDeco(n)) ?? null;
 
   // 2. chrome
   const pick = (selectors: string[], predicate: (el: Element) => boolean) => {
@@ -215,6 +418,21 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     return undefined;
   };
 
+  /** The background and box of a chrome surface, so the rebuilt header/footer can carry its art. */
+  const surfaceOf = (el: Element) => {
+    const style = cs(el);
+    const bg = bgImageUrl(el);
+    return {
+      bgColor: color(style.backgroundColor),
+      bgImage: bg,
+      bgSize: bg ? style.backgroundSize : undefined,
+      bgPosition: bg ? style.backgroundPosition : undefined,
+      bgRepeat: bg ? style.backgroundRepeat : undefined,
+      textColor: color(style.color),
+      bbox: rectOf(el),
+    };
+  };
+
   /**
    * Links from a menu that is not on screen.
    *
@@ -284,6 +502,7 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
       return false;
     })();
     return {
+      ...surfaceOf(headerEl),
       logo,
       brandText: brandOwnText && brandOwnText.length <= 60 ? brandOwnText : undefined,
       /** What the original actually showed: a logo, a word, or both. */
@@ -321,7 +540,7 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     const phone = all.match(/(?:\+?\d[\d\s().-]{6,}\d)/)?.[0];
     const copyright = all.match(/(©|\(c\)|copyright)[^.|]{0,120}/i)?.[0]?.trim();
     const social = linkList(footerEl, 40).filter((link) => /(facebook|instagram|linkedin|twitter|x\.com|youtube|tiktok)\./i.test(link.href)).map((link) => ({ network: (link.href.match(/(facebook|instagram|linkedin|twitter|x\.com|youtube|tiktok)/i)?.[1] || "social").toLowerCase().replace("x.com", "x"), href: link.href })).slice(0, 10);
-    return { columns: columns.slice(0, 6), contactText: [email, phone].filter(Boolean).join(" · ") || undefined, social, copyright: copyright?.slice(0, 200) };
+    return { ...surfaceOf(footerEl), columns: columns.slice(0, 6), contactText: [email, phone].filter(Boolean).join(" · ") || undefined, social, copyright: copyright?.slice(0, 200) };
   })() : undefined;
 
   // 3. segmentation
@@ -341,7 +560,7 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     (el) => !inChrome(el) && !el.closest("header, footer") && (text(el).length >= contentText * 0.5 || rectOf(el).h >= contentHeight * 0.5)
   );
   const root = mainCandidate ?? doc.body;
-  const significantChildren = (el: Element) => Array.from(el.children).filter((child) => !isEx(child) && !inChrome(child) && rectOf(child).h > 0);
+  const significantChildren = (el: Element) => Array.from(el.children).filter((child) => !isEx(child) && !isDeco(child) && !inChrome(child) && rectOf(child).h > 0);
   const hasHeading = (el: Element) => !!el.querySelector("h1,h2,h3,h4");
   const ownBackground = (el: Element) => !!color(cs(el).backgroundColor) || !!bgImageUrl(el);
   // The thorough re-capture lowers the bars a page must clear to count as a
@@ -386,7 +605,8 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
    * text wrapper.
    */
   const segment = (el: Element, depth: number, band?: Element) => {
-    if (isEx(el) || inChrome(el)) return;
+    // Artwork the decoration pass claimed is placed by geometry, never walked.
+    if (isEx(el) || isDeco(el) || inChrome(el)) return;
     const r = rectOf(el);
     if (r.h < minWalkH) {
       // Too short to be a section on its own — but if it is the single line
@@ -398,7 +618,7 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
       }
       // A divider band is this short too. Keep it and hand it to the section
       // it precedes.
-      if (r.h > 0 && text(el).length === 0 && (el.matches(ORNAMENT_SELECTOR) || el.querySelector("img, svg, hr"))) strayOrnaments.push(el);
+      if (r.h > 0 && text(el).length === 0 && (el.matches(ORNAMENT_SELECTOR) || contentMedia(el, "img, svg, hr"))) strayOrnaments.push(el);
       return;
     }
     const here = distinctBackground(el) || paddedBand(el) ? el : band;
@@ -424,7 +644,8 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
   if (!sections.length && root !== doc.body) for (const child of significantChildren(doc.body)) segment(child, 0);
 
   // 4. merge pass on plain elements; sections are built after
-  const raw = sections.map((el) => ({ el, r: rectOf(el), heading: hasHeading(el), t: text(el) })).filter((s) => s.t.length > 0 || s.el.querySelector("img, svg, iframe, video"));
+  // A block that holds nothing but decoration (a wave wrapper) is not a section.
+  const raw = sections.map((el) => ({ el, r: rectOf(el), heading: hasHeading(el), t: text(el) })).filter((s) => s.t.length > 0 || contentMedia(s.el, "img, svg, iframe, video"));
   const merged: Array<{ el: Element; extras: Element[] }> = [];
   // A band with its own background, or one carrying a picture, a video or a
   // form, is a section of its own however short and however heading-less:
@@ -497,7 +718,16 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     const columns = b.items.filter((el) => Math.abs(rectOf(el).y - firstTop) <= 8).length;
     const items = b.items.slice(0, 40).map((el) => {
       const heading = el.querySelector("h1,h2,h3,h4,h5,h6,strong,b,[class*='title' i],[class*='name' i]");
-      const img = el.querySelector("img, svg");
+      const itemRect = rectOf(el);
+      const inside = (outer: Rect, inner: Rect, slack = 4) => inner.x >= outer.x - slack && inner.y >= outer.y - slack && inner.x + inner.w <= outer.x + outer.w + slack && inner.y + inner.h <= outer.y + outer.h + slack;
+      // The card's picture: a content image, or an illustration the
+      // decoration pass claimed (aria-hidden art inside a review card).
+      let img: Element | null = contentMedia(el, "img, svg");
+      let claimed: DecoCandidate | undefined;
+      if (!img) {
+        claimed = decoCandidates.find((c) => !c.consumed && (c.kind === "svg" || c.kind === "image") && el.contains(c.el) && inside(itemRect, c.rect, 8));
+        if (claimed) { claimed.consumed = true; img = claimed.el; }
+      }
       const link = el.querySelector("a[href]");
       const all = text(el);
       const title = heading ? text(heading).slice(0, 300) : undefined;
@@ -536,12 +766,24 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
         ? Math.max(0, Math.min(photoRect.x + photoRect.w, textRect.x + textRect.w) - Math.max(photoRect.x, textRect.x)) *
           Math.max(0, Math.min(photoRect.y + photoRect.h, textRect.y + textRect.h) - Math.max(photoRect.y, textRect.y)) >= textRect.w * textRect.h * 0.5
         : false;
-      const imageSrc = imageInfoOf?.src || cssBg || undefined;
+      // An inline illustration (a drawn character beside a review) is kept as
+      // markup, with where it sat in the card and whether the quote was drawn
+      // on top of it, so the rebuild can lay the card out the same way.
+      const relTo = (outer: Rect, inner: Rect) => ({ x: round3((inner.x - outer.x) / (outer.w || 1)), y: round3((inner.y - outer.y) / (outer.h || 1)), w: round3(inner.w / (outer.w || 1)), h: round3(inner.h / (outer.h || 1)) });
+      const bigSvg = !!img && img.tagName.toLowerCase() === "svg" && !!photoRect && (photoRect.w >= 80 || photoRect.h >= 80);
+      const svgMarkup = bigSvg ? (claimed?.svgMarkup ?? withinBudget(svgMarkupOf(img!))) : undefined;
+      const quoteRect = quoteEl ? rectOf(quoteEl) : null;
+      const quoteInside = !!(photoRect && quoteRect && quoteRect.w > 0 && inside(photoRect, quoteRect, 6));
+      const imageSrc = svgMarkup ? undefined : imageInfoOf?.src || cssBg || undefined;
       return {
         title, text: body, imageSrc,
-        imageIsCssBackground: !imageInfoOf?.src && !!cssBg ? true : undefined,
+        svgMarkup,
+        imageIsCssBackground: !svgMarkup && !imageInfoOf?.src && !!cssBg ? true : undefined,
         imageBehindText: imageSrc && overlaps ? true : undefined,
-        imageRect: imageSrc && photoRect ? { x: Math.round(photoRect.x), y: Math.round(photoRect.y), w: Math.round(photoRect.w), h: Math.round(photoRect.h) } : undefined,
+        imageRect: (imageSrc || svgMarkup) && photoRect ? { x: Math.round(photoRect.x), y: Math.round(photoRect.y), w: Math.round(photoRect.w), h: Math.round(photoRect.h) } : undefined,
+        imageRel: (imageSrc || svgMarkup) && photoRect ? relTo(itemRect, photoRect) : undefined,
+        quoteInsideImage: quoteInside || undefined,
+        quoteRel: quoteInside && photoRect && quoteRect ? relTo(photoRect, quoteRect) : undefined,
         href: link ? abs(link.getAttribute("href")) : undefined, price, icon, personName: person.personName, role: person.role,
         quote: quoteEl ? text(quoteEl).slice(0, 1500) : (/[“"«]/.test(all) && lines.length ? all.slice(0, 1500) : undefined),
       };
@@ -552,7 +794,7 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
   const extracted = merged.map((entry, index) => {
     const el = entry.el;
     const scope = [el, ...entry.extras];
-    const q = <T extends Element>(selector: string) => scope.flatMap((s) => Array.from(s.querySelectorAll(selector))).filter((n) => !isEx(n)) as T[];
+    const q = <T extends Element>(selector: string) => scope.flatMap((s) => Array.from(s.querySelectorAll(selector))).filter((n) => !isEx(n) && !isDeco(n)) as T[];
     const r = rectOf(el);
     const last = entry.extras.length ? rectOf(entry.extras[entry.extras.length - 1]) : r;
     const bbox = { x: Math.max(0, r.x), y: r.y, w: Math.max(r.w, 1), h: Math.max(last.y + last.h - r.y, r.h) };
@@ -614,7 +856,8 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     for (const stray of strayOrnaments) {
       const sr = rectOf(stray);
       if (!(sr.y + sr.h <= r.y + 8 && sr.y >= r.y - 240)) continue; // just above this section
-      const el = stray.matches("img, svg") ? stray : stray.querySelector("img, svg");
+      // A wave the decoration pass already holds is not read a second time here.
+      const el = stray.matches("img, svg") ? (isDeco(stray) ? null : stray) : contentMedia(stray, "img, svg");
       const info = el ? imageInfo(el) : null;
       const src = info?.src || bgImageUrl(stray) || pseudoImage(stray, "::before") || pseudoImage(stray, "::after");
       if ((!src && !info?.svgMarkup) || images.some((img) => src && img.src === src)) continue;
@@ -648,6 +891,11 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
       bbox,
       bgColor: color(style.backgroundColor),
       bgImage: bgImageUrl(el),
+      bgSize: bgImageUrl(el) ? style.backgroundSize : undefined,
+      bgPosition: bgImageUrl(el) ? style.backgroundPosition : undefined,
+      bgRepeat: bgImageUrl(el) ? style.backgroundRepeat : undefined,
+      clipPath: style.clipPath && style.clipPath !== "none" ? style.clipPath.slice(0, 300) : undefined,
+      maskImage: (() => { const mask = (style as any).maskImage || (style as any).webkitMaskImage; return mask && mask !== "none" ? String(mask).slice(0, 300) : undefined; })(),
       textColor: color(style.color),
       textAlign: style.textAlign,
       headingFont: heading ? fontOf(heading) : undefined,
@@ -669,9 +917,85 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
       hiddenTexts: hiddenPanels.slice(0, 20).map((t) => t.slice(0, 1500)),
       textLength: full.length,
       wordCount: full.split(/\s+/).filter(Boolean).length,
+      decorations: [] as Decoration[],
     };
   });
 
+  // 5b. attribute the remaining decoration candidates to the section or
+  // chrome surface they belong to, with the geometry the rebuild needs.
+  type Decoration = {
+    kind: "svg" | "image" | "background" | "pseudo";
+    src?: string; svgMarkup?: string; bbox: Rect; rel: Rect;
+    edge: "top" | "bottom" | "left" | "right" | "fill" | "float";
+    overlap: "none" | "prev" | "next"; overlapPx?: number;
+    zOrder: "behind" | "above"; fills: string[]; opacity?: number;
+    flipX?: boolean; flipY?: boolean; ariaHidden?: boolean; pseudo?: "before" | "after";
+    bgSize?: string; bgPosition?: string; bgRepeat?: string; domPath?: string;
+    displayWidth?: number; displayHeight?: number; naturalWidth?: number; naturalHeight?: number;
+  };
+  const domPathOf = (el: Element) => { const parts: string[] = []; let cur: Element | null = el; while (cur && parts.length < 5 && cur !== doc.body) { parts.unshift(`${cur.tagName.toLowerCase()}${cur.id ? "#" + cur.id : ""}${typeof cur.className === "string" && cur.className ? "." + cur.className.trim().split(/\s+/).slice(0, 2).join(".") : ""}`); cur = cur.parentElement; } return parts.join(">").slice(0, 400); };
+  const headerDecorations: Decoration[] = [];
+  const footerDecorations: Decoration[] = [];
+  const hosts = extracted.map((section, index) => ({ index, rect: section.bbox, els: [merged[index].el, ...merged[index].extras] }));
+  const vOverlap = (a: Rect, b: Rect) => Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y);
+  for (const c of decoCandidates) {
+    if (c.consumed) continue;
+    const r = c.rect;
+    let target: { kind: "header" | "footer" | "section"; rect: Rect; index?: number; el?: Element } | null = null;
+    if (headerEl && (headerEl === c.el || headerEl.contains(c.el))) target = { kind: "header", rect: rectOf(headerEl), el: headerEl };
+    else if (footerEl && (footerEl === c.el || footerEl.contains(c.el))) target = { kind: "footer", rect: rectOf(footerEl), el: footerEl };
+    else {
+      const byDom = hosts.find((h) => h.els.some((el) => el === c.el || el.contains(c.el)));
+      let host = byDom;
+      if (!host) {
+        let best = 0;
+        for (const h of hosts) { const ov = vOverlap(r, h.rect); if (ov > best) { best = ov; host = h; } }
+      }
+      if (!host) {
+        const prev = [...hosts].reverse().find((h) => h.rect.y + h.rect.h <= r.y);
+        const next = hosts.find((h) => h.rect.y >= r.y + r.h);
+        if (prev && (!next || r.y - (prev.rect.y + prev.rect.h) <= 8)) host = prev;
+        else if (next) host = next;
+      }
+      if (host) target = { kind: "section", rect: host.rect, index: host.index, el: host.els[0] };
+    }
+    if (!target) continue;
+    const list = target.kind === "header" ? headerDecorations : target.kind === "footer" ? footerDecorations : extracted[target.index!].decorations;
+    if (list.length >= (target.kind === "section" ? 12 : 8)) continue;
+    const h = target.rect;
+    const cy = r.y + r.h / 2;
+    const cx = r.x + r.w / 2;
+    let edge: Decoration["edge"];
+    if (r.w >= h.w * 0.9 && r.h >= h.h * 0.9) edge = "fill";
+    else if (r.w >= h.w * 0.9 && r.h <= h.h * 0.35) edge = cy < h.y + h.h / 2 ? "top" : "bottom";
+    else if (cy < h.y + h.h * 0.25) edge = "top";
+    else if (cy > h.y + h.h * 0.75) edge = "bottom";
+    else if (r.w <= h.w * 0.4 && r.h >= h.h * 0.5 && cx < h.x + h.w * 0.3) edge = "left";
+    else if (r.w <= h.w * 0.4 && r.h >= h.h * 0.5 && cx > h.x + h.w * 0.7) edge = "right";
+    else edge = "float";
+    const neighbourBelow = target.kind === "section" ? hosts.find((x) => x.rect.y >= h.y + h.h - 8 && x.index !== target!.index) : undefined;
+    const neighbourAbove = target.kind === "section" ? [...hosts].reverse().find((x) => x.rect.y + x.rect.h <= h.y + 8 && x.index !== target!.index) : undefined;
+    const overNext = neighbourBelow ? r.y + r.h - Math.max(neighbourBelow.rect.y, h.y + h.h) : r.y + r.h - (h.y + h.h);
+    const overPrev = neighbourAbove ? Math.min(neighbourAbove.rect.y + neighbourAbove.rect.h, h.y) - r.y : h.y - r.y;
+    let overlap: Decoration["overlap"] = "none";
+    let overlapPx: number | undefined;
+    if (overNext > 8 && edge !== "fill") { overlap = "next"; overlapPx = Math.round(overNext); }
+    else if (overPrev > 8 && edge !== "fill") { overlap = "prev"; overlapPx = Math.round(overPrev); }
+    let zOrder: Decoration["zOrder"] = "above";
+    if (c.kind === "background" || c.kind === "pseudo" || c.zIndex < 0) zOrder = "behind";
+    else if (c.absolute) {
+      const firstText = target.el ? target.el.querySelector("h1,h2,h3,h4,p,li,a,button") : null;
+      const precedes = !!firstText && !!(c.el.compareDocumentPosition(firstText) & 4);
+      zOrder = c.zIndex <= 0 && precedes ? "behind" : c.zIndex > 0 ? "above" : "behind";
+    } else zOrder = edge === "float" ? "above" : "behind";
+    list.push({
+      kind: c.kind, src: c.src, svgMarkup: c.svgMarkup, bbox: { x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.w), h: Math.round(r.h) },
+      rel: { x: round3((r.x - h.x) / (h.w || 1)), y: round3((r.y - h.y) / (h.h || 1)), w: round3(r.w / (h.w || 1)), h: round3(r.h / (h.h || 1)) },
+      edge, overlap, overlapPx, zOrder, fills: c.fills, opacity: c.opacity, flipX: c.flipX, flipY: c.flipY, ariaHidden: c.ariaHidden, pseudo: c.pseudo,
+      bgSize: c.bgSize, bgPosition: c.bgPosition, bgRepeat: c.bgRepeat, domPath: domPathOf(c.el),
+      displayWidth: Math.round(r.w), displayHeight: Math.round(r.h), naturalWidth: c.naturalWidth, naturalHeight: c.naturalHeight,
+    });
+  }
   // brand samples across the visible page
   const paletteSamples: Array<{ color: string; kind: "bg" | "text" | "cta" | "link" | "heading"; weight: number }> = [];
   const fontSamples: Array<{ family: string; kind: "heading" | "body"; weight: number }> = [];
@@ -716,6 +1040,8 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     const translucent = !header.bgColor || alphaOf(cs(headerEl).backgroundColor) < 0.1;
     header.transparent = translucent && firstTop < headerRect.y + headerRect.h - 1 ? true : undefined;
   }
+  const headerOut = header ? { ...header, decorations: headerDecorations } : undefined;
+  const footerOut = footer ? { ...footer, decorations: footerDecorations } : undefined;
 
   return {
     url: doc.location.href,
@@ -729,10 +1055,11 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
     icons,
     fontsLoaded: Array.from(new Set(Array.from((doc as any).fonts ?? []).map((f: any) => String(f.family).replace(/["']/g, "")))).slice(0, 20) as string[],
     documentHeight: docHeight,
-    chrome: { header, footer },
+    chrome: { header: headerOut, footer: footerOut },
     sections: extracted,
     /** True when `sections` holds one page-root fallback rather than a real reading. */
     bodyFallback,
+    warnings: rawWarnings,
     paletteSamples: paletteSamples.slice(0, 400),
     fontSamples: fontSamples.slice(0, 60),
     ctaRadiusPx: radii.length ? radii[Math.floor(radii.length / 2)] : undefined,

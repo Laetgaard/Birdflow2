@@ -187,6 +187,63 @@ export const extractedImageSchema = z.object({
 });
 export type ExtractedImage = z.infer<typeof extractedImageSchema>;
 
+/* ─────────────────────────── decorative layers ─────────────────────────── */
+
+/**
+ * Decoration = artwork that is not content: wave dividers between sections,
+ * illustrations behind or beside the text, background art on a section or the
+ * footer. Captured with enough geometry (edge, overlap, z-order) that the
+ * rebuild can place the same artwork the same way.
+ */
+export const DECORATION_KINDS = ["svg", "image", "background", "pseudo"] as const;
+export type DecorationKind = (typeof DECORATION_KINDS)[number];
+export const DECORATION_EDGES = ["top", "bottom", "left", "right", "fill", "float"] as const;
+export type DecorationEdge = (typeof DECORATION_EDGES)[number];
+
+const rectSchema = z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() });
+
+export const extractedDecorationSchema = z.object({
+  kind: z.enum(DECORATION_KINDS),
+  /** Source URL, rewritten to the imported /objects path once imported. */
+  src: z.string().max(2000).optional(),
+  sourceUrl: z.string().max(2000).optional(),
+  /** Normalised inline <svg> markup (xmlns added, sprites inlined, computed fills baked in). */
+  svgMarkup: z.string().max(50_000).optional(),
+  mediaId: z.string().optional(),
+  svgAssetId: z.string().optional(),
+  /** Page-absolute, like section.bbox. */
+  bbox: rectSchema,
+  /** Relative to the host's bbox as fractions; may fall outside 0–1 when the art bleeds. */
+  rel: rectSchema,
+  edge: z.enum(DECORATION_EDGES),
+  /** Whether the art crosses into the neighbouring section, and by how much. */
+  overlap: z.enum(["none", "prev", "next"]).default("none"),
+  overlapPx: z.number().nonnegative().optional(),
+  /** Behind the host's content or layered above it. */
+  zOrder: z.enum(["behind", "above"]),
+  /** Distinct fill/stroke colours found in the art (svg only). */
+  fills: z.array(z.string().max(60)).max(6).default([]),
+  opacity: z.number().min(0).max(1).optional(),
+  flipX: z.boolean().optional(),
+  flipY: z.boolean().optional(),
+  ariaHidden: z.boolean().optional(),
+  pseudo: z.enum(["before", "after"]).optional(),
+  bgSize: z.string().max(60).optional(),
+  bgPosition: z.string().max(60).optional(),
+  bgRepeat: z.string().max(20).optional(),
+  domPath: z.string().max(400).optional(),
+  displayWidth: z.number().nonnegative().optional(),
+  displayHeight: z.number().nonnegative().optional(),
+  naturalWidth: z.number().int().nonnegative().optional(),
+  naturalHeight: z.number().int().nonnegative().optional(),
+});
+export type ExtractedDecoration = z.infer<typeof extractedDecorationSchema>;
+
+export const MAX_DECORATIONS_PER_SECTION = 12;
+export const MAX_DECORATIONS_PER_CHROME = 8;
+/** Extractions written before decorations existed carry version 1. */
+export const CURRENT_EXTRACTION_VERSION = 2 as const;
+
 export const extractedCtaSchema = z.object({
   text: z.string().max(120),
   href: z.string().max(2000).optional(),
@@ -209,6 +266,15 @@ export const extractedItemSchema = z.object({
   personName: z.string().max(120).optional(),
   role: z.string().max(160).optional(),
   quote: z.string().max(1500).optional(),
+  /** An inline <svg> illustration inside the card, normalised like a decoration. */
+  svgMarkup: z.string().max(50_000).optional(),
+  imageSvgAssetId: z.string().optional(),
+  /** Where the illustration sits inside the card, as fractions of the card. */
+  imageRel: rectSchema.optional(),
+  /** True when the quote text is drawn on top of the illustration. */
+  quoteInsideImage: z.boolean().optional(),
+  /** Where the quote sits inside the illustration, as fractions of the illustration. */
+  quoteRel: rectSchema.optional(),
 });
 export type ExtractedItem = z.infer<typeof extractedItemSchema>;
 
@@ -228,6 +294,11 @@ export const extractedSectionSchema = z.object({
   bbox: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }),
   bgColor: z.string().max(60).optional(),
   bgImage: z.string().max(2000).optional(),
+  bgSize: z.string().max(60).optional(),
+  bgPosition: z.string().max(60).optional(),
+  bgRepeat: z.string().max(20).optional(),
+  clipPath: z.string().max(300).optional(),
+  maskImage: z.string().max(300).optional(),
   textColor: z.string().max(60).optional(),
   textAlign: z.string().max(20).optional(),
   headingFont: z.string().max(120).optional(),
@@ -252,6 +323,8 @@ export const extractedSectionSchema = z.object({
   embeds: z.array(z.object({ kind: z.enum(["iframe", "video", "audio", "map"]), src: z.string().max(2000) })).max(6),
   tables: z.array(z.array(z.array(z.string().max(200)).max(12)).max(20)).max(2),
   items: z.array(extractedItemSchema).max(40),
+  /** Artwork attributed to this section (waves, background art, illustrations). Absent on version-1 extractions. */
+  decorations: z.array(extractedDecorationSchema).max(MAX_DECORATIONS_PER_SECTION).default([]),
   columns: z.number().int().min(0).max(8).optional(),
   hasCarousel: z.boolean().optional(),
   hiddenContent: z.boolean().optional(),
@@ -267,6 +340,16 @@ export const extractedSectionSchema = z.object({
   overlay: z.object({ color: z.string().max(60), alpha: z.number().min(0).max(1) }).optional(),
 });
 export type ExtractedSection = z.infer<typeof extractedSectionSchema>;
+
+/** Background art and box of the header or footer; all optional so version-1 rows still parse. */
+const chromeSurfaceSchema = {
+  bgImage: z.string().max(2000).optional(),
+  bgSize: z.string().max(60).optional(),
+  bgPosition: z.string().max(60).optional(),
+  bgRepeat: z.string().max(20).optional(),
+  bbox: rectSchema.optional(),
+  decorations: z.array(extractedDecorationSchema).max(MAX_DECORATIONS_PER_CHROME).default([]),
+};
 
 export const extractedChromeSchema = z.object({
   header: z.object({
@@ -285,6 +368,7 @@ export const extractedChromeSchema = z.object({
     height: z.number().optional(),
     logoHeight: z.number().optional(),
     cta: extractedCtaSchema.optional(),
+    ...chromeSurfaceSchema,
   }).optional(),
   footer: z.object({
     columns: z.array(z.object({
@@ -295,12 +379,20 @@ export const extractedChromeSchema = z.object({
     contactText: z.string().max(600).optional(),
     social: z.array(z.object({ network: z.string().max(40), href: z.string().max(2000) })).max(10),
     copyright: z.string().max(200).optional(),
+    bgColor: z.string().max(60).optional(),
+    textColor: z.string().max(60).optional(),
+    ...chromeSurfaceSchema,
   }).optional(),
 });
 export type ExtractedChrome = z.infer<typeof extractedChromeSchema>;
 
+/** Decorations of a section or chrome surface, tolerant of version-1 rows that predate the field. */
+export function decorationsOf(host: { decorations?: ExtractedDecoration[] } | undefined): ExtractedDecoration[] {
+  return host?.decorations ?? [];
+}
+
 export const pageExtractionSchema = z.object({
-  version: z.literal(1),
+  version: z.union([z.literal(1), z.literal(2)]),
   url: z.string().max(2000),
   title: z.string().max(500).optional(),
   /** The name the site gives itself (og:site_name), for the header's brand text. */

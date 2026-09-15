@@ -1087,6 +1087,23 @@ export async function requestCancel(jobId: string): Promise<void> {
   else await store.updateJob(jobId, { status: "cancelled", errorCode: "cancelled", finishedAt: new Date(), leaseOwner: null, leaseUntil: null });
 }
 
+/**
+ * Capture the source again from the start: pages stored before decorations
+ * (waves, illustrations, backgrounds) were read get a fresh extraction, and
+ * the plan, build and verification run again on top of it.
+ */
+export async function requestRecapture(jobId: string): Promise<void> {
+  const job = await store.getJob(jobId);
+  if (!job) throw new Error("Job not found");
+  if (job.status !== "awaiting_final_review" && job.status !== "awaiting_plan_review" && job.status !== "failed") throw new Error("Pages can only be captured again on a finished, failed or plan-gated job.");
+  const pages = await store.listPages(jobId);
+  for (const page of pages) await store.updatePage(page.id, { captureStatus: "pending", captureError: null, extractStatus: "pending", buildStatus: "pending", verifyStatus: "pending" });
+  await store.setAssets(jobId, []);
+  const attempts = { ...(job.phaseAttempts ?? {}), capture: 0, extract: 0, brand: 0, plan: 0, build: 0, verify: 0, finish: 0 };
+  await store.updateJob(jobId, { status: "queued", phase: "capture", plan: null, planReviewedAt: null, planReviewedBy: null, error: null, errorCode: null, phaseAttempts: attempts, pauseRequested: false, cancelRequested: false, leaseOwner: null, leaseUntil: null });
+  runMigrationJob(jobId);
+}
+
 /** Re-run verification after the admin edited the site by hand. */
 export async function requestReverify(jobId: string): Promise<void> {
   const job = await store.getJob(jobId);

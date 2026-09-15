@@ -7,6 +7,7 @@
  */
 
 import type {
+  ExtractedDecoration,
   ExtractedSection,
   PageExtraction,
   MigrationAssetRecord,
@@ -29,6 +30,7 @@ export function section(over: Partial<ExtractedSection> & { id: string }): Extra
     embeds: [],
     tables: [],
     items: [],
+    decorations: [],
     textLength: 0,
     wordCount: 0,
     role: "rich-text",
@@ -36,6 +38,23 @@ export function section(over: Partial<ExtractedSection> & { id: string }): Extra
     ...over,
   };
 }
+
+/** A decoration with sensible defaults: a full-width wave on the bottom edge of a 1440×400 section. */
+export function decoration(over: Partial<ExtractedDecoration> = {}): ExtractedDecoration {
+  return {
+    kind: "svg",
+    bbox: { x: 0, y: 320, w: 1440, h: 80 },
+    rel: { x: 0, y: 0.8, w: 1, h: 0.2 },
+    edge: "bottom",
+    overlap: "none",
+    zOrder: "behind",
+    fills: ["#f5f3ff"],
+    ...over,
+  };
+}
+
+export const WAVE_SVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 80" preserveAspectRatio="none"><path d="M0,40 C360,80 1080,0 1440,40 L1440,80 L0,80 Z" fill="#f5f3ff"/></svg>`;
+export const ILLUSTRATION_SVG = (fill: string) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200"><circle cx="100" cy="100" r="90" fill="${fill}"/><circle cx="70" cy="80" r="12" fill="#1e1b4b"/><circle cx="130" cy="80" r="12" fill="#1e1b4b"/></svg>`;
 
 export function extraction(over: Partial<PageExtraction> = {}): PageExtraction {
   return {
