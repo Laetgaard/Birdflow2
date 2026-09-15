@@ -31,11 +31,14 @@ import { scoreSectionFidelity } from "../verify/fidelityScore";
 import { makeFidelityGuard, imagePathsIn } from "./fidelityGuard";
 import { applyBusinessContext } from "./businessFacts";
 import { migrationToolCatalogue } from "./migrationToolCatalogue";
+import { migrationAgentTools, type CropImporter } from "./migrationTools";
+import { DECORATION_RULEBOOK, MIGRATION_SECTION_SYSTEM_PROMPT } from "./migrationPrompts";
+import type { SvgAssetSummary } from "../../svgAssetSummaries";
 import { backgroundPath, buildPlacementMutation, defaultTargetFor, roleTargetFor, ornaments, sectionEvidence, MIGRATION_ID_PREFIX } from "../plan/sectionMapper";
 import { backgroundDecorationStyles, decorationRenderable, edgeDecorations, edgeStripMutation, footerStripMutation, heroOverWaveMutation, illustratedReviewsMutation, type DecorationContext, type DecorationMarker } from "../plan/decorationMapper";
 import { decorationsOf } from "@shared/clientMigration";
 import { cropSection, readMigrationFile } from "../capture/pageCapture";
-import type { ExtractedSection, MigrationPageBuildProgress, MigrationPagePlan, MigrationPlan, MigrationTarget, PageExtraction } from "@shared/clientMigration";
+import type { ExtractedDecoration, ExtractedSection, MigrationPageBuildProgress, MigrationPagePlan, MigrationPlan, MigrationTarget, PageExtraction } from "@shared/clientMigration";
 
 export type PageBuildInput = {
   state: BuilderStateData;
@@ -62,6 +65,14 @@ export type PageBuildInput = {
   websiteId?: string;
   /** The vectors themselves, for a run with no database (the bench). */
   svgAssets?: SvgAssetSource;
+  /** What the agent may know about those vectors: ids, names and colour slots. */
+  svgAssetSummaries?: SvgAssetSummary[];
+  /**
+   * Puts a region cut out of the customer's own screenshot into their media
+   * library. Without it the agent has no scissors — every other way of
+   * getting artwork back still works.
+   */
+  cropImporter?: CropImporter;
   /**
    * The font the brand step had to substitute, if any. The reviewer is told,
    * because a substituted typeface is the largest visible difference on most
@@ -247,19 +258,18 @@ function componentSummary(components: BuilderPage["components"]): string {
   }).join(", ");
 }
 
-const SYSTEM_PROMPT = [
-  "You are BirdFlow's migration agent. You rebuild ONE section of a customer's existing website inside BirdFlow by CALLING TOOLS; you never output website JSON as text.",
-  "Fidelity is the only goal: the same words, the same images, the same layout, readable on a phone. Text and image paths are supplied to you; anything not supplied must not appear.",
-  "Tools: `create_custom_component` builds the section from primitive boxes/text/images/buttons (use it for a faithful layout); `add_section` or `add_component` place a standard block when one reproduces the original exactly; `update_custom_component` refines what you built; `remove_component` removes the standard section you are replacing; `get_page` and `get_component` let you look; `finish` ends the run.",
-  "Layout rules the builder enforces: use flex or grid with flexible widths; never fixed pixel widths on the outer box; images by their supplied paths only, with alt text. `position: absolute` is allowed for ONE case only — a scrim laid over a background photo — and only inside a box that has `position: relative`.",
-  "Decoration: a divider, flourish or icon is an `image` node with its supplied path at its own pixel width (small decorative images SHOULD use their exact width and height), or a `box` with an explicit height and a background colour or border. A `box` with no children and no background, border or height renders as NOTHING on the published site — never leave one.",
-  "A CARD whose words sat on its own photo (`textOverPhoto` in the brief's items) is built the same way: the card box carries `backgroundImage: \"url(<that item's path>)\"`, `backgroundSize: \"cover\"`, a dimming layer, and the card's words on top. Never move such a photo above the words.",
-  "Every section you build must be editable by the customer afterwards: pass `schema` to create_custom_component with one short Danish label per text, image and button the customer might change (for example {\"fields\":[{\"path\":\"...\",\"label\":\"Overskrift\",\"type\":\"text\"}]}).",
-  "TEXT OVER A PHOTO — the section brief calls that photo the backdrop, and it is the one thing you must never drop. Put it on the section\'s outer box: `backgroundImage: \"url(<the backdrop path>)\"`, `backgroundSize: \"cover\"`, `backgroundPosition: \"center\"`, `position: \"relative\"`, and a `minHeight` near the original height. The text goes in a child box. When the brief gives an `overlay`, add ONE more child box before the text with `position: \"absolute\"`, `inset: \"0\"`, the overlay colour as `backgroundColor`, and the text box above it with `position: \"relative\"`. Never rebuild such a section without the backdrop: a build that loses it is rejected and thrown away.",
-  "Work like this: build the section with one tool call, remove the standard section it replaces, then call finish. Do not read the whole site first.",
-].join("\n");
 
-export function customSectionBrief(section: ExtractedSection, brief: string, imagePaths: string[], background: string | undefined, language: "da" | "en", floor: { componentId: string; position: number; pageId: string }, ornamentPaths: string[] = []): string {
+export function customSectionBrief(
+  section: ExtractedSection,
+  brief: string,
+  imagePaths: string[],
+  background: string | undefined,
+  language: "da" | "en",
+  floor: { componentId: string; position: number; pageId: string },
+  ornamentPaths: string[] = [],
+  /** The band's artwork: what was captured, what the builder already drew, and what is left to the agent. */
+  art: { decorations?: ExtractedDecoration[]; placed?: number[]; svgAssets?: Array<{ id: string; name: string; role?: string }> } = {},
+): string {
   const geometry = (src: string) => {
     const img = section.images.find((i) => i.src === src);
     return { path: src, alt: img?.alt ?? "", widthPx: Math.round(img?.displayWidth ?? 0), heightPx: Math.round(img?.displayHeight ?? 0), side: img?.x !== undefined && img.x + (img.displayWidth ?? 0) / 2 < section.bbox.x + section.bbox.w / 2 ? "left" : "right" };
@@ -273,6 +283,26 @@ export function customSectionBrief(section: ExtractedSection, brief: string, ima
     // Decoration with the words it sat between, so it can go back there.
     ornaments: ornamentPaths.map((src) => { const img = section.images.find((i) => i.src === src); return { ...geometry(src), decorative: true, role: img?.role ?? "ornament", afterHeading: img?.anchor?.afterHeading, beforeParagraph: img?.anchor?.beforeParagraph?.slice(0, 120), position: img?.anchor?.position }; }),
     backgroundImage: background,
+    // The waves, curves and illustrations this band had, with what each can
+    // be drawn with and whether the builder already placed it.
+    decorations: (art.decorations ?? []).map((deco, index) => ({
+      index,
+      kind: deco.kind,
+      edge: deco.edge,
+      overlap: deco.overlap,
+      overlapPx: deco.overlapPx,
+      zOrder: deco.zOrder,
+      rel: deco.rel,
+      heightPx: Math.round(deco.displayHeight ?? deco.bbox.h),
+      widthPx: Math.round(deco.displayWidth ?? deco.bbox.w),
+      fills: (deco.fills ?? []).slice(0, 4),
+      opacity: deco.opacity,
+      flipY: deco.flipY || undefined,
+      svgAssetId: deco.svgAssetId,
+      imagePath: deco.src,
+      alreadyDrawn: (art.placed ?? []).includes(index) || undefined,
+    })),
+    svgAssets: (art.svgAssets ?? []).slice(0, 20),
     overlay: section.overlay,
     layout: { columns: section.columns, widthPx: Math.round(section.bbox.w), heightPx: Math.round(section.bbox.h), background: section.bgColor, textColor: section.textColor, textAlign: section.textAlign, headingFont: section.headingFont, bodyFont: section.bodyFont, headingSizePx: section.headingSize, headingWeight: section.headingWeight, headingTransform: section.headingTransform, headingLetterSpacing: section.headingLetterSpacing, bodyLineHeight: section.bodyLineHeight },
   };
@@ -281,6 +311,7 @@ export function customSectionBrief(section: ExtractedSection, brief: string, ima
     `A standard version of it already sits on page "${floor.pageId}" as component "${floor.componentId}" at position ${floor.position}. Build the faithful version with create_custom_component at position ${floor.position}, then remove_component "${floor.componentId}". If the standard version already matches the original, change nothing and call finish.`,
     `Use ONLY the text below, verbatim, in ${language === "en" ? "English" : "Danish"} as given. Use ONLY the image paths listed${background ? `. The backdrop "${background}" MUST end up on the section's outer box as backgroundImage with cover/center — the section is text on that photo` : ""}${ornamentPaths.length ? ", and place each ornament as an image node at its own width exactly where it sat (after its heading, before its paragraph)" : ""}. Never invent copy, testimonials, prices or images. Give every box flexible widths so it works on a phone.`,
     `Section content and layout (JSON):\n${JSON.stringify(content).slice(0, 12_000)}`,
+    ...((art.decorations ?? []).length ? [DECORATION_RULEBOOK] : []),
   ].join("\n\n");
 }
 
@@ -341,7 +372,22 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
   const notes: string[] = [];
   const evidence = sectionEvidence(input.extraction);
   const guard = makeFidelityGuard({ evidence, allowedImagePaths: input.allowedImagePaths, allowedSvgAssetIds: input.allowedSvgAssetIds, label: input.pagePlan.targetName });
-  const tools = migrationToolCatalogue();
+  /**
+   * Artwork an agent made for a decoration nothing could import, by
+   * `"<sectionId>#<index>"`. The score reads it, so a wave the agent drew
+   * itself counts as the wave that was there.
+   */
+  const recreated = new Map<string, string[]>();
+  const tools = migrationToolCatalogue(migrationAgentTools({
+    extraction: input.extraction,
+    sourceScreenshot: async () => (input.desktopScreenshotPath ? readMigrationFile(input.desktopScreenshotPath).catch(() => undefined) : undefined),
+    // Without an importer the scissors refuse politely; every other way of
+    // getting a decoration back still works.
+    importer: input.cropImporter ?? (async () => null),
+    allowedImagePaths: input.allowedImagePaths,
+    recreated,
+    log,
+  }));
   const ordered = orderedPlans;
   const callCost = assumedCallCostUsd("migrationBuild");
   const limits = { sectionIterations: 3, sectionPassScore: 85, sectionCapUsd: 0.9, ...(input.limits ?? {}) };
@@ -487,7 +533,18 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
     // What the plan model saw in this band, and what the admin asked for,
     // on top of the target's own brief.
     const brief = [target.brief, sectionPlan.brief, sectionPlan.instruction ? `The administrator asks: ${sectionPlan.instruction}` : ""].filter(Boolean).join(" ").slice(0, 900);
-    const baseMessage = customSectionBrief(section, brief, imagePaths, background, input.language, { componentId: floorId, position: floorPosition, pageId: page.id }, ornamentPaths);
+    const baseMessage = customSectionBrief(
+      section,
+      brief,
+      imagePaths,
+      background,
+      input.language,
+      { componentId: floorId, position: floorPosition, pageId: page.id },
+      ornamentPaths,
+      // What the builder already drew is named, so the agent puts back what
+      // is left instead of drawing a second wave over the first.
+      { decorations: decorationsOf(section), placed: decorationRecord.placed.map((p) => p.index), svgAssets: input.svgAssetSummaries },
+    );
 
     // One allowance for this section, charged to the page's meter as it goes.
     // Without it the first section of a page spends the whole page's budget
@@ -526,6 +583,9 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
         spendMeter: sectionMeter,
         approvedLargeChanges: true,
         guard,
+        // The vectors already imported from this very site, so a wave can be
+        // drawn by reference instead of pasted or redrawn.
+        svgAssets: input.svgAssetSummaries,
       };
       const userMessage = fixNote ? `${fixNote}\n\n${baseMessage}` : baseMessage;
       // Pictures go in as pictures: the original always, and from the second
@@ -538,7 +598,7 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
       try {
         const result = await runAgentLoop({
           tools,
-          systemPrompt: SYSTEM_PROMPT,
+          systemPrompt: MIGRATION_SECTION_SYSTEM_PROMPT,
           userMessage,
           userContent,
           ctx: agentCtx,
@@ -589,7 +649,7 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
         // The strips the builder placed around the band count as the band's
         // artwork: the agent did not draw them, and must not be judged as
         // though the wave were missing.
-        const det = scoreSectionFidelity({ section, components: pageState().components.filter((c) => componentIds.includes(c.id) || stripIds.includes(c.id)), importedPaths: input.allowedImagePaths });
+        const det = scoreSectionFidelity({ section, components: pageState().components.filter((c) => componentIds.includes(c.id) || stripIds.includes(c.id)), importedPaths: input.allowedImagePaths, recreated });
         if (det.score < 0.5) {
           state = snapshot;
           lastRebuildCrop = undefined;
@@ -674,6 +734,18 @@ export async function buildPage(input: PageBuildInput): Promise<PageBuildResult>
       } finally {
         progress.agentSpendUsd += Math.max(0, input.meter.spentUsd - passBefore);
       }
+    }
+
+    // Artwork the agent drew or cut out for a decoration nothing could
+    // import counts as that decoration, here and in the page score — which
+    // reads this record back off the page row.
+    for (const [mapKey, paths] of Array.from(recreated.entries())) {
+      const [hostId, indexText] = mapKey.split("#");
+      if (hostId !== key) continue;
+      const decoIndex = Number(indexText);
+      decorationRecord.recreated = { ...(decorationRecord.recreated ?? {}), [indexText]: paths };
+      const at = decorationRecord.missing.indexOf(decoIndex);
+      if (at >= 0) decorationRecord.missing.splice(at, 1);
     }
 
     if (best) {

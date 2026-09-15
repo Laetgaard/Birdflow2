@@ -881,7 +881,13 @@ export type MigrationPageBuildProgress = {
     score?: number;
     review?: MigrationSectionReviewRecord;
     /** The section's artwork: which decorations were placed (by index) and as what, and which could not be. */
-    decorations?: { placed: Array<{ index: number; componentId: string }>; missing: number[]; recipe?: string };
+    decorations?: {
+      placed: Array<{ index: number; componentId: string }>;
+      missing: number[];
+      recipe?: string;
+      /** Artwork an agent drew or cut out for a decoration it could not import: index → paths, svg signatures or asset ids. */
+      recreated?: Record<string, string[]>;
+    };
   }>;
   agentSpendUsd: number;
   /** The part of agentSpendUsd that went on looking at the rebuilds. */

@@ -56,7 +56,9 @@ import type { AgentContext } from "../aiAgentTools";
 import { makeFidelityGuard } from "./build/fidelityGuard";
 import { migrationToolCatalogue } from "./build/migrationToolCatalogue";
 import { MIGRATION_CORRECTION_PROMPT } from "./build/migrationPrompts";
+import { migrationAgentTools, type CropImporter } from "./build/migrationTools";
 import { loadSvgAssetSummaries } from "../svgAssetSummaries";
+import { importAssetToMedia } from "../websiteImportAssets";
 import { sectionEvidence } from "./plan/sectionMapper";
 import { resolveIssues, openReviewBrowser, type ReviewBrowser, type VisualIssue } from "../visualReview";
 import { publishedRendererHealth } from "../publisher/inProcessRenderer";
@@ -263,6 +265,45 @@ async function checkControl(rt: Runtime): Promise<void> {
  * could quietly consume the plan's and the verification's money too.
  */
 /** The stored vectors a rebuilt tree may reference by id. */
+/**
+ * The scissors, wired to the customer's own media library.
+ *
+ * A region the agent cuts out of the original screenshot becomes a real
+ * imported asset: the guard accepts its path, the score counts it, and the
+ * finished site keeps it after the job's own files are gone.
+ */
+function cropImporterFor(rt: Runtime, pageRowId: string, collect: (record: MigrationAssetRecord) => void): CropImporter {
+  let n = 0;
+  const origin = rt.job.canonicalOrigin ?? (() => { try { return new URL(rt.job.sourceUrl).origin; } catch { return rt.job.sourceUrl; } })();
+  return async ({ bytes, mime, name, alt }) => {
+    const result = await importAssetToMedia({
+      websiteId: rt.job.websiteId,
+      sourceUrl: `crop://${pageRowId}/${++n}-${name.slice(0, 40)}`,
+      expectedOrigin: origin,
+      kind: "image",
+      alt,
+      bytes: { bytes, mime },
+      name,
+    });
+    if (!result.ok) return null;
+    collect({ sourceUrl: `crop://${pageRowId}/${n}-${name.slice(0, 40)}`, storagePath: result.storagePath, mediaId: result.mediaId, sha256: result.sha256, width: result.width, height: result.height, usedBy: [pageRowId], kind: "image", role: "decoration" });
+    return { storagePath: result.storagePath, width: result.width, height: result.height };
+  };
+}
+
+/**
+ * What an agent made for a decoration that could not be imported, read back
+ * off the page rows: `"<sectionId>#<index>"` → paths. The score counts a
+ * recreated wave as the wave that was there.
+ */
+function recreatedArtOf(progress: MigrationPageBuildProgress | null | undefined): Map<string, string[]> {
+  const map = new Map<string, string[]>();
+  for (const [sectionId, record] of Object.entries(progress?.sections ?? {})) {
+    for (const [index, paths] of Object.entries(record.decorations?.recreated ?? {})) map.set(`${sectionId}#${index}`, paths);
+  }
+  return map;
+}
+
 /**
  * The job-level copy of a page's score: the numbers only. The per-section
  * breakdown and the list of missing lines stay on the page row, where the
@@ -577,6 +618,9 @@ async function phaseBuild(rt: Runtime): Promise<void> {
     const weighted = pagePlan.role === "home" ? evenShare * HOME_PAGE_BUDGET_FACTOR : evenShare;
     const agentBudgetUsd = Math.min(rt.limits.pageAgentCapUsd, buildRoom, Math.max(MIN_PAGE_AGENT_BUDGET_USD, weighted));
     const before = rt.meter.spentUsd;
+    // Anything the rebuild cuts out of the original becomes an asset of this
+    // job, so the paths keep working after the build phase ends.
+    const cropped: MigrationAssetRecord[] = [];
     const result = await buildPage({
       state: builder.state as BuilderStateData,
       plan,
@@ -592,6 +636,8 @@ async function phaseBuild(rt: Runtime): Promise<void> {
       agentBudgetUsd,
       browser: browser ?? undefined,
       websiteId: rt.job.websiteId,
+      svgAssetSummaries: await loadSvgAssetSummaries(rt.job.websiteId),
+      cropImporter: cropImporterFor(rt, row.id, (record) => cropped.push(record)),
       store: { jobId: rt.job.id, pageRowId: row.id },
       limits: { sectionIterations: rt.limits.sectionIterations, sectionPassScore: rt.limits.sectionPassScore, sectionCapUsd: rt.limits.sectionCapUsd },
       fontNote: fontNote(rt.job),
@@ -613,6 +659,13 @@ async function phaseBuild(rt: Runtime): Promise<void> {
     if (reviewSpend > 0) rt.spendByRole.migrationSectionReview = (rt.spendByRole.migrationSectionReview ?? 0) + reviewSpend;
     const saved = await storage.updateBuilderState(rt.job.websiteId, result.state, revisionRef.value, { svgAssetOrigin: "customer" } as any);
     if (!saved) throw new PhaseFailure("builder_conflict", "Someone edited the site in the builder while it was being built. Resume to continue.");
+    // Crops belong to the job from now on: the verify phase's guard and score
+    // read the job's assets, not the build's in-memory set.
+    if (cropped.length) {
+      for (const record of cropped) { assets.push(record); allowed.add(record.storagePath); }
+      await store.setAssets(rt.job.id, assets);
+      rt.log(`${pagePlan.targetName}: ${cropped.length} region${cropped.length === 1 ? "" : "s"} cut out of the original`);
+    }
     await store.updatePage(row.id, { buildStatus: "built", targetPageId: result.page.id, buildProgress: result.progress as unknown as Record<string, unknown> });
     await store.updateJob(rt.job.id, { builderRevision: (saved as any).revision });
     for (const note of result.notes) await warn(rt, "build", "section", note, row.sourceUrl);
@@ -708,11 +761,15 @@ async function phaseVerify(rt: Runtime): Promise<void> {
         // Which component each planned section became, so a missing line can
         // name the component the corrective pass has to change.
         const componentIds = Object.fromEntries(Object.entries((row.buildProgress as MigrationPageBuildProgress | null)?.sections ?? {}).map(([id, s]) => [id, s.componentId]));
+        // Artwork an agent drew or cut out during the build, so a wave it
+        // made itself is not reported as the wave that went missing.
+        const recreated = recreatedArtOf(row.buildProgress as MigrationPageBuildProgress | null);
         const scoreOf = (target_: BuilderPage): MigrationFidelity => scorePageFidelity({
           extraction: item.extraction,
           plan: pagePlan,
           page: target_,
           importedPaths: allowed,
+          recreated,
           // The footer's art belongs to the site, not to the page; it is
           // scored against the footer the finish phase will install.
           chrome: { footer: (dressed() as { siteChrome?: { footer?: unknown } }).siteChrome?.footer },
@@ -825,7 +882,16 @@ async function phaseVerify(rt: Runtime): Promise<void> {
             // picture nobody in the conversation had seen.
             const fixImages = await comparePair(screenshots.desktop?.storagePath, lastRebuiltDesktop);
             await runAgentLoop({
-              tools: migrationToolCatalogue(),
+              // The same scissors the build had: a correction that needs the
+              // customer's own drawing can still cut it out of their page.
+              tools: migrationToolCatalogue(migrationAgentTools({
+                extraction: item.extraction,
+                sourceScreenshot: async () => (screenshots.desktop?.storagePath ? readMigrationFile(screenshots.desktop.storagePath).catch(() => undefined) : undefined),
+                importer: cropImporterFor(rt, row.id, (record) => { (rt.job.assets as MigrationAssetRecord[]).push(record); allowed.add(record.storagePath); void store.setAssets(rt.job.id, rt.job.assets as MigrationAssetRecord[]); }),
+                allowedImagePaths: allowed,
+                recreated,
+                log: rt.log,
+              })),
               systemPrompt: MIGRATION_CORRECTION_PROMPT,
               userMessage: fixMessage,
               userContent: fixImages.length ? [{ type: "text", text: fixMessage }, ...fixImages] : undefined,

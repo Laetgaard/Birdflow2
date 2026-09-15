@@ -127,8 +127,12 @@ describe("what the migration agent may not do", () => {
   it("builds every page behind the fidelity guard", () => {
     const src = read("server/clientMigration/build/pageBuilder.ts");
     expect(src).toContain("makeFidelityGuard(");
-    expect(src).toMatch(/guard,?\s*\}/);
-    expect(src).toContain("migrationToolCatalogue()");
+    // The guard goes into the agent's context, so every mutation passes it.
+    expect(src).toMatch(/agentCtx: AgentContext = \{[\s\S]{0,600}?\bguard,/);
+    // The filtered catalogue, with or without the migration-only tools
+    // appended — never the unfiltered one.
+    expect(src).toMatch(/migrationToolCatalogue\(/);
+    expect(src).not.toContain("buildToolCatalogue(");
     expect(src).not.toMatch(/unsplash/i);
   });
 
@@ -159,14 +163,40 @@ describe("what the migration agent may not do", () => {
 
   it("shows the agent the screenshot as an image, and names only tools that exist", () => {
     const src = read("server/clientMigration/build/pageBuilder.ts");
-    const tools = read("server/aiAgentTools.ts");
+    const prompts = read("server/clientMigration/build/migrationPrompts.ts");
+    // A tool exists if the general catalogue has it or the migration adds it.
+    const tools = read("server/aiAgentTools.ts") + read("server/clientMigration/build/migrationTools.ts");
     expect(src).toContain('type: "image_url"');
     expect(src).not.toMatch(/<image>/);
     // Every tool the brief or the system prompt names must be registered.
-    for (const name of Array.from(src.matchAll(/`([a-z_]+)`/g)).map((m) => m[1]).filter((n) => /_/.test(n))) {
+    for (const name of Array.from(`${src}${prompts}`.matchAll(/`([a-z_]+)`/g)).map((m) => m[1]).filter((n) => /_/.test(n))) {
       expect(tools, name).toContain(`"${name}"`);
     }
     expect(src).not.toContain("add_custom_component");
+  });
+
+  it("tells the agent how to put the artwork back, and gives it the means to", () => {
+    const prompts = read("server/clientMigration/build/migrationPrompts.ts");
+    // The rules that were each learned from a rebuild getting it wrong.
+    expect(prompts).toContain("DECORATION_RULEBOOK");
+    for (const rule of ["overlapPx", "mobileStyles.position", "lineHeight", "zIndex", "backgroundImage"]) expect(prompts, rule).toContain(rule);
+    // Ways of getting artwork back, cheapest first.
+    for (const tool of ["generate_svg_shape", "crop_source_region", "get_source_decorations", "list_svg_assets"]) expect(prompts, tool).toContain(tool);
+    // And the brief carries the band's own decorations, so the rules apply to something.
+    const builder = read("server/clientMigration/build/pageBuilder.ts");
+    expect(builder).toContain("DECORATION_RULEBOOK");
+    expect(builder).toContain("decorations: (art.decorations");
+  });
+
+  it("keeps the scissors inside the migration and inside their budget", () => {
+    const src = read("server/clientMigration/build/migrationTools.ts");
+    expect(src).toContain("MAX_CROPS_PER_PAGE");
+    expect(src).toContain("MIN_CROP_PX");
+    // A crop is a real asset: the guard's own set gets the path, so the very
+    // next tool call may use it.
+    expect(src).toContain("deps.allowedImagePaths.add(");
+    // And the general assistant never sees these tools.
+    expect(read("server/aiAgentTools.ts")).not.toContain("crop_source_region");
   });
 });
 

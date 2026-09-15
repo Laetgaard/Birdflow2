@@ -46,6 +46,14 @@ export const EXCLUDED_MIGRATION_TOOLS = new Set([
   "move_component",
 ]);
 
-export function migrationToolCatalogue(): AgentTool[] {
-  return buildToolCatalogue().filter((tool) => !EXCLUDED_MIGRATION_TOOLS.has(tool.name));
+/**
+ * @param extra Tools only a migration has — cutting a region out of the
+ *   customer's own screenshot, reading the source page's decorations. They
+ *   are appended rather than built in, because they need the job's
+ *   extraction, screenshot and importer to exist.
+ */
+export function migrationToolCatalogue(extra: AgentTool[] = []): AgentTool[] {
+  const base = buildToolCatalogue().filter((tool) => !EXCLUDED_MIGRATION_TOOLS.has(tool.name));
+  const names = new Set(base.map((tool) => tool.name));
+  return [...base, ...extra.filter((tool) => !names.has(tool.name))];
 }
