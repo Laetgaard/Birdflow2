@@ -82,6 +82,8 @@ export const AI_ROLES = [
   "migrationFidelity",
   /** Client migration: disambiguate a section's role when heuristics are unsure. */
   "migrationExtract",
+  /** Client migration: one rebuilt section against the original crop. */
+  "migrationSectionReview",
   /** Image generation. */
   "image",
 ] as const;
@@ -316,6 +318,18 @@ export const AI_CONFIG: Record<AiRole, AiRoleConfig> = {
     maxCompletionTokens: 6144,
     reasoningEffort: "low",
     maxRunCostUsd: 1.5,
+    fallbackProvider: "openai",
+    fallbackModel: OPENAI_FALLBACK_MODEL,
+  },
+  migrationSectionReview: {
+    provider: "openai",
+    model: OPENAI_REASONING_MODEL,
+    // Two crops and a short verdict. Sized like migrationFidelity, for the
+    // same reason: reasoning tokens come out of the same allowance, and at
+    // 2048 the model spent them thinking and answered nothing.
+    maxCompletionTokens: 6144,
+    reasoningEffort: "low",
+    maxRunCostUsd: 3,
     fallbackProvider: "openai",
     fallbackModel: OPENAI_FALLBACK_MODEL,
   },

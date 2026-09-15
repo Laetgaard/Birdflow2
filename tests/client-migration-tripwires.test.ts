@@ -39,6 +39,20 @@ describe("every migration route is an admin route", () => {
     for (const action of ["retry", "exclude"]) expect(src, action).toContain(`"${action}"`);
   });
 
+  it("lets the admin work one section at a time, and see both sides of it", () => {
+    const src = read("server/clientMigration/routes.ts");
+    expect(src).toContain("/sections/:sectionId/rebuild");
+    expect(src).toContain("requestSectionRebuild");
+    // The compare view needs the rebuild, not only the original.
+    expect(src).toContain('["rebuild", "rebuildMobile"].includes(requested)');
+  });
+
+  it("refuses to rebuild a section while the job owns the site", () => {
+    const src = read("server/clientMigration/migrationJob.ts");
+    const fn = src.slice(src.indexOf("export async function requestSectionRebuild"));
+    expect(fn.slice(0, 1400)).toContain("isMigrationLive");
+  });
+
   it("checks the source URL is public before anything is created", () => {
     const src = read("server/clientMigration/routes.ts");
     const create = src.slice(src.indexOf('app.post("/api/admin/migrations"'), src.indexOf('app.get("/api/admin/migrations"'));
@@ -124,6 +138,25 @@ describe("what the migration agent may not do", () => {
     }
   });
 
+  it("never lets a section's pass extend itself past the steps it was given", () => {
+    // A continuation turns a 3-step pass into 19 calls, spends the page's
+    // budget before anything has been looked at, and the sections after it
+    // are never rebuilt at all.
+    const src = read("server/clientMigration/build/pageBuilder.ts");
+    expect(src).toContain("allowContinuations: false");
+    expect(read("server/aiAgent.ts")).toContain("allowContinuations");
+  });
+
+  it("looks at what it built before accepting it, and keeps the pictures", () => {
+    const src = read("server/clientMigration/build/pageBuilder.ts");
+    expect(src).toContain("renderSectionCrops");
+    expect(src).toContain("reviewSectionFidelity");
+    expect(src).toContain("scoreSectionFidelity");
+    // The free measurement comes first: no reviewer is bought for a rebuild
+    // that already lost half the band.
+    expect(src.indexOf("scoreSectionFidelity(")).toBeLessThan(src.indexOf("reviewSectionFidelity("));
+  });
+
   it("shows the agent the screenshot as an image, and names only tools that exist", () => {
     const src = read("server/clientMigration/build/pageBuilder.ts");
     const tools = read("server/aiAgentTools.ts");
@@ -204,8 +237,8 @@ describe("the job's durability", () => {
 });
 
 describe("the AI roles and the invite", () => {
-  it("defines the four migration roles", () => {
-    for (const role of ["migrationPlan", "migrationBuild", "migrationFidelity", "migrationExtract"]) {
+  it("defines the five migration roles", () => {
+    for (const role of ["migrationPlan", "migrationBuild", "migrationFidelity", "migrationExtract", "migrationSectionReview"]) {
       expect(AI_ROLES as readonly string[], role).toContain(role);
     }
   });
@@ -214,7 +247,7 @@ describe("the AI roles and the invite", () => {
     // A second provider is a second account, a second balance and a second
     // way for the whole phase to stop. A 429 for insufficient balance on the
     // comparison model is what killed the run this was written for.
-    for (const role of ["migrationPlan", "migrationBuild", "migrationFidelity", "migrationExtract"] as const) {
+    for (const role of ["migrationPlan", "migrationBuild", "migrationFidelity", "migrationExtract", "migrationSectionReview"] as const) {
       const config = aiConfig(role);
       expect(config.provider, role).toBe("openai");
       if (config.fallbackProvider) expect(config.fallbackProvider, role).toBe("openai");

@@ -212,7 +212,12 @@ export function deriveBrandGuide(args: { pages: PageExtraction[]; assets: Migrat
     spacing,
     radius,
     shadow,
-    motion: "subtle",
+    // Nothing about the source's motion was captured — we read colours,
+    // fonts, spacing and radius, never its animations. "subtle" was a guess
+    // that the agent then honoured as brand law, fading in sections the
+    // original showed at once. "none" is the only honest answer; the
+    // customer can turn motion on whenever they like.
+    motion: "none",
     businessName: args.businessName,
     typographySpec: fonts.heading.substituted || fonts.body.substituted ? {
       headingSizePx: Math.round(firstPage?.sections.find((s) => s.headingSize)?.headingSize ?? 40),

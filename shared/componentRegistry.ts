@@ -494,6 +494,8 @@ export type ComponentProps = {
   socialProof?: string;
   // Image slider props
   captions?: string[];
+  /** 'overlay' when the source printed the caption ON the picture, else below it. */
+  captionPlacement?: 'below' | 'overlay';
   // Pricing table props
   popularBadge?: string;
   // Video embed props
@@ -563,7 +565,8 @@ export type ComponentStyles = {
   buttonHoverColor?: string;
   buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
   buttonRadius?: string;
-  cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
+  /** 'photo' puts the card's own picture behind its words, as the source had it. */
+  cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass' | 'photo';
   // Animation settings
   animationType?: 'none' | 'fade-in' | 'slide-up' | 'slide-down' | 'slide-left' | 'slide-right' | 'zoom-in' | 'zoom-out' | 'bounce' | 'flip';
   animationTrigger?: 'load' | 'scroll';
@@ -709,6 +712,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
     },
     fields: [
       { key: 'images', label: 'Images', type: 'image-array', group: 'content' },
+      { key: 'captionPlacement', label: 'Billedtekst', type: 'select', group: 'content', options: ['below', 'overlay'] },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '40px 24px' },
     ],
@@ -806,6 +810,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'items', label: 'Feature Items', type: 'items', group: 'content' },
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
+      { key: 'cardStyle', label: 'Card Style', type: 'select', group: 'style', options: ['flat', 'photo'] },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '60px 24px' },
     ],
   },
@@ -1607,7 +1612,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'accentColor', label: 'Accent Color', type: 'color', group: 'style' },
-      { key: 'cardStyle', label: 'Card Style', type: 'select', group: 'style', options: ['flat', 'elevated', 'bordered', 'glass'] },
+      { key: 'cardStyle', label: 'Card Style', type: 'select', group: 'style', options: ['flat', 'elevated', 'bordered', 'glass', 'photo'] },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
     ],
   },
@@ -1691,7 +1696,7 @@ export const componentRegistry: Record<ComponentType, ComponentDefinition> = {
       { key: 'backgroundColor', label: 'Background', type: 'color', group: 'style' },
       { key: 'textColor', label: 'Text Color', type: 'color', group: 'style' },
       { key: 'accentColor', label: 'Accent Color', type: 'color', group: 'style' },
-      { key: 'cardStyle', label: 'Card Style', type: 'select', group: 'style', options: ['flat', 'elevated', 'bordered', 'glass'] },
+      { key: 'cardStyle', label: 'Card Style', type: 'select', group: 'style', options: ['flat', 'elevated', 'bordered', 'glass', 'photo'] },
       { key: 'padding', label: 'Padding', type: 'text', group: 'style', placeholder: '80px 24px' },
     ],
   },

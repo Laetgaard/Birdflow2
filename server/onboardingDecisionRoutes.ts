@@ -148,6 +148,10 @@ export function registerOnboardingDecisionRoutes(app: Express, deps: OnboardingD
         website: { id: website.id, name: website.name, slug: website.slug },
         pages,
         brandGuide: guideOf(state, website.name),
+        // Set only on a site rebuilt from the customer's own old website:
+        // the workspace tells them where it came from and what could not be
+        // brought along, rather than letting them discover it themselves.
+        migration: state?.migration ?? null,
         builderRevision: builder?.revision ?? 0,
         readiness,
         previewFingerprint: structured ? previewFingerprint(structured) : null,

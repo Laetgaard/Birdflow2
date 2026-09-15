@@ -13,7 +13,7 @@ import { useAuth } from "@/lib/auth";
 import { uploadImage } from "@/lib/builderUpload";
 import { runOnboardingTurn, runAgent, type AgentStreamEvent } from "@/lib/aiAgentStream";
 import type { PaletteProposal, FontPairProposal, BuildReport } from "@shared/aiBuilderSchema";
-import type { OnboardingAnswers, OnboardingChatMessage } from "@shared/schema";
+import type { OnboardingAnswers, OnboardingChatMessage, MigrationOrigin } from "@shared/schema";
 import type { WebsitePlan } from "@shared/websitePlanSchema";
 import type { WebsiteReadiness } from '@shared/websiteReadiness';
 import type { WebsiteBriefSnapshot } from '@shared/onboardingDirections';
@@ -96,6 +96,8 @@ type DecisionData = {
   website: { id: string; name: string; slug: string } | null;
   pages: DecisionPage[];
   brandGuide: BrandGuide;
+  /** Set when the site was rebuilt from the customer's own old website. */
+  migration?: MigrationOrigin | null;
   report: BuildReport | null;
   generationStatus?: GenStatus | null;
   readiness?: WebsiteReadiness | null;
@@ -1765,6 +1767,7 @@ export default function OnboardingPage() {
                   readiness={decision.readiness}
                   selectedDirectionId={decision.stage === "decision" ? decision.selectedDirectionId : null}
                   brandGuide={decision.brandGuide}
+                  migration={decision.migration}
                   meeting={meeting}
                   token={token}
                   busy={decisionBusy}

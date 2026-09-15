@@ -102,6 +102,8 @@ const ASSUMED_PROMPT_TOKENS = 20_000;
 const ASSUMED_IMAGE_PROMPT_TOKENS: Partial<Record<AiRole, number>> = {
   migrationBuild: 3_000,
   migrationFidelity: 6_000,
+  // The original crop, the rebuild and (when it is judged) the phone render.
+  migrationSectionReview: 5_000,
 };
 
 /**
@@ -213,6 +215,56 @@ export function releaseRunMeter(role: AiRole, key: string): void {
  * A meter for ONE run. Build mode passes the same meter to every step, so a
  * ten-step plan shares one ceiling instead of getting ten.
  */
+/**
+ * A meter for one piece of a run, charging the run's meter as it goes.
+ *
+ * A page has a budget; a section inside it needs its own, or the first
+ * section spends the page's money and the last ones are never rebuilt at
+ * all. Both ledgers are charged, and whichever ceiling is reached first
+ * stops the work — the parent's refusal always wins.
+ */
+export function childSpendMeter(parent: SpendMeter, limitUsd: number): SpendMeter {
+  const limit = Math.max(0, limitUsd);
+  let spent = 0;
+  return {
+    get limitUsd() { return limit; },
+    get spentUsd() { return spent; },
+    record(model, usage) {
+      const before = parent.spentUsd;
+      parent.record(model, usage);
+      spent += Math.max(0, parent.spentUsd - before);
+      return spent < limit && !parent.exceeded();
+    },
+    recordFlat(usd) {
+      parent.recordFlat(usd);
+      spent += Math.max(0, usd);
+      return spent < limit && !parent.exceeded();
+    },
+    reserve(usd) {
+      const cost = Math.max(0, usd);
+      if (spent + cost > limit) return false;
+      if (!parent.reserve(cost)) return false;
+      spent += cost;
+      return true;
+    },
+    release(usd) {
+      const amount = Math.max(0, usd);
+      parent.release(amount);
+      spent = Math.max(0, spent - amount);
+    },
+    exceeded() {
+      return spent >= limit || parent.exceeded();
+    },
+    message(requiredUsd = 0) {
+      if (parent.exceeded()) return parent.message(requiredUsd);
+      if (spent >= limit || spent + requiredUsd > limit) {
+        return `Denne sektion har brugt sin del af budgettet (${limit.toFixed(2)} USD). Resten af siden bygges videre.`;
+      }
+      return null;
+    },
+  };
+}
+
 export function createSpendMeter(role: AiRole, limitUsd?: number): SpendMeter {
   const limit = limitUsd ?? aiConfig(role).maxRunCostUsd;
   const assumedCompletion = aiConfig(role).maxCompletionTokens ?? 8192;

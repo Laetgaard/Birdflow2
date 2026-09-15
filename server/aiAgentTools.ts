@@ -65,6 +65,7 @@ import {
 } from "@shared/customComponents";
 import { SVG_SHAPES, renderSvgShape } from "@shared/svgShapes";
 import { applyMutation, validateMutation, analyzeDesign, assertSaneJsonDepth } from "./aiBuilder";
+import { asksForRedesign } from "@shared/redesignIntent";
 import { guardResponsive } from "./responsiveGuard";
 import { runSelfCheck } from "./selfCheck";
 import { checkPublishParity } from "./publishParity";
@@ -129,6 +130,14 @@ export type AgentContext = {
   spendMeter?: SpendMeter;
   /** True once the caller has approved large changes for this run. */
   approvedLargeChanges: boolean;
+  /**
+   * True when the customer's own message asked for a redesign, in their own
+   * words. Only consulted on a migrated site, where the whole-site styling
+   * tools are otherwise closed: the look there is a deliberate copy of the
+   * site they came from, and no other request implies permission to replace
+   * it. See migratedFidelityRefusal.
+   */
+  redesignRequested?: boolean;
   /**
    * Optional extra gate, consulted after the large-change classifier and
    * BEFORE technical validation. Build mode uses it to enforce the approved
@@ -236,6 +245,40 @@ function compactComponent(c: { id: string; type: string; props?: Record<string, 
   };
 }
 
+/**
+ * Mutations that replace the look of the whole site rather than edit a part
+ * of it. On a migrated site these are the ones that would quietly undo the
+ * copy the client paid for.
+ */
+const SITE_WIDE_STYLE_ACTIONS = new Set<string>(["apply_preset", "update_global_styles", "update_brand_guide"]);
+
+/**
+ * The migrated site's guard rail.
+ *
+ * A rebuilt site's colours, fonts and spacing were matched to the customer's
+ * existing website on purpose. A single apply_preset throws all of that away
+ * in one call, and the assistant reaches for it readily — "make it more
+ * modern" is in its own playbook. So on a site carrying preserveFidelity the
+ * site-wide styling tools refuse, unless the customer asked for a redesign in
+ * this conversation. The refusal is a sentence the model can act on: it tells
+ * it to ask rather than to give up, and one "ja, lav et nyt design" from the
+ * customer opens the tools on the next message.
+ *
+ * Everything narrower — a section, a colour on one element, the text — is
+ * untouched by this.
+ */
+function migratedFidelityRefusal(mutation: BuilderMutation, ctx: AgentContext): string | null {
+  const migration = ctx.state.migration;
+  if (!migration?.preserveFidelity || ctx.redesignRequested) return null;
+  if (!SITE_WIDE_STYLE_ACTIONS.has(mutation.action)) return null;
+  return (
+    `Denne side er bygget som en tro kopi af ${migration.sourceHost}, så farver, skrifter og stil ` +
+    "må ikke skiftes på hele sitet uden at kunden har bedt om et nyt design. " +
+    "Spørg kunden først (fx: \u201cVil du have et helt nyt design, eller skal vi holde stilen fra din nuværende side?\u201d) " +
+    "— og ret imens kun den sektion, det element eller den tekst, opgaven handler om."
+  );
+}
+
 /** Apply a validated mutation to the working copy, or explain why not. */
 async function applyWrite(
   mutation: BuilderMutation,
@@ -255,6 +298,9 @@ async function applyWrite(
         "Brug 'Tilføj til brand guide'-valget EFTER retningen er fuldt anvendt.",
     };
   }
+
+  const fidelity = migratedFidelityRefusal(mutation, ctx);
+  if (fidelity) return { ok: false, error: fidelity };
 
   // Pass any active brand deviation so the gate fires for experimental
   // directions — UNLESS the user already gave scoped consent for this

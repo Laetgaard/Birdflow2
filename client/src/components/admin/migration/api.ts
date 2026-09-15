@@ -2,6 +2,8 @@
 // shapes the endpoints return. Types mirror shared/clientMigration.ts.
 import type {
   MigrationJobSummary,
+  MigrationLimits,
+  MigrationPageBuildProgress,
   MigrationPlan,
   MigrationPhase,
   MigrationWarning,
@@ -15,7 +17,7 @@ export type MigrationJobDetail = MigrationJobSummary & {
   notes?: string | null;
   consentNote?: string | null;
   respectRobots: boolean;
-  limits: { maxPages: number; maxAssets: number; ceilingUsd: number };
+  limits: MigrationLimits;
   spendByRole: Record<string, number>;
   warnings: MigrationWarning[];
   discovery: { pages?: Array<{ url: string; title?: string; fromNav: boolean }>; robots?: { fetched: boolean; disallow: string[] } } | null;
@@ -46,7 +48,7 @@ export type MigrationPageView = {
   hasRebuildScreenshot: boolean;
   needsAttention: boolean;
   sections: Array<{ id: string; role: string; confidence: number; fallback: boolean; headings: string[]; items: number; images: number; bbox: { x: number; y: number; w: number; h: number } }>;
-  buildProgress: { sections?: Record<string, { status: string; componentId?: string; attempts: number; note?: string }>; agentSpendUsd?: number } | null;
+  buildProgress: MigrationPageBuildProgress | null;
   verify: { score?: { score: number; textCoverage: number; headingCoverage: number; ctaCoverage: number; imageCoverage: number; orderScore: number }; issues?: Array<{ id: string; severity: string; description: string; suggestedAction: string; componentId?: string }>; resolutions?: Array<{ issueId: string; description: string; status: string }>; iterations?: number; reviewed?: boolean } | null;
   updatedAt: string;
 };
@@ -90,6 +92,35 @@ export const VERIFY_STATUS_LABELS: Record<string, string> = {
   model_unavailable: "modellen svarede ikke",
   scoring_failed: "kunne ikke måles",
   failed: "fejlede",
+};
+
+/** What became of one section's rebuild, for the per-section table. */
+export const SECTION_STATUS_LABELS: Record<string, string> = {
+  placed: "standard",
+  upgraded: "genskabt",
+  upgrade_partial: "tæt på",
+  upgrade_failed: "kunne ikke genskabes",
+  upgrade_rejected: "afvist",
+  upgrade_skipped: "sprunget over",
+  agent: "genskabt",
+  failed: "fejlede",
+  skipped: "fravalgt",
+  noted: "låst",
+};
+
+/** The reviewer's verdict on a rebuilt band, in the admin's language. */
+export const SECTION_VERDICT_LABELS: Record<string, string> = {
+  match: "som originalen",
+  close: "tæt på",
+  wrong: "for langt fra",
+};
+
+/** Why no picture was compared, when none was. */
+export const SECTION_REVIEW_REASONS: Record<string, string> = {
+  no_original: "intet udsnit af originalen",
+  no_rebuild: "kunne ikke gengives",
+  model_unavailable: "modellen svarede ikke",
+  skipped_budget: "budgettet var brugt",
 };
 
 export const STATUS_LABELS: Record<string, string> = {

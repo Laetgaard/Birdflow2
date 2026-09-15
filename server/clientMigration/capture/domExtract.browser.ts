@@ -522,7 +522,29 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
         return { personName: name, role };
       })();
       const imageInfoOf = img ? imageInfo(img) : null;
-      return { title, text: body, imageSrc: imageInfoOf?.src || undefined, href: link ? abs(link.getAttribute("href")) : undefined, price, icon, personName: person.personName, role: person.role, quote: quoteEl ? text(quoteEl).slice(0, 1500) : (/[“"«]/.test(all) && lines.length ? all.slice(0, 1500) : undefined) };
+      // A card's photo is often a CSS background rather than an <img>: the
+      // card then came through with no picture at all, and the words that sat
+      // ON the photo were rebuilt on a plain card. Read the background of the
+      // card and its first two wrappers, and remember whether the text was on
+      // top of it — the same overlap rule the section-level backdrop uses.
+      const bgHost = [el, el.firstElementChild, el.firstElementChild?.firstElementChild].find((node) => node && bgImageUrl(node)) as Element | undefined;
+      const cssBg = bgHost ? bgImageUrl(bgHost) : undefined;
+      const photoRect = img ? rectOf(img) : bgHost ? rectOf(bgHost) : undefined;
+      const textEl = heading ?? el.querySelector("p, span, div");
+      const textRect = textEl ? rectOf(textEl) : undefined;
+      const overlaps = photoRect && textRect && textRect.w > 0 && textRect.h > 0
+        ? Math.max(0, Math.min(photoRect.x + photoRect.w, textRect.x + textRect.w) - Math.max(photoRect.x, textRect.x)) *
+          Math.max(0, Math.min(photoRect.y + photoRect.h, textRect.y + textRect.h) - Math.max(photoRect.y, textRect.y)) >= textRect.w * textRect.h * 0.5
+        : false;
+      const imageSrc = imageInfoOf?.src || cssBg || undefined;
+      return {
+        title, text: body, imageSrc,
+        imageIsCssBackground: !imageInfoOf?.src && !!cssBg ? true : undefined,
+        imageBehindText: imageSrc && overlaps ? true : undefined,
+        imageRect: imageSrc && photoRect ? { x: Math.round(photoRect.x), y: Math.round(photoRect.y), w: Math.round(photoRect.w), h: Math.round(photoRect.h) } : undefined,
+        href: link ? abs(link.getAttribute("href")) : undefined, price, icon, personName: person.personName, role: person.role,
+        quote: quoteEl ? text(quoteEl).slice(0, 1500) : (/[“"«]/.test(all) && lines.length ? all.slice(0, 1500) : undefined),
+      };
     });
     return { items, columns };
   };
@@ -631,6 +653,12 @@ export function extractPageInBrowser(opts: { maxSections: number; viewportWidth:
       headingFont: heading ? fontOf(heading) : undefined,
       bodyFont: para ? fontOf(para) : fontOf(el),
       headingSize: heading ? parseFloat(cs(heading).fontSize) : undefined,
+      // The personality of the band's headline: a site whose headings are
+      // uppercase and widely tracked reads as a different site without it.
+      headingWeight: heading ? Number(cs(heading).fontWeight) || undefined : undefined,
+      headingTransform: heading && cs(heading).textTransform !== "none" ? cs(heading).textTransform.slice(0, 20) : undefined,
+      headingLetterSpacing: heading && cs(heading).letterSpacing !== "normal" ? cs(heading).letterSpacing.slice(0, 20) : undefined,
+      bodyLineHeight: para && cs(para).lineHeight !== "normal" ? cs(para).lineHeight.slice(0, 20) : undefined,
       paddingY: (parseFloat(style.paddingTop || "0") + parseFloat(style.paddingBottom || "0")) / 2,
       headings, paragraphs, lists, quotes, ctas, images, forms, embeds, tables, items,
       textRects,

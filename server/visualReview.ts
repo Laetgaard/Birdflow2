@@ -170,10 +170,23 @@ async function getRenderer(lang: SiteLanguage): Promise<PublishedRenderer | null
  * Motion CSS is suppressed so the screenshot captures the finished visual
  * state, not the hidden entrance-animation state.
  */
+/** An id, safe inside an HTML attribute. */
+function escapeAttribute(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c);
+}
+
 export async function generatePreviewHtml(
   state: BuilderStateData,
   pageId: string,
-  lang: SiteLanguage = DEFAULT_SITE_LANGUAGE
+  lang: SiteLanguage = DEFAULT_SITE_LANGUAGE,
+  /**
+   * Render only these components, each wrapped so a screenshot can find it.
+   *
+   * The published renderer emits a bare `<section>` with no id, so one
+   * rebuilt band could not be photographed on its own — which is why the
+   * migration agent could never be shown its own work.
+   */
+  opts?: { onlyComponentIds?: string[] }
 ): Promise<{ html: string; warnings: string[]; rendered: boolean }> {
   const warnings: string[] = [];
   const page = state.pages.find((p) => p.id === pageId);
@@ -210,8 +223,10 @@ export async function generatePreviewHtml(
   } as Parameters<typeof generateGlobalsCss>[0]);
 
   const sectionFragments: string[] = [];
+  const only = opts?.onlyComponentIds?.length ? new Set(opts.onlyComponentIds) : null;
   if (renderer) {
     for (const comp of page.components) {
+      if (only && !only.has(comp.id)) continue;
       try {
         const resolved = resolveTokensDeep({ ...comp }, tokens);
         const el = renderer({
@@ -220,7 +235,8 @@ export async function generatePreviewHtml(
           pages: state.pages as unknown[],
           allComponents: page.components as unknown[],
         });
-        sectionFragments.push(el ? renderToStaticMarkup(el) : "<!-- empty -->");
+        const markup = el ? renderToStaticMarkup(el) : "<!-- empty -->";
+        sectionFragments.push(`<div data-component-id="${escapeAttribute(comp.id)}">${markup}</div>`);
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err);
         warnings.push(`Section ${comp.type} (${comp.id}): ${msg}`);
@@ -311,7 +327,7 @@ export async function capturePageScreenshots(
   pageId: string,
   viewports: VisualViewport[],
   screenshotCache: Map<string, VisualScreenshot>,
-  opts?: { fullPage?: boolean; lang?: SiteLanguage; browser?: ReviewBrowser }
+  opts?: { fullPage?: boolean; lang?: SiteLanguage; browser?: ReviewBrowser; onlyComponentIds?: string[] }
 ): Promise<{ refs: ScreenshotRef[]; warnings: string[] }> {
   const allWarnings: string[] = [];
   const page = state.pages.find((p) => p.id === pageId);
@@ -326,7 +342,8 @@ export async function capturePageScreenshots(
     const { html, warnings: htmlWarnings, rendered } = await generatePreviewHtml(
       state,
       pageId,
-      opts?.lang ?? DEFAULT_SITE_LANGUAGE
+      opts?.lang ?? DEFAULT_SITE_LANGUAGE,
+      { onlyComponentIds: opts?.onlyComponentIds }
     );
     allWarnings.push(...htmlWarnings);
     // Nothing rendered means nothing to photograph: launching a browser to

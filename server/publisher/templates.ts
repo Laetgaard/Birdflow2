@@ -5,6 +5,7 @@ import { SVG_SHAPES, renderSvgShape } from '../../shared/svgShapes';
 import { createSectionDecoration } from '../../shared/rendering/sectionDecoration';
 import { canvasRootStyles } from '../../shared/generative/canvas';
 import { createImageRuntime } from '../../shared/rendering/imageRender';
+import { ICON_GLYPHS } from '../../shared/rendering/iconGlyph';
 import { createBehaviorRuntime } from '../../shared/rendering/behaviorRuntime';
 import type { ThemeConfig, PageData, BuilderComponentData } from '../../shared/rendering/types';
 import { BREAKPOINTS, REDUCED_MOTION_QUERY } from '../../shared/rendering/contract';
@@ -2882,6 +2883,21 @@ function hexToRgba(hex: string, opacity: number): string {
   return hex;
 }
 
+// An icon class name from the customer's old site, as something a visitor
+// can see. A migrated card carries "fa-heart" or "lucide-check"; printed
+// straight into the card it read as the word "heart". A known name becomes
+// the emoji that means the same, an emoji passes through, and anything else
+// renders as nothing — an empty chip beats a stray word.
+const ICON_GLYPHS: Record<string, string> = ${JSON.stringify(ICON_GLYPHS)};
+function iconGlyph(icon: unknown): string {
+  const raw = String(icon ?? '').trim();
+  if (!raw) return '';
+  if (!/^[a-z0-9][a-z0-9 _-]*$/i.test(raw)) return raw;
+  const name = raw.toLowerCase().replace(/^(fa[srlbd]?|fa|icon|lucide|bi|mdi|ti|feather)[-\s]+/g, '').replace(/[\s_]+/g, '-').replace(/^-+|-+$/g, '');
+  if (!name || name === 'svg') return '';
+  return ICON_GLYPHS[name] || ICON_GLYPHS[name.replace(/s$/, '')] || ICON_GLYPHS[name.split('-')[0]] || '';
+}
+
 function getContrastColor(hexColor: string): string {
   const result = /^#?([a-f\\d]{2})([a-f\\d]{2})([a-f\\d]{2})$/i.exec(hexColor);
   if (result) {
@@ -3622,6 +3638,7 @@ function FeaturesSection({ props, styles }: { props: ComponentProps; styles: Com
   const accentColor = resolveAccentColor(styles);
   const fontFamily = resolveFontFamily(styles);
   const { containerRef, getItemStyle } = useStaggerAnimation(props.items?.length || 0);
+  const photoCards = (styles.cardStyle as string) === 'photo';
   const stTitle = getStyledText(props.styledTitle, props.title);
   const stSub = getStyledText(props.styledSubtitle, props.subtitle);
 
@@ -3637,9 +3654,13 @@ function FeaturesSection({ props, styles }: { props: ComponentProps; styles: Com
               backgroundColor: hexToRgba(accentColor, 0.04),
               borderRadius: '16px',
               border: '1px solid ' + hexToRgba(accentColor, 0.08),
+              ...(photoCards && item.imageUrl ? { backgroundImage: 'linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.45)), url(' + normalizeImageValue(item.imageUrl as ImageValue).url + ')', backgroundSize: 'cover', backgroundPosition: 'center', color: '#ffffff', minHeight: '240px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' } : {}),
               ...getItemStyle(index),
             }}>
-              {item.icon && <div style={{ fontSize: '32px', marginBottom: '16px', width: '56px', height: '56px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: hexToRgba(accentColor, 0.1), borderRadius: '12px', margin: props.alignment === 'center' ? '0 auto 16px' : '0 0 16px' }}>{item.icon}</div>}
+              {!photoCards && item.imageUrl && (
+                <PublishedImage value={item.imageUrl} alt={item.title || ''} slot={imageSlot('items.' + index + '.imageUrl')} style={{ width: '100%', height: '160px', objectFit: 'cover', borderRadius: '14px', marginBottom: '20px', display: 'block' }} />
+              )}
+              {iconGlyph(item.icon) && <div style={{ fontSize: '32px', marginBottom: '16px', width: '56px', height: '56px', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: hexToRgba(accentColor, 0.1), borderRadius: '12px', margin: props.alignment === 'center' ? '0 auto 16px' : '0 0 16px' }}>{iconGlyph(item.icon)}</div>}
               <h3 style={{ fontSize: '20px', fontWeight: 600, marginBottom: '8px', lineHeight: 1.3 }}>{item.title}</h3>
               <p style={{ fontSize: '15px', opacity: 0.75, lineHeight: 1.6 }}>{item.description}</p>
             </HoverCard>
@@ -4369,6 +4390,8 @@ function GallerySection({ props, styles }: { props: ComponentProps; styles: Comp
   const fontFamily = resolveFontFamily(styles);
   const images = props.images || [];
   const columns = props.columns || 2;
+  const captions = ((props as any).captions as string[]) || [];
+  const captionsOver = (props as any).captionPlacement === 'overlay';
   const stTitle = getStyledText(props.styledTitle, props.title);
   const stDesc = getStyledText(props.styledDescription, props.description);
 
@@ -4380,10 +4403,22 @@ function GallerySection({ props, styles }: { props: ComponentProps; styles: Comp
         <div style={{ display: 'grid', gridTemplateColumns: \`repeat(\${columns}, 1fr)\`, gap: styles.gap || '16px' }}>
           {images.map((image: ImageValue, index: number) => {
             const imageUrl = getImageUrl(image);
+            const normalized = normalizeImageValue(image);
+            // The source's own shape, not a forced square: a portrait photo
+            // cropped to 1:1 loses the client's composition.
+            const ratio = normalized.width && normalized.height ? normalized.width + ' / ' + normalized.height : '1';
+            const caption = captions[index];
             return imageUrl ? (
-              <div key={index} style={{ position: 'relative', borderRadius: styles.borderRadius || '8px', overflow: 'hidden', aspectRatio: '1' }}>
-                <PublishedImage value={image} alt="" slot={imageSlot('gallery')} wrapperStyle={{ height: '100%', aspectRatio: 'auto' }} style={{ width: '100%', height: '100%', display: 'block', borderRadius: styles.borderRadius || '8px' }} />
-              </div>
+              <figure key={index} style={{ position: 'relative', margin: 0, borderRadius: styles.borderRadius || '8px', overflow: 'hidden', aspectRatio: captionsOver ? ratio : undefined }}>
+                <PublishedImage value={image} alt={normalized.alt || caption || ''} slot={imageSlot('gallery')} wrapperStyle={{ height: captionsOver ? '100%' : undefined, aspectRatio: captionsOver ? 'auto' : ratio }} style={{ width: '100%', height: captionsOver ? '100%' : 'auto', display: 'block', borderRadius: styles.borderRadius || '8px', aspectRatio: captionsOver ? undefined : ratio, objectFit: 'cover' }} />
+                {caption ? (
+                  captionsOver ? (
+                    <figcaption style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '16px', background: 'linear-gradient(transparent, rgba(0,0,0,0.65))', color: '#ffffff', fontSize: '14px' }}>{caption}</figcaption>
+                  ) : (
+                    <figcaption style={{ padding: '10px 2px 0', fontSize: '14px', opacity: 0.7 }}>{caption}</figcaption>
+                  )
+                ) : null}
+              </figure>
             ) : null;
           })}
         </div>
@@ -4791,6 +4826,7 @@ function ServicesSection({ props, styles }: { props: ComponentProps; styles: Com
   const fontFamily = resolveFontFamily(styles);
   const services = (props as any).services || props.items || [];
   const cardStyle = (styles.cardStyle as string) || 'bordered';
+  const photoCards = cardStyle === 'photo';
   const { containerRef, getItemStyle } = useStaggerAnimation(services.length);
   const stTitle = getStyledText(props.styledTitle, props.title);
   const stSub = getStyledText(props.styledSubtitle, props.subtitle);
@@ -4822,9 +4858,13 @@ function ServicesSection({ props, styles }: { props: ComponentProps; styles: Com
               transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease',
               textAlign: 'left',
               ...getCardStyles(),
+              ...(photoCards && item.imageUrl ? { backgroundImage: 'linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.45)), url(' + normalizeImageValue(item.imageUrl as ImageValue).url + ')', backgroundSize: 'cover', backgroundPosition: 'center', color: '#ffffff', minHeight: '260px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' } : {}),
               ...getItemStyle(index),
             }}>
-              {item.icon && (
+              {!photoCards && item.imageUrl && (
+                <PublishedImage value={item.imageUrl} alt={item.title || item.name || ''} slot={imageSlot('services.' + index + '.imageUrl')} style={{ width: '100%', height: '180px', objectFit: 'cover', borderRadius: '12px', marginBottom: '24px', display: 'block' }} />
+              )}
+              {iconGlyph(item.icon) && (
                 <div style={{
                   width: '56px',
                   height: '56px',
@@ -4835,7 +4875,7 @@ function ServicesSection({ props, styles }: { props: ComponentProps; styles: Com
                   justifyContent: 'center',
                   fontSize: '28px',
                   marginBottom: '20px',
-                }}>{item.icon}</div>
+                }}>{iconGlyph(item.icon)}</div>
               )}
               <h3 style={{ fontSize: '20px', fontWeight: 700, marginBottom: '8px', lineHeight: 1.3 }}>{item.title || item.name}</h3>
               <p style={{ fontSize: '15px', opacity: 0.7, lineHeight: 1.7 }}>{item.description}</p>
@@ -5851,7 +5891,9 @@ function CustomComponentSection({ props, styles }: { props: ComponentProps; styl
     <section style={{
       backgroundColor: (styles.backgroundColor as string) || 'transparent',
       ...(styles.backgroundImage ? {
-        backgroundImage: String(styles.backgroundImage).indexOf('url(') === 0 ? String(styles.backgroundImage) : 'url(' + String(styles.backgroundImage) + ')',
+        // Only a bare path is wrapped: a scrim over a photo arrives as
+        // 'linear-gradient(...), url(...)' and must pass through untouched.
+        backgroundImage: /^(\/|https?:\/\/|data:)/i.test(String(styles.backgroundImage).trim()) ? 'url(' + String(styles.backgroundImage) + ')' : String(styles.backgroundImage),
         backgroundSize: (styles.backgroundSize as string) || 'cover',
         backgroundPosition: (styles.backgroundPosition as string) || 'center',
       } : {}),

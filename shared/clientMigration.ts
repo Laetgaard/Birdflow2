@@ -60,8 +60,8 @@ export const MIGRATION_ACTIVE_STATUSES: MigrationStatus[] = [
 
 export const MAX_MIGRATION_PAGES = 60;
 export const DEFAULT_MIGRATION_PAGES = 30;
-export const MAX_MIGRATION_CEILING_USD = 150;
-export const DEFAULT_MIGRATION_CEILING_USD = 20;
+export const MAX_MIGRATION_CEILING_USD = 200;
+export const DEFAULT_MIGRATION_CEILING_USD = 25;
 export const MAX_MIGRATION_ASSETS = 300;
 export const DEFAULT_MIGRATION_ASSETS = 160;
 export const MAX_SECTIONS_PER_PAGE = 24;
@@ -73,20 +73,31 @@ export const MAX_SECTIONS_PER_PAGE = 24;
  * A flat ceiling is the wrong shape: it is generous for a five-page site and
  * starves a thirty-page one. Every section is placed deterministically first,
  * so the ceiling never decides whether the site is complete — only how many
- * sections get the agent's faithful upgrade on top. Costed for the reasoning
- * model with a screenshot in every call: about $0.15 a call, four calls per
- * upgraded section, three upgrades per page, plus the plan and the vision
- * review. The admin can still override it per job.
+ * sections get the agent's faithful upgrade on top, and how many rounds of
+ * look-and-correct each of those gets. Costed for the reasoning model with a
+ * screenshot in every call: about $0.15 a call, three calls to build a
+ * section, a cent to look at it, two calls to correct it — so roughly
+ * $0.16 for a section that lands first time and $0.40 for one that takes two
+ * corrections, three to five such sections per page, plus the plan and the
+ * page review. The admin can still override it per job.
  */
 export function recommendedCeilingUsd(maxPages: number): number {
   const pages = Math.max(1, Math.min(MAX_MIGRATION_PAGES, Math.round(maxPages || DEFAULT_MIGRATION_PAGES)));
-  return Math.min(MAX_MIGRATION_CEILING_USD, Math.max(DEFAULT_MIGRATION_CEILING_USD, Math.round(10 + 2.2 * pages)));
+  return Math.min(MAX_MIGRATION_CEILING_USD, Math.max(DEFAULT_MIGRATION_CEILING_USD, Math.round(12 + 4.5 * pages)));
 }
 
 export const migrationLimitsSchema = z.object({
   maxPages: z.number().int().min(1).max(MAX_MIGRATION_PAGES).default(DEFAULT_MIGRATION_PAGES),
   maxAssets: z.number().int().min(0).max(MAX_MIGRATION_ASSETS).default(DEFAULT_MIGRATION_ASSETS),
   ceilingUsd: z.number().min(1).max(MAX_MIGRATION_CEILING_USD).default(DEFAULT_MIGRATION_CEILING_USD),
+  /** How many times one section may be built, looked at and corrected. */
+  sectionIterations: z.number().int().min(1).max(5).default(3),
+  /** The score, out of 100, at which a section is left alone. */
+  sectionPassScore: z.number().int().min(60).max(100).default(85),
+  /** The most one section's rebuild may cost. */
+  sectionCapUsd: z.number().min(0.3).max(2).default(0.9),
+  /** The most one page's rebuild may cost, across all its sections. */
+  pageAgentCapUsd: z.number().min(0.5).max(6).default(3),
 });
 export type MigrationLimits = z.infer<typeof migrationLimitsSchema>;
 
@@ -187,6 +198,11 @@ export const extractedItemSchema = z.object({
   text: z.string().max(1500).optional(),
   imageSrc: z.string().max(2000).optional(),
   imageMediaId: z.string().optional(),
+  /** The card's words sat ON its photo — a card backdrop, not a picture above a caption. */
+  imageBehindText: z.boolean().optional(),
+  /** The photo was a CSS background; without this the card came through with no picture at all. */
+  imageIsCssBackground: z.boolean().optional(),
+  imageRect: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }).optional(),
   href: z.string().max(2000).optional(),
   price: z.string().max(60).optional(),
   icon: z.string().max(80).optional(),
@@ -217,6 +233,10 @@ export const extractedSectionSchema = z.object({
   headingFont: z.string().max(120).optional(),
   bodyFont: z.string().max(120).optional(),
   headingSize: z.number().optional(),
+  headingWeight: z.number().optional(),
+  headingTransform: z.string().max(20).optional(),
+  headingLetterSpacing: z.string().max(20).optional(),
+  bodyLineHeight: z.string().max(20).optional(),
   paddingY: z.number().optional(),
   headings: z.array(z.object({ level: z.number().int().min(1).max(6), text: z.string().max(500) })).max(10),
   paragraphs: z.array(z.string().max(1500)).max(25),
@@ -369,6 +389,12 @@ export const MigrationSectionPlanSchema = z.object({
   /** Subset of the job's imported assets. */
   imageMediaIds: z.array(z.string()).max(30),
   order: z.number().int().nonnegative(),
+  /** What the rebuild agent should know about this band, from the plan model. */
+  brief: z.string().max(400).optional(),
+  /** The admin's own directive for this section, kept across re-runs. */
+  instruction: z.string().max(400).optional(),
+  /** Settled by the admin: no agent, no correction, no later run touches it. */
+  keepAsOriginal: z.boolean().optional(),
 }).strict();
 export type MigrationSectionPlan = z.infer<typeof MigrationSectionPlanSchema>;
 
@@ -446,7 +472,7 @@ export const ROLE_TARGET_COMPATIBILITY: Record<SectionRole, Array<string>> = {
   video: ["component:video-embed", "custom"],
   "comparison-table": ["component:comparison-table", "section:pricing-section", "custom"],
   "rich-text": ["component:rich-text", "component:text-image", "custom"],
-  divider: ["component:divider", "skip"],
+  divider: ["component:divider", "custom", "skip"],
 };
 
 export function targetKey(target: MigrationTarget): string {
@@ -673,10 +699,38 @@ export type MigrationFidelity = {
  * (`agent` is the older name for `upgraded`, still found on rows built
  * before the floor existed.)
  */
-export type MigrationSectionBuildStatus = "placed" | "upgraded" | "upgrade_failed" | "upgrade_rejected" | "upgrade_skipped" | "agent" | "failed" | "skipped" | "noted";
+export type MigrationSectionBuildStatus = "placed" | "upgraded" | "upgrade_partial" | "upgrade_failed" | "upgrade_rejected" | "upgrade_skipped" | "agent" | "failed" | "skipped" | "noted";
+/** What one section's rebuild was worth, and what the admin can look at. */
+export type MigrationSectionReviewRecord = {
+  iterations: number;
+  /** 0-100: the deterministic coverage and the reviewer's verdict combined. */
+  score?: number;
+  deterministic?: number;
+  visual?: number;
+  verdict?: string;
+  model?: string;
+  /** Why no picture was compared, when none was. */
+  reason?: string;
+  crops?: { desktop?: string; mobile?: string };
+  /** The one difference the reviewer thought mattered most. */
+  topIssue?: string;
+  /** What this section cost, against what it was allowed. */
+  spendUsd?: number;
+  allowanceUsd?: number;
+};
 export type MigrationPageBuildProgress = {
-  sections: Record<string, { status: MigrationSectionBuildStatus; componentId?: string; attempts: number; note?: string }>;
+  sections: Record<string, {
+    status: MigrationSectionBuildStatus;
+    componentId?: string;
+    attempts: number;
+    note?: string;
+    /** 0-100 for this section alone; the page's Troskab is the average. */
+    score?: number;
+    review?: MigrationSectionReviewRecord;
+  }>;
   agentSpendUsd: number;
+  /** The part of agentSpendUsd that went on looking at the rebuilds. */
+  reviewSpendUsd?: number;
 };
 
 export type MigrationJobSummary = {

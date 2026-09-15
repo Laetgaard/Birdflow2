@@ -78,6 +78,32 @@ export function addLegalPagesIfMissing(state: BuilderStateData, plan: MigrationP
   }, language);
 }
 
+/**
+ * What the migration could not bring along, in the words the client reads in
+ * their builder. The plan's own notes first, then one line per section that
+ * could not be rebuilt — de-duplicated, because a site with forty untouched
+ * embeds would otherwise fill the card with the same sentence.
+ */
+export function migrationNotes(plan: MigrationPlan, language: "da" | "en"): string[] {
+  const notes: string[] = [];
+  const seen = new Set<string>();
+  const push = (line: string) => {
+    const text = line.trim().slice(0, 300);
+    const key = text.toLowerCase();
+    if (!text || seen.has(key)) return;
+    seen.add(key);
+    notes.push(text);
+  };
+  for (const note of plan.notes) push(note);
+  const messages = new Map<string, number>();
+  for (const entry of plan.unsupported) messages.set(entry.message, (messages.get(entry.message) ?? 0) + 1);
+  for (const [message, count] of messages) {
+    const times = language === "da" ? `${count} steder` : `${count} places`;
+    push(count > 1 ? `${message} (${times})` : message);
+  }
+  return notes.slice(0, 20);
+}
+
 export async function finalizeMigratedSite(args: {
   websiteId: string;
   state: BuilderStateData;
@@ -87,18 +113,39 @@ export async function finalizeMigratedSite(args: {
   extractions: PageExtraction[];
   language: "da" | "en";
   sourceHost: string;
+  jobId: string;
 }): Promise<{ state: BuilderStateData; revision: number; snapshotId: string }> {
   let state = applyChromeAndNavigation(args.state, args.plan, args.assets);
   state = applyBusinessContext(state, { businessName: args.plan.siteName, language: args.language, extractions: args.extractions });
   state = addLegalPagesIfMissing(state, args.plan, args.language, args.plan.siteName);
   state = migrateSiteStructure(state);
   state.activePage = state.pages.find((p) => p.role === "home")?.id ?? state.pages[0]?.id ?? "home";
+  // The mark that says "this look was the customer's, copied on purpose".
+  // Written before the save so it survives even if the snapshot below fails.
+  state.migration = {
+    sourceHost: args.sourceHost,
+    jobId: args.jobId,
+    migratedAt: new Date().toISOString(),
+    preserveFidelity: true,
+    notes: migrationNotes(args.plan, args.language),
+  };
 
   const saved = await storage.updateBuilderState(args.websiteId, state, args.expectedRevision, { svgAssetOrigin: "customer" } as any);
   if (!saved) throw Object.assign(new Error("builder_conflict"), { code: "builder_conflict" });
-  const revision = (saved as any).revision as number;
+  let revision = (saved as any).revision as number;
 
   await db.update(websites).set({ name: args.plan.siteName.slice(0, 200), updatedAt: new Date() }).where(eq(websites.id, args.websiteId));
   const snapshot = await createBuilderSnapshot({ websiteId: args.websiteId, buildId: 0, label: `Migreret fra ${args.sourceHost}`, content: state, revision });
+
+  // The snapshot's id only exists now, and the client's "back to the rebuild"
+  // link needs it. A second write, and a conflict here costs the link, not
+  // the migration: the site is already saved and the snapshot already exists.
+  state.migration.snapshotId = snapshot.id;
+  try {
+    const relinked = await storage.updateBuilderState(args.websiteId, state, revision, { svgAssetOrigin: "customer" } as any);
+    if (relinked) revision = (relinked as any).revision as number;
+  } catch {
+    /* the snapshot is still listed under "Gendan" — only the shortcut is lost */
+  }
   return { state, revision, snapshotId: snapshot.id };
 }

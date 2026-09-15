@@ -755,6 +755,12 @@ export default /**
  * is a decorative rule the agent drew on purpose, not an empty slot — the
  * "add elements" placeholder would paint over it and hide it.
  */
+/** A background value that is a path rather than CSS, and so needs `url()`. */
+function isBarePath(value: unknown): boolean {
+  const text = String(value ?? "").trim();
+  return /^(\/|https?:\/\/|data:)/i.test(text);
+}
+
 function isDecorativeBox(node: { styles?: Record<string, unknown> }): boolean {
   const styles = (node.styles ?? {}) as Record<string, unknown>;
   if (styles.backgroundColor || styles.background || styles.backgroundImage || styles.borderTop || styles.borderBottom || styles.border) return true;
@@ -817,7 +823,10 @@ function CustomComponentRenderer({
     // the backdrop on the section went blank.
     ...(sectionStyles.backgroundImage
       ? {
-          backgroundImage: String(sectionStyles.backgroundImage).startsWith("url(") ? String(sectionStyles.backgroundImage) : `url(${sectionStyles.backgroundImage})`,
+          // Only a bare path is wrapped. A value that is already CSS — a
+          // scrim over a photo is `linear-gradient(...), url(...)` — becomes
+          // `url(linear-gradient(...))` if wrapped again, and renders nothing.
+          backgroundImage: isBarePath(sectionStyles.backgroundImage) ? `url(${sectionStyles.backgroundImage})` : String(sectionStyles.backgroundImage),
           backgroundSize: (sectionStyles.backgroundSize as string) || "cover",
           backgroundPosition: (sectionStyles.backgroundPosition as string) || "center",
         }

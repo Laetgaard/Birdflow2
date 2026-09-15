@@ -63,7 +63,10 @@ export function scorePageFidelity(args: { extraction: PageExtraction; plan: Migr
     if (Array.isArray(value)) { for (const item of value) walk(item, depth + 1); }
     else if (value && typeof value === "object") { for (const item of Object.values(value as Record<string, unknown>)) walk(item, depth + 1); }
   };
-  for (const component of list(args.page.components)) walk(component.props, 0);
+  // Props AND styles: a band's photo lives in `styles.backgroundImage`, so a
+  // score that walked props alone reported exactly the text-over-image
+  // sections the admin cares about as missing their picture.
+  for (const component of list(args.page.components)) { walk(component.props, 0); walk((component as { styles?: unknown }).styles, 0); }
   // The media ids the page actually shows: by the caller's map when it has
   // one, else by the section images that carry both a path and an id.
   const idsByPath = args.mediaIdsByPath ?? new Map(list(args.extraction.sections).flatMap((s) => [...list(s.images).map((img) => [img.src, img.mediaId] as const), ...list(s.items).map((i) => [i.imageSrc ?? "", i.imageMediaId] as const)]).filter((pair): pair is readonly [string, string] => !!pair[0] && !!pair[1]));
@@ -93,4 +96,68 @@ export function scorePageFidelity(args: { extraction: PageExtraction; plan: Migr
 
 function round(n: number): number {
   return Math.round(Math.max(0, Math.min(1, n)) * 1000) / 1000;
+}
+
+/**
+ * The same measurement for ONE section: what the rebuild of this band kept.
+ *
+ * The page score answers "is the page complete"; a section loop needs "is
+ * THIS band right", before it spends a vision call on it. A rebuild that
+ * lost half the words is rejected here for free, and the missing lines are
+ * named so the next attempt can be told what to put back.
+ */
+export type SectionFidelity = MigrationFidelity & { missing: string[] };
+
+export function scoreSectionFidelity(args: {
+  section: { headings?: Array<{ text: string }>; paragraphs?: string[]; lists?: string[][]; quotes?: Array<{ text: string }>; ctas?: Array<{ text: string }>; items?: Array<{ title?: string; text?: string; quote?: string; imageSrc?: string }>; images?: Array<{ src: string; decorative?: boolean }> };
+  components: BuilderPage["components"];
+  importedPaths: Set<string>;
+}): SectionFidelity {
+  const page = { id: "section", name: "section", path: "/", components: args.components } as BuilderPage;
+  const copy = pageCopy(page);
+  const section = args.section;
+
+  const sentences = uniq([...list(section.paragraphs), ...list(section.lists).flat(), ...list(section.quotes).map((q) => q.text), ...list(section.items).flatMap((i) => [i.text ?? "", i.quote ?? ""])]
+    .flatMap((t) => t.split(/(?<=[.!?])\s+/)).filter((t) => t.length >= 20));
+  const headings = uniq([...list(section.headings).map((h) => h.text), ...list(section.items).map((i) => i.title ?? "")].filter((t) => t.length >= 3));
+  const ctas = uniq(list(section.ctas).map((c) => c.text).filter((t) => t.length >= 2));
+  const wanted = uniq([...list(section.images).filter((img) => !img.decorative).map((img) => img.src), ...list(section.items).map((i) => i.imageSrc ?? "")])
+    .filter((src) => args.importedPaths.has(src));
+
+  const shown = new Set<string>();
+  const walk = (value: unknown, depth: number) => {
+    if (depth > 24) return;
+    if (typeof value === "string") {
+      if (value.startsWith("/objects/")) shown.add(value);
+      else if (/url\(/i.test(value)) for (const path of value.match(/\/objects\/[^'")\s]+/g) ?? []) shown.add(path);
+      return;
+    }
+    if (Array.isArray(value)) { for (const item of value) walk(item, depth + 1); }
+    else if (value && typeof value === "object") { for (const item of Object.values(value as Record<string, unknown>)) walk(item, depth + 1); }
+  };
+  for (const component of list(args.components)) { walk(component.props, 0); walk((component as { styles?: unknown }).styles, 0); }
+
+  const ratio = (items: string[], test: (v: string) => boolean) => (items.length ? items.filter(test).length / items.length : 1);
+  const textCoverage = ratio(sentences, (t) => present(copy, t));
+  const headingCoverage = ratio(headings, (h) => present(copy, h));
+  const ctaCoverage = ratio(ctas, (c) => present(copy, c));
+  const imageCoverage = ratio(wanted, (src) => shown.has(src));
+
+  const missing = [
+    ...headings.filter((h) => !present(copy, h)).slice(0, 4).map((h) => `overskriften "${h.slice(0, 60)}"`),
+    ...wanted.filter((src) => !shown.has(src)).slice(0, 4).map((src) => `billedet ${src}`),
+    ...sentences.filter((t) => !present(copy, t)).slice(0, 3).map((t) => `teksten "${t.slice(0, 60)}…"`),
+  ];
+
+  const score = 0.45 * textCoverage + 0.25 * headingCoverage + 0.15 * ctaCoverage + 0.15 * imageCoverage;
+  return {
+    score: round(score),
+    textCoverage: round(textCoverage),
+    headingCoverage: round(headingCoverage),
+    ctaCoverage: round(ctaCoverage),
+    imageCoverage: round(imageCoverage),
+    // A single section has no order of its own; the page score carries that.
+    orderScore: 1,
+    missing,
+  };
 }

@@ -5,6 +5,7 @@ import BookingWidget from './BookingWidget';
 import BuilderImage from './BuilderImage';
 import ImageResizer from './ImageResizer';
 import { heroLayoutStyles, imageSlot, normalizeImageValue, scaleLength } from '@shared/rendering/imageRender';
+import { iconGlyph } from '@shared/rendering/iconGlyph';
 import type { ImageLike, ImageValue } from '@shared/rendering/imageValue';
 import CustomComponentRenderer from './CustomComponentRenderer';
 import { resolveApprovedFontStack } from '@shared/fonts';
@@ -535,6 +536,24 @@ function EditableText({
   );
 }
 
+/**
+ * The photo a band sits on, for the components that build their own
+ * `<section>` style instead of calling getBaseStyle.
+ *
+ * Nine of them hardcoded a background colour, so a migrated band showed its
+ * picture on the published site and a flat colour in the builder the
+ * customer opens — and the visual check, which renders through the publisher,
+ * could never see the difference.
+ */
+function backgroundLayer(styles: ComponentStyles): React.CSSProperties {
+  if (!styles.backgroundImage) return {};
+  return {
+    backgroundImage: styles.backgroundImage,
+    backgroundSize: styles.backgroundSize || 'cover',
+    backgroundPosition: styles.backgroundPosition || 'center',
+  };
+}
+
 function getBaseStyle(styles: ComponentStyles, isSelected: boolean, isPreview: boolean): React.CSSProperties {
   return {
     backgroundColor: styles.backgroundGradient && styles.backgroundGradient !== 'none'
@@ -990,6 +1009,7 @@ function FeaturesComponent({ props, styles, isSelected, onClick, isPreview, onTe
   const fontWeight = styles.fontWeight ? parseInt(styles.fontWeight) : 700;
   const { containerRef, getItemStyle } = useStaggerAnimation(props.items?.length || 0, isPreview);
   const useNumbered = props.layout === 'numbered';
+  const photoCards = styles.cardStyle === 'photo';
 
   return (
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
@@ -1021,18 +1041,25 @@ function FeaturesComponent({ props, styles, isSelected, onClick, isPreview, onTe
               borderRadius: '20px',
               border: `1px solid ${hexToRgba(accentColor, 0.08)}`,
               transition: 'transform 0.3s cubic-bezier(0.16,1,0.3,1), box-shadow 0.3s ease',
+              // A card whose words sat on its photo keeps them there.
+              ...(photoCards && item.imageUrl ? { backgroundImage: `linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.45)), url(${normalizeImageValue(item.imageUrl as ImageLike).url})`, backgroundSize: 'cover', backgroundPosition: 'center', color: '#ffffff', minHeight: '240px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' } : {}),
               ...getItemStyle(index),
             }}
             onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = `0 16px 40px ${hexToRgba(accentColor, 0.13)}`; }}
             onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
             >
+              {/* The card's own picture, above its words. Migrated cards
+                  carried one all along and neither renderer drew it. */}
+              {!photoCards && item.imageUrl && (
+                <BuilderImage value={normalizeImageValue(item.imageUrl as ImageLike)} alt={item.title || ''} slot={imageSlot(`items.${index}.imageUrl`)} isPreview={isPreview} style={{ width: '100%', height: '160px', objectFit: 'cover', borderRadius: '14px', marginBottom: '20px', display: 'block' }} />
+              )}
               {useNumbered ? (
                 <div style={{ fontSize: '32px', fontWeight: 800, color: accentColor, opacity: 0.18, lineHeight: 1, marginBottom: '20px', letterSpacing: '-0.04em', fontFamily: 'Georgia, serif' }}>
                   {String(index + 1).padStart(2, '0')}
                 </div>
-              ) : item.icon ? (
+              ) : iconGlyph(item.icon) ? (
                 <div style={{ fontSize: '24px', marginBottom: '20px', width: '52px', height: '52px', borderRadius: '14px', backgroundColor: hexToRgba(accentColor, 0.1), display: 'flex', alignItems: 'center', justifyContent: 'center', border: `1px solid ${hexToRgba(accentColor, 0.12)}` }}>
-                  {item.icon}
+                  {iconGlyph(item.icon)}
                 </div>
               ) : null}
               {canEdit ? (
@@ -2273,6 +2300,12 @@ function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTex
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const br = styles.borderRadius || '12px';
   const captions: string[] = props.captions || [];
+  const captionsOver = (props as { captionPlacement?: string }).captionPlacement === 'overlay';
+  // A portrait photo forced into a square loses the client's composition.
+  const aspectOf = (image: unknown) => {
+    const normalized = normalizeImageValue(image as ImageLike);
+    return normalized.width && normalized.height ? `${normalized.width} / ${normalized.height}` : '1';
+  };
 
   return (
     <section style={{ ...baseStyle, fontFamily }} onClick={onClick}>
@@ -2327,6 +2360,9 @@ function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTex
                     )}
                   </div>
                 )}
+                {captionsOver && captions[index] && hoveredIndex !== index && (
+                  <div style={{ position: 'absolute', left: 0, right: 0, bottom: 0, padding: '14px', background: 'linear-gradient(transparent, rgba(0,0,0,0.65))', color: '#fff', fontSize: '13px', lineHeight: 1.4 }}>{captions[index]}</div>
+                )}
               </div>
             ))}
           </div>
@@ -2334,7 +2370,7 @@ function GalleryComponent({ props, styles, isSelected, onClick, isPreview, onTex
           /* Regular grid */
           <div style={{ display: 'grid', gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: styles.gap || '14px' }}>
             {images.map((image, index) => (
-              <div key={index} style={{ position: 'relative', borderRadius: br, overflow: 'hidden', cursor: isPreview ? 'zoom-in' : 'default', aspectRatio: '1' }}
+              <div key={index} style={{ position: 'relative', borderRadius: br, overflow: 'hidden', cursor: isPreview ? 'zoom-in' : 'default', aspectRatio: aspectOf(image) }}
                 onClick={isPreview ? (e) => { e.stopPropagation(); setLightboxIndex(index); } : undefined}
                 onMouseEnter={() => setHoveredIndex(index)}
                 onMouseLeave={() => setHoveredIndex(null)}
@@ -3213,6 +3249,7 @@ function BeforeAfterComponent({ props, styles, isSelected, onClick, isPreview, o
     <section
       style={{
         backgroundColor: styles.backgroundColor || '#ffffff',
+        ...backgroundLayer(styles),
         padding: styles.padding || '60px 24px',
         color: textColor,
         cursor: isPreview ? 'default' : 'pointer',
@@ -3355,6 +3392,7 @@ function LogoCloudComponent({ props, styles, isSelected, onClick, isPreview, onT
     <section
       style={{
         backgroundColor: styles.backgroundColor || '#ffffff',
+        ...backgroundLayer(styles),
         padding: styles.padding || '60px 24px',
         color: textColor,
         cursor: isPreview ? 'default' : 'pointer',
@@ -3460,6 +3498,7 @@ function TabsComponent({ props, styles, isSelected, onClick, isPreview, globalSt
     <section
       style={{
         backgroundColor: styles.backgroundColor || '#ffffff',
+        ...backgroundLayer(styles),
         padding: styles.padding || '80px 24px',
         color: textColor,
         cursor: isPreview ? 'default' : 'pointer',
@@ -3535,6 +3574,7 @@ function ComparisonTableComponent({ props, styles, isSelected, onClick, isPrevie
     <section
       style={{
         backgroundColor: styles.backgroundColor || '#ffffff',
+        ...backgroundLayer(styles),
         padding: styles.padding || '80px 24px',
         color: textColor,
         cursor: isPreview ? 'default' : 'pointer',
@@ -3639,6 +3679,7 @@ function SplitSectionComponent({ props, styles, isSelected, onClick, isPreview, 
     <section
       style={{
         backgroundColor: styles.backgroundColor || '#ffffff',
+        ...backgroundLayer(styles),
         padding: styles.padding || '100px 24px',
         color: textColor,
         cursor: isPreview ? 'default' : 'pointer',
@@ -3748,6 +3789,7 @@ function RichTextComponent({ props, styles, isSelected, onClick, isPreview, onTe
     <section
       style={{
         backgroundColor: styles.backgroundColor || '#ffffff',
+        ...backgroundLayer(styles),
         padding: styles.padding || '80px 24px',
         color: textColor,
         cursor: isPreview ? 'default' : 'pointer',
@@ -3792,6 +3834,7 @@ function TeamComponent({ props, styles, isSelected, onClick, isPreview, globalSt
     <section
       style={{
         backgroundColor: styles.backgroundColor || '#ffffff',
+        ...backgroundLayer(styles),
         padding: styles.padding || '100px 24px',
         color: textColor,
         cursor: isPreview ? 'default' : 'pointer',
@@ -3879,6 +3922,7 @@ function TimelineComponent({ props, styles, isSelected, onClick, isPreview, glob
     <section
       style={{
         backgroundColor: styles.backgroundColor || '#ffffff',
+        ...backgroundLayer(styles),
         padding: styles.padding || '100px 24px',
         color: textColor,
         cursor: isPreview ? 'default' : 'pointer',
@@ -3949,6 +3993,7 @@ function ServicesComponent({ props, styles, isSelected, onClick, isPreview, glob
   const fontFamily = resolveFontFamily(styles, globalStyles);
   const services = (props.services as ServiceItem[]) || [];
   const cardStyle = styles.cardStyle || 'bordered';
+  const photoCards = cardStyle === 'photo';
   const { containerRef, getItemStyle } = useStaggerAnimation(services.length, isPreview);
   const canEdit = !isPreview && onTextChange && onEditField;
 
@@ -3969,6 +4014,7 @@ function ServicesComponent({ props, styles, isSelected, onClick, isPreview, glob
     <section
       style={{
         backgroundColor: styles.backgroundColor || '#ffffff',
+        ...backgroundLayer(styles),
         padding: styles.padding || '100px 24px',
         color: textColor,
         cursor: isPreview ? 'default' : 'pointer',
@@ -4024,13 +4070,18 @@ function ServicesComponent({ props, styles, isSelected, onClick, isPreview, glob
                 backgroundColor: '#ffffff',
                 transition: 'transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease',
                 ...getCardStyles(),
+                // A card whose words sat on its photo keeps them there.
+                ...(photoCards && service.imageUrl ? { backgroundImage: `linear-gradient(rgba(0,0,0,0.45), rgba(0,0,0,0.45)), url(${normalizeImageValue(service.imageUrl as ImageLike).url})`, backgroundSize: 'cover', backgroundPosition: 'center', color: '#ffffff', minHeight: '260px', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end' } : {}),
                 ...getItemStyle(index),
               }}
               onMouseEnter={(e) => { e.currentTarget.style.transform = 'translateY(-4px)'; e.currentTarget.style.boxShadow = `0 12px 32px ${hexToRgba(accentColor, 0.12)}`; }}
               onMouseLeave={(e) => { e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = ''; }}
               data-testid={`service-item-${index}`}
             >
-              {service.icon && (
+              {!photoCards && service.imageUrl && (
+                <BuilderImage value={normalizeImageValue(service.imageUrl as ImageLike)} alt={service.title || ''} slot={imageSlot(`services.${index}.imageUrl`)} isPreview={isPreview} style={{ width: '100%', height: '180px', objectFit: 'cover', borderRadius: '12px', marginBottom: '24px', display: 'block' }} />
+              )}
+              {iconGlyph(service.icon) && (
                 <div style={{
                   width: '56px',
                   height: '56px',
@@ -4042,7 +4093,7 @@ function ServicesComponent({ props, styles, isSelected, onClick, isPreview, glob
                   marginBottom: '24px',
                   fontSize: '26px',
                 }}>
-                  {service.icon}
+                  {iconGlyph(service.icon)}
                 </div>
               )}
               <h3 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '12px', lineHeight: 1.3 }}>{service.title || service.name}</h3>

@@ -18,6 +18,7 @@
  * failing or quietly doing less.
  */
 
+import type OpenAI from "openai";
 import { randomUUID } from "node:crypto";
 import { createSpendMeter, assumedCallCostUsd, type SpendMeter } from "../aiSpend";
 import { storage } from "../storage";
@@ -27,26 +28,29 @@ import type { BuilderStateData } from "@shared/schema";
 import {
   MigrationPlanSchema,
   migrationLimitsSchema,
+  type MigrationLimits,
   repairMigrationPlan,
   type MigrationAssetRecord,
   type MigrationErrorCode,
   type MigrationFidelity,
   type MigrationPhase,
   type MigrationPlan,
+  type MigrationPagePlan,
+  type MigrationPageBuildProgress,
   type MigrationWarning,
   type PageExtraction,
 } from "@shared/clientMigration";
 import * as store from "./migrationStore";
 import { openBrowserSession, type BrowserSession } from "./capture/browserSession";
 import { discoverPages } from "./capture/discovery";
-import { capturePage, BotProtectionError } from "./capture/pageCapture";
+import { capturePage, readMigrationFile, BotProtectionError } from "./capture/pageCapture";
 import { importPageAssets } from "./capture/assets";
 import { deriveBrandGuide } from "./brand/brandFromCapture";
 import { producePlan, type PlanSource } from "./plan/planAgent";
 import { buildPage } from "./build/pageBuilder";
 import { scorePageFidelity } from "./verify/fidelityScore";
 import { reviewPageFidelity, type VerifySkipReason } from "./verify/fidelityReview";
-import { finalizeMigratedSite } from "./finish/finalize";
+import { finalizeMigratedSite, applyChromeAndNavigation } from "./finish/finalize";
 import { runAgentLoop } from "../aiAgent";
 import type { AgentContext } from "../aiAgentTools";
 import { makeFidelityGuard } from "./build/fidelityGuard";
@@ -68,7 +72,9 @@ const SLICES = { plan: 0.15, build: 0.6, verify: 0.2, enrich: 0.05 } as const;
 /** Which metered roles draw on which slice, so a slice can be spent down. */
 const SLICE_ROLES: Record<keyof typeof SLICES, string[]> = {
   plan: ["migrationPlan"],
-  build: ["migrationBuild"],
+  // The section reviewer is part of building — its calls are what makes a
+  // band worth keeping — so it is charged to the build slice, not verify.
+  build: ["migrationBuild", "migrationSectionReview"],
   verify: ["migrationFidelity"],
   enrich: ["migrationExtract"],
 };
@@ -144,7 +150,7 @@ type Runtime = {
   job: store.MigrationJob;
   meter: SpendMeter;
   spendByRole: Record<string, number>;
-  limits: { maxPages: number; maxAssets: number; ceilingUsd: number };
+  limits: MigrationLimits;
   log: (message: string) => void;
 };
 
@@ -420,11 +426,23 @@ async function phasePlan(rt: Runtime): Promise<void> {
   let warnings: string[];
   try {
     const discovery = rt.job.discovery as { menu?: Array<{ label: string; url: string; order: number }>; pages?: Array<{ url: string; title?: string; fromNav?: boolean }> } | null;
+    // The plan model looks at each page before deciding what it is made of.
+    // Judging order, grouping and purpose from counts alone is what produced
+    // pages that were right section by section and wrong as a whole.
+    const screenshots = new Map<string, Buffer>();
+    if (useModel) {
+      for (const item of items) {
+        const path = (item.page.screenshots as any)?.desktop?.storagePath as string | undefined;
+        if (!path) continue;
+        try { screenshots.set(item.page.id, await resizeForPlan(await readMigrationFile(path))); } catch { /* the manifest still stands on its own */ }
+      }
+    }
     ({ plan, warnings } = await producePlan({
       sources, assets, siteName: rt.job.company, language: rt.job.language as "da" | "en", pixelClose: true, meter: rt.meter, useModel,
       // The menu the site itself published, and the pages the crawl reached
       // through a navigation: what a header hidden behind a burger costs us.
       navHints: { menu: discovery?.menu, pages: discovery?.pages },
+      screenshots,
     }));
   } catch (error: any) {
     if (error instanceof JobControl || error instanceof PhaseFailure) throw error;
@@ -436,6 +454,51 @@ async function phasePlan(rt: Runtime): Promise<void> {
   await store.updateJob(rt.job.id, { plan: plan as unknown as Record<string, unknown>, ...(autoApprove ? { planReviewedAt: new Date(), planReviewedBy: "auto" } : {}) });
 }
 
+/**
+ * A page screenshot small enough to send with a plan question.
+ *
+ * Full height at full width is thousands of tokens and tells the model
+ * nothing more: the first screens are what decide a page's shape.
+ */
+async function resizeForPlan(jpeg: Buffer): Promise<Buffer> {
+  const sharp = (await import("sharp")).default;
+  const meta = await sharp(jpeg).metadata();
+  const height = Math.min(meta.height ?? 4000, 4000);
+  return sharp(jpeg).extract({ left: 0, top: 0, width: meta.width ?? 1440, height }).resize({ width: 1024, withoutEnlargement: true }).jpeg({ quality: 70 }).toBuffer();
+}
+
+/** Which rebuilt component is which source section, for the corrective pass. */
+function sectionMapText(pagePlan: MigrationPagePlan, progress: MigrationPageBuildProgress | null): string {
+  const rows = pagePlan.sections
+    .map((section) => {
+      const built = progress?.sections?.[section.sourceSectionId];
+      return built?.componentId ? `${built.componentId} = ${section.role}${built.score ? ` (${built.score}/100)` : ""}` : "";
+    })
+    .filter(Boolean);
+  return rows.length ? rows.join("; ") : "not recorded";
+}
+
+/** The original page and the rebuild, as two pictures a model can compare. */
+async function comparePair(sourcePath: string | undefined, rebuiltPath: string | undefined): Promise<OpenAI.Chat.ChatCompletionContentPart[]> {
+  const parts: OpenAI.Chat.ChatCompletionContentPart[] = [];
+  for (const [label, path] of [["ORIGINAL", sourcePath], ["REBUILD", rebuiltPath]] as const) {
+    if (!path) continue;
+    try {
+      const jpeg = await resizeForPlan(await readMigrationFile(path));
+      parts.push({ type: "text", text: `${label}:` });
+      parts.push({ type: "image_url", image_url: { url: `data:image/jpeg;base64,${jpeg.toString("base64")}`, detail: "high" } });
+    } catch { /* the issue list still stands on its own */ }
+  }
+  return parts.length >= 2 ? parts : [];
+}
+
+/** The font the brand step could not keep, for the reviewer's information. */
+function fontNote(job: store.MigrationJob): string | undefined {
+  const guide = (job.brand as { guide?: { fonts?: { heading?: { original?: string; family?: string; substituted?: boolean }; body?: { original?: string; family?: string; substituted?: boolean } } } } | null)?.guide;
+  const swapped = [guide?.fonts?.heading, guide?.fonts?.body].filter((font) => font?.substituted && font.original && font.family);
+  return swapped.length ? swapped.map((font) => `${font!.original} → ${font!.family}`).join(", ") : undefined;
+}
+
 async function phaseBuild(rt: Runtime): Promise<void> {
   const plan = MigrationPlanSchema.parse(rt.job.plan);
   const items = await loadExtractions(rt);
@@ -445,6 +508,20 @@ async function phaseBuild(rt: Runtime): Promise<void> {
   const slugByPageId = new Map(plan.pages.map((p) => [p.sourcePageId, p.targetSlug]));
   const orderedPlans = [...plan.pages].sort((a, b) => (a.role === "home" ? -1 : b.role === "home" ? 1 : (a.navOrder ?? 999) - (b.navOrder ?? 999)));
   const pending = orderedPlans.filter((pagePlan) => pages.find((p) => p.id === pagePlan.sourcePageId)?.buildStatus !== "built");
+  // One Chromium for the whole phase: every rebuilt section is rendered
+  // through it so the agent can see what it made. A browser that will not
+  // start costs the loop its eyes, never the build.
+  let browser: ReviewBrowser | null = null;
+  const health = await publishedRendererHealth();
+  if (!health.ok) await warn(rt, "build", "renderer_unavailable", `Sections are built without a visual check: ${health.error.slice(0, 200)}`);
+  else {
+    try {
+      browser = await openReviewBrowser();
+    } catch (error) {
+      await warn(rt, "build", "browser_unavailable", `Chromium could not be started, so sections are built without a visual check: ${String((error as Error)?.message ?? error).slice(0, 200)}`);
+    }
+  }
+  try {
   for (const pagePlan of pending) {
     await checkControl(rt);
     const row = pages.find((p) => p.id === pagePlan.sourcePageId);
@@ -453,6 +530,7 @@ async function phaseBuild(rt: Runtime): Promise<void> {
     await store.updatePage(row.id, { buildStatus: "building" });
     const builder = await storage.getBuilderState(rt.job.websiteId);
     if (!builder) throw new PhaseFailure("provisioning_failed", "The client's builder state is missing.");
+    const revisionRef = { value: builder.revision };
     // An even share of what the build slice has left, over the pages that
     // still need building. Dividing by the pages *remaining* rather than a
     // fixed count lets a cheap page hand its unspent budget to a later one,
@@ -462,7 +540,7 @@ async function phaseBuild(rt: Runtime): Promise<void> {
     const buildRoom = roomFor(rt, "build");
     const evenShare = buildRoom / pagesLeft;
     const weighted = pagePlan.role === "home" ? evenShare * HOME_PAGE_BUDGET_FACTOR : evenShare;
-    const agentBudgetUsd = Math.min(1.5, buildRoom, Math.max(MIN_PAGE_AGENT_BUDGET_USD, weighted));
+    const agentBudgetUsd = Math.min(rt.limits.pageAgentCapUsd, buildRoom, Math.max(MIN_PAGE_AGENT_BUDGET_USD, weighted));
     const before = rt.meter.spentUsd;
     const result = await buildPage({
       state: builder.state as BuilderStateData,
@@ -476,16 +554,37 @@ async function phaseBuild(rt: Runtime): Promise<void> {
       meter: rt.meter,
       language: rt.job.language as "da" | "en",
       agentBudgetUsd,
+      browser: browser ?? undefined,
+      store: { jobId: rt.job.id, pageRowId: row.id },
+      limits: { sectionIterations: rt.limits.sectionIterations, sectionPassScore: rt.limits.sectionPassScore, sectionCapUsd: rt.limits.sectionCapUsd },
+      fontNote: fontNote(rt.job),
+      // A page is many sections and much money; a crash after the sixth must
+      // not re-spend the first five. Each finished section is saved on its own.
+      onSectionDone: async (partial, progress) => {
+        const saved = await storage.updateBuilderState(rt.job.websiteId, partial, revisionRef.value, { svgAssetOrigin: "customer" } as any);
+        if (!saved) return; // a conflict is reported by the page-level save below
+        revisionRef.value = (saved as any).revision;
+        await store.updatePage(row.id, { buildProgress: progress as unknown as Record<string, unknown> });
+      },
       log: rt.log,
     });
-    rt.spendByRole.migrationBuild = (rt.spendByRole.migrationBuild ?? 0) + (rt.meter.spentUsd - before);
-    const saved = await storage.updateBuilderState(rt.job.websiteId, result.state, builder.revision, { svgAssetOrigin: "customer" } as any);
+    // What the page cost, split between building it and looking at it, so the
+    // admin's breakdown does not report every vision call as "Byg".
+    const pageSpend = rt.meter.spentUsd - before;
+    const reviewSpend = Math.min(pageSpend, result.progress.reviewSpendUsd ?? 0);
+    rt.spendByRole.migrationBuild = (rt.spendByRole.migrationBuild ?? 0) + (pageSpend - reviewSpend);
+    if (reviewSpend > 0) rt.spendByRole.migrationSectionReview = (rt.spendByRole.migrationSectionReview ?? 0) + reviewSpend;
+    const saved = await storage.updateBuilderState(rt.job.websiteId, result.state, revisionRef.value, { svgAssetOrigin: "customer" } as any);
     if (!saved) throw new PhaseFailure("builder_conflict", "Someone edited the site in the builder while it was being built. Resume to continue.");
     await store.updatePage(row.id, { buildStatus: "built", targetPageId: result.page.id, buildProgress: result.progress as unknown as Record<string, unknown> });
     await store.updateJob(rt.job.id, { builderRevision: (saved as any).revision });
     for (const note of result.notes) await warn(rt, "build", "section", note, row.sourceUrl);
     const failed = Object.values(result.progress.sections).filter((s) => s.status === "failed").length;
-    rt.log(`built ${pagePlan.targetName}: ${Object.keys(result.progress.sections).length} sections, ${failed} failed, $${(rt.meter.spentUsd - before).toFixed(2)}`);
+    const scored = Object.values(result.progress.sections).map((s) => s.score).filter((n): n is number => typeof n === "number");
+    rt.log(`built ${pagePlan.targetName}: ${Object.keys(result.progress.sections).length} sections, ${failed} failed${scored.length ? `, ${Math.round(scored.reduce((a, b) => a + b, 0) / scored.length)}/100 mean section score` : ""}, $${(rt.meter.spentUsd - before).toFixed(2)}`);
+  }
+  } finally {
+    if (browser) await browser.close().catch(() => undefined);
   }
 }
 
@@ -554,6 +653,11 @@ async function phaseVerify(rt: Runtime): Promise<void> {
         if (!builder) throw new Error("The client's builder state is missing.");
         let state = builder.state as BuilderStateData;
         let revision = builder.revision;
+        // The original screenshot has the customer's navbar and footer in it.
+        // Comparing it against a rebuild with neither made every page look
+        // like it had lost its chrome. The finish phase installs them for
+        // real; here they are added to a copy, for the picture only.
+        const dressed = () => { try { return applyChromeAndNavigation(structuredClone(state), plan, assets); } catch { return state; } };
         const page = state.pages.find((p) => p.id === row.targetPageId);
         if (!page) {
           await store.updatePage(row.id, { verifyStatus: "failed", verify: { reason: "failed", detail: "The rebuilt page is no longer in the builder." } as unknown as Record<string, unknown> });
@@ -592,7 +696,7 @@ async function phaseVerify(rt: Runtime): Promise<void> {
               break;
             }
           }
-          const review = await reviewPageFidelity({ state, pageId: page.id, pagePlan, sourceScreenshots: { desktop: screenshots.desktop?.storagePath, mobile: screenshots.mobile?.storagePath }, language: rt.job.language as "da" | "en", meter: rt.meter, store: { jobId: rt.job.id, pageRowId: row.id }, browser });
+          const review = await reviewPageFidelity({ state: dressed(), pageId: page.id, pagePlan, sourceScreenshots: { desktop: screenshots.desktop?.storagePath, mobile: screenshots.mobile?.storagePath }, language: rt.job.language as "da" | "en", meter: rt.meter, store: { jobId: rt.job.id, pageRowId: row.id }, browser });
           // Keep the rebuild's screenshots on the page row so the admin's compare
           // view can show both sides without re-rendering anything.
           if (review.rebuiltPaths?.desktop) screenshots.rebuild = { storagePath: review.rebuiltPaths.desktop };
@@ -607,7 +711,9 @@ async function phaseVerify(rt: Runtime): Promise<void> {
           reviewed = true;
           if (iterations > 1) resolutions = resolveIssues(issues, review.issues);
           issues = review.issues;
-          const actionable = issues.filter((issue) => (issue.severity === "critical" || issue.severity === "high") && issue.componentId);
+          // A section the admin settled is not the reviewer's to change.
+          const settled = new Set(pagePlan.sections.filter((s) => s.keepAsOriginal).map((s) => (row.buildProgress as MigrationPageBuildProgress | null)?.sections?.[s.sourceSectionId]?.componentId).filter((id): id is string => !!id));
+          const actionable = issues.filter((issue) => (issue.severity === "critical" || issue.severity === "high") && issue.componentId && !settled.has(issue.componentId));
           if (!actionable.length || iterations >= MAX_FIDELITY_ITERATIONS || roomFor(rt, "verify") < assumedCallCostUsd("migrationBuild")) break;
 
           // One corrective pass, behind the same guard as the build.
@@ -615,15 +721,22 @@ async function phaseVerify(rt: Runtime): Promise<void> {
           const ctx: AgentContext = { websiteId: rt.job.websiteId, state: structuredClone(state), applied: [], notes: [], createdImages: [], imageCache: new Map(Array.from({ length: 8 }, (_, i) => [`blocked-${i}`, ""])), spendMeter: rt.meter, approvedLargeChanges: true, guard };
           const fixBefore = rt.meter.spentUsd;
           try {
+            const fixMessage = `Page "${page.id}". Fix these differences from the original, each naming the component to change:\n${actionable.map((i) => `- [${i.severity}] ${i.componentId}: ${i.description} → ${i.suggestedAction}`).join("\n")}\n\nWhich component is which section: ${sectionMapText(pagePlan, row.buildProgress as MigrationPageBuildProgress | null)}\n\nAvailable image paths: ${Array.from(allowed).slice(0, 40).join(", ")}`;
+            // Sighted, like the build loop: the original page and the rebuild
+            // as it stands. A text-only issue list was a description of a
+            // picture nobody in the conversation had seen.
+            const fixImages = await comparePair(screenshots.desktop?.storagePath, review.rebuiltPaths?.desktop);
             await runAgentLoop({
               tools: migrationToolCatalogue(),
               systemPrompt: "You are BirdFlow's migration agent correcting a rebuilt page so it matches the customer's original. Use only the tools. Use only text and images already present on the page or supplied here; never invent. Call finish when done.",
-              userMessage: `Page "${page.id}". Fix these differences from the original, each naming the component to change:\n${actionable.map((i) => `- [${i.severity}] ${i.componentId}: ${i.description} → ${i.suggestedAction}`).join("\n")}\n\nAvailable image paths: ${Array.from(allowed).slice(0, 40).join(", ")}`,
+              userMessage: fixMessage,
+              userContent: fixImages.length ? [{ type: "text", text: fixMessage }, ...fixImages] : undefined,
               ctx,
               maxSteps: 6,
               role: "migrationBuild",
               spendMeter: rt.meter,
-              finalTurn: { toolName: "finish", reminder: "Call finish now.", satisfied: () => true },
+              finalTurn: { toolName: "finish", reminder: "Call finish now.", satisfied: () => ctx.applied.length > 0 },
+              allowContinuations: false,
             });
             rt.spendByRole.migrationBuild = (rt.spendByRole.migrationBuild ?? 0) + (rt.meter.spentUsd - fixBefore);
             if (ctx.applied.length) {
@@ -685,6 +798,7 @@ async function phaseFinish(rt: Runtime): Promise<void> {
       extractions: items.map((item) => item.extraction),
       language: rt.job.language as "da" | "en",
       sourceHost: safeHost(rt.job.sourceUrl),
+      jobId: rt.job.id,
     });
     await store.updateJob(rt.job.id, { builderRevision: result.revision, snapshotId: result.snapshotId });
   } catch (error: any) {
@@ -817,6 +931,125 @@ export async function requestPageExclude(jobId: string, pageId: string): Promise
       pageIds: pages.map((row) => row.id),
     });
     await store.updateJob(jobId, { plan: plan as unknown as Record<string, unknown> });
+  }
+}
+
+/**
+ * Build ONE section again — the smallest unit of work the migration has.
+ *
+ * The page-level retry was the only tool the admin had: it threw away every
+ * rebuilt band on the page to fix the one that came out wrong, and paid for
+ * all of them a second time. This rebuilds the single section, leaves its
+ * neighbours untouched, and takes the admin's own words with it ("the photo
+ * belongs behind the heading, not above it"). `keepFloor` is the other half:
+ * it settles the section on the deterministic version and marks it so no
+ * later pass — here or in the verification loop — touches it again.
+ *
+ * It runs outside the job's own loop, so it takes the same guards by hand: a
+ * live job is refused, the lease is held for the duration, and the builder
+ * state is saved against the revision it was read at.
+ */
+export async function requestSectionRebuild(args: {
+  jobId: string;
+  pageRowId: string;
+  sourceSectionId: string;
+  instruction?: string;
+  keepFloor?: boolean;
+}): Promise<{ status: string; score?: number; note?: string; spentUsd: number }> {
+  const job = await store.getJob(args.jobId);
+  if (!job) throw new Error("Job not found");
+  if (isMigrationLive(args.jobId) || job.status === "running" || job.status === "queued") {
+    throw new Error("Sæt migreringen på pause, før du bygger en sektion om.");
+  }
+  const plan = MigrationPlanSchema.parse(job.plan);
+  const row = await store.getPage(args.jobId, args.pageRowId);
+  if (!row) throw new Error("Page not found");
+  const extraction = row.extraction as unknown as PageExtraction | null;
+  if (!extraction) throw new Error("Siden er ikke læst endnu.");
+  const pagePlan = plan.pages.find((page) => page.sourcePageId === row.id);
+  const sectionPlan = pagePlan?.sections.find((section) => section.sourceSectionId === args.sourceSectionId);
+  if (!pagePlan || !sectionPlan) throw new Error("Sektionen findes ikke i planen.");
+
+  const limits = migrationLimitsSchema.parse(job.limits ?? {});
+  const spent = Number(job.spentUsd);
+  // One section's worth of room, and never past the job's own ceiling.
+  const allowance = Math.min(limits.sectionCapUsd * limits.sectionIterations, Math.max(0, limits.ceilingUsd - spent));
+  if (!args.keepFloor && allowance < MIN_PAGE_AGENT_BUDGET_USD) {
+    throw new Error("Der er ikke budget nok tilbage til at bygge sektionen om. Hæv loftet først.");
+  }
+
+  // The instruction and the lock live on the plan, so a later full rebuild
+  // makes the same choice again rather than forgetting it.
+  const nextPlan = structuredClone(plan);
+  const nextSection = nextPlan.pages
+    .find((page) => page.sourcePageId === row.id)!
+    .sections.find((section) => section.sourceSectionId === args.sourceSectionId)!;
+  if (args.keepFloor) nextSection.keepAsOriginal = true;
+  else {
+    nextSection.keepAsOriginal = false;
+    if (args.instruction) nextSection.instruction = args.instruction.slice(0, 400);
+  }
+  await store.updateJob(job.id, { plan: nextPlan as unknown as Record<string, unknown> });
+
+  const builder = await storage.getBuilderState(job.websiteId);
+  if (!builder) throw new Error("Kundens side findes ikke.");
+  const meter = createSpendMeter("migrationBuild", allowance);
+  const assets = job.assets as MigrationAssetRecord[];
+  const rebuiltPagePlan = nextPlan.pages.find((page) => page.sourcePageId === row.id)!;
+
+  // The same eye the build phase uses; without it the section is accepted on
+  // the presence gate alone, exactly as it was before this round.
+  let browser: ReviewBrowser | null = null;
+  if (!args.keepFloor && (await publishedRendererHealth()).ok) {
+    try { browser = await openReviewBrowser(); } catch { browser = null; }
+  }
+  try {
+    const result = await buildPage({
+      state: builder.state as BuilderStateData,
+      plan: nextPlan,
+      pagePlan: rebuiltPagePlan,
+      extraction,
+      pageOrdinal: row.ordinal,
+      allowedImagePaths: new Set(assets.map((asset) => asset.storagePath)),
+      slugByPageId: new Map(nextPlan.pages.map((page) => [page.sourcePageId, page.targetSlug])),
+      desktopScreenshotPath: (row.screenshots as any)?.desktop?.storagePath,
+      meter,
+      language: job.language as "da" | "en",
+      agentBudgetUsd: allowance,
+      browser: browser ?? undefined,
+      store: { jobId: job.id, pageRowId: row.id },
+      limits: { sectionIterations: limits.sectionIterations, sectionPassScore: limits.sectionPassScore, sectionCapUsd: limits.sectionCapUsd },
+      fontNote: fontNote(job),
+      onlySectionIds: new Set([args.sourceSectionId]),
+      previousProgress: (row.buildProgress as unknown as MigrationPageBuildProgress | null) ?? undefined,
+      log: (message) => console.log(`[ClientMigration ${job.id.slice(0, 8)}] section rebuild: ${message}`),
+    });
+
+    const saved = await storage.updateBuilderState(job.websiteId, result.state, builder.revision, { svgAssetOrigin: "customer" } as any);
+    if (!saved) throw new Error("Siden blev ændret imens. Prøv igen.");
+    await store.updatePage(row.id, { targetPageId: result.page.id, buildProgress: result.progress as unknown as Record<string, unknown> });
+    // Split the same way the build phase does: what the looking cost is not
+    // reported as building.
+    const reviewBefore = (row.buildProgress as unknown as MigrationPageBuildProgress | null)?.reviewSpendUsd ?? 0;
+    const reviewSpend = Math.min(meter.spentUsd, Math.max(0, (result.progress.reviewSpendUsd ?? 0) - reviewBefore));
+    await store.updateJob(job.id, {
+      builderRevision: (saved as any).revision,
+      spentUsd: String(spent + meter.spentUsd),
+      spendByRole: {
+        ...(job.spendByRole ?? {}),
+        migrationBuild: Number((job.spendByRole as any)?.migrationBuild ?? 0) + (meter.spentUsd - reviewSpend),
+        ...(reviewSpend > 0 ? { migrationSectionReview: Number((job.spendByRole as any)?.migrationSectionReview ?? 0) + reviewSpend } : {}),
+      },
+    });
+    try {
+      const { bumpSiteRevision } = await import("../onboardingDecision");
+      await bumpSiteRevision(job.websiteId);
+    } catch { /* the client's session refreshes on its next poll */ }
+
+    const record = result.progress.sections[args.sourceSectionId];
+    return { status: record?.status ?? "failed", score: record?.score, note: record?.note, spentUsd: Number(meter.spentUsd.toFixed(4)) };
+  } finally {
+    if (browser) await browser.close().catch(() => undefined);
   }
 }
 

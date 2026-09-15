@@ -11,7 +11,7 @@ import type { MigrationPagePlan } from "../shared/clientMigration";
 process.env.AI_INTEGRATIONS_OPENAI_API_KEY ||= "test-dummy";
 process.env.OPENAI_API_KEY ||= "test-dummy";
 
-const { scorePageFidelity } = await import("../server/clientMigration/verify/fidelityScore");
+const { scorePageFidelity, scoreSectionFidelity } = await import("../server/clientMigration/verify/fidelityScore");
 const { extraction, section, allowedPaths } = await import("./fixtures/clientMigration");
 
 const S1 = "Første samtale er helt uforpligtende for dig.";
@@ -104,5 +104,53 @@ describe("scorePageFidelity", () => {
     expect(result.imageCoverage).toBe(0);
     expect(result.orderScore).toBe(1);
     expect(result.score).toBe(0.1);
+  });
+});
+
+/**
+ * The same measurement, for one band — free, and bought before any vision
+ * call is. A rebuild that lost half the words is not worth a reviewer's fee,
+ * and the loop needs to be able to say so on its own.
+ */
+describe("scoreSectionFidelity", () => {
+  const band = () => section({
+    id: "p0-s0",
+    headings: [{ level: 1, text: "Ro i hverdagen" }],
+    paragraphs: [S1, S2],
+    ctas: [{ text: "Book en samtale", primary: true }],
+    images: [{ src: "/objects/uploads/hero.webp", mediaId: "m-hero" }],
+  });
+
+  it("gives a faithful rebuild full marks", () => {
+    const result = scoreSectionFidelity({ section: band(), components: [hero()], importedPaths: allowedPaths() });
+    expect(result.score).toBe(1);
+    expect(result.headingCoverage).toBe(1);
+    expect(result.imageCoverage).toBe(1);
+    expect(result.missing).toEqual([]);
+  });
+
+  it("counts a photo used as a background, not only one in a prop", () => {
+    const onlyStyles = { id: "a", type: "rich-text", props: { content: `<h1>Ro i hverdagen</h1><p>${S1}</p><p>${S2}</p><a>Book en samtale</a>` }, styles: { backgroundImage: "linear-gradient(rgba(0,0,0,0.4), rgba(0,0,0,0.4)), url(/objects/uploads/hero.webp)" } };
+    const result = scoreSectionFidelity({ section: band(), components: [onlyStyles as never], importedPaths: allowedPaths() });
+    expect(result.imageCoverage).toBe(1);
+  });
+
+  it("names what the rebuild left out", () => {
+    const thin = { id: "a", type: "rich-text", props: { content: "<h1>Ro i hverdagen</h1>" }, styles: {} };
+    const result = scoreSectionFidelity({ section: band(), components: [thin as never], importedPaths: allowedPaths() });
+    // Heading kept, everything else gone: below the floor the loop refuses to
+    // pay a reviewer for.
+    expect(result.score).toBeLessThan(0.5);
+    expect(result.headingCoverage).toBe(1);
+    expect(result.ctaCoverage).toBe(0);
+    expect(result.imageCoverage).toBe(0);
+    expect(result.missing.join(" ")).toContain("/objects/uploads/hero.webp");
+    expect(result.missing.join(" ")).toContain(S1.slice(0, 20));
+  });
+
+  it("does not punish a band that never had pictures or buttons", () => {
+    const words = section({ id: "p0-s1", headings: [{ level: 2, text: "Praktisk" }], paragraphs: [S3] });
+    const rebuilt = { id: "b", type: "rich-text", props: { content: `<h2>Praktisk</h2><p>${S3}</p>` }, styles: {} };
+    expect(scoreSectionFidelity({ section: words, components: [rebuilt as never], importedPaths: allowedPaths() }).score).toBe(1);
   });
 });

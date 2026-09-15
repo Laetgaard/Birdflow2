@@ -21,13 +21,14 @@ import {
   MAX_MIGRATION_CEILING_USD,
   MIGRATION_PHASES,
   type MigrationJobSummary,
+  type MigrationPageBuildProgress,
   type MigrationStatus,
   type PageExtraction,
 } from "@shared/clientMigration";
 import { AccountExistsError, attachExistingAccount, createClientAccount, grantManualPlan, markOnboardingHandled } from "./adminAccounts";
 import { createMigratedWebsite } from "./siteProvisioning";
 import * as store from "./migrationStore";
-import { approvePlanAndContinue, isMigrationLive, requestCancel, requestPageExclude, requestPageRetry, requestPause, requestResume, requestResumeAtPhase, requestRetry, requestReverify, runMigrationJob } from "./migrationJob";
+import { approvePlanAndContinue, isMigrationLive, requestCancel, requestPageExclude, requestPageRetry, requestPause, requestResume, requestResumeAtPhase, requestRetry, requestReverify, requestSectionRebuild, runMigrationJob } from "./migrationJob";
 import { sendClientInvite } from "./notify";
 import { readMigrationFile, cropSection } from "./capture/pageCapture";
 import { updateDecisionByUser } from "../onboardingDecision";
@@ -199,19 +200,82 @@ export function registerClientMigrationRoutes(app: Express, guards: { requireAut
     }
   });
 
+  // One band of the customer's page, or the rebuild of it, so the admin can
+  // put them side by side. `source` is cut from the captured screenshot on
+  // demand; the rebuild sides are the pictures the section loop already
+  // rendered and stored while it was building.
   app.get("/api/admin/migrations/:id/pages/:pageId/sections/:sectionId/crop", requireAuth, requireAdmin, async (req, res) => {
     try {
       const page = await store.getPage(req.params.id, req.params.pageId);
-      const extraction = page?.extraction as unknown as PageExtraction | null;
-      const section = extraction?.sections.find((s) => s.id === req.params.sectionId);
-      const path = (page?.screenshots as any)?.desktop?.storagePath as string | undefined;
-      if (!section || !path) return res.status(404).end();
-      const crop = await cropSection(await readMigrationFile(path), section.bbox, 640);
+      if (!page) return res.status(404).end();
+      const requested = String(req.query.side ?? "source");
+      const side = ["rebuild", "rebuildMobile"].includes(requested) ? requested : "source";
+
+      let bytes: Buffer;
+      if (side === "source") {
+        const extraction = page.extraction as unknown as PageExtraction | null;
+        const section = extraction?.sections.find((s) => s.id === req.params.sectionId);
+        const path = (page.screenshots as any)?.desktop?.storagePath as string | undefined;
+        if (!section || !path) return res.status(404).end();
+        bytes = await cropSection(await readMigrationFile(path), section.bbox, 640);
+      } else {
+        const progress = page.buildProgress as unknown as MigrationPageBuildProgress | null;
+        const crops = progress?.sections?.[req.params.sectionId]?.review?.crops;
+        const path = side === "rebuildMobile" ? crops?.mobile : crops?.desktop;
+        if (!path) return res.status(404).end();
+        bytes = await readMigrationFile(path);
+      }
       res.setHeader("Content-Type", "image/jpeg");
       res.setHeader("Cache-Control", "private, max-age=300");
-      res.end(crop);
+      res.end(bytes);
     } catch (error: any) {
       res.status(500).json({ message: error?.message ?? "Udsnit kunne ikke hentes." });
+    }
+  });
+
+  // Build one section again — with an instruction in the admin's own words,
+  // or locked to the standard version. Everything else on the site stays as
+  // it is; this is the smallest unit of work the migration can redo.
+  app.post("/api/admin/migrations/:id/pages/:pageId/sections/:sectionId/rebuild", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const job = await store.getJob(req.params.id);
+      if (!job) return res.status(404).json({ message: "Migreringen findes ikke." });
+      const parsed = z.object({
+        instruction: z.string().trim().max(400).optional(),
+        keepFloor: z.boolean().optional(),
+      }).safeParse(req.body ?? {});
+      if (!parsed.success) return res.status(400).json({ message: parsed.error.errors[0]?.message ?? "Ugyldig instruktion." });
+      const result = await requestSectionRebuild({
+        jobId: job.id,
+        pageRowId: req.params.pageId,
+        sourceSectionId: req.params.sectionId,
+        instruction: parsed.data.instruction,
+        keepFloor: parsed.data.keepFloor === true,
+      });
+      await audit(req, job.websiteId, parsed.data.keepFloor ? "client_migration.section_kept" : "client_migration.section_rebuilt", "migrationJob", job.id, {
+        pageId: req.params.pageId,
+        sectionId: req.params.sectionId,
+        withInstruction: !!parsed.data.instruction,
+      });
+      res.json(result);
+    } catch (error: any) {
+      res.status(400).json({ message: error?.message ?? "Sektionen kunne ikke bygges om." });
+    }
+  });
+
+  // The admin's own running notes on a job — what the client asked for on
+  // the phone, what to check before the invitation goes out.
+  app.patch("/api/admin/migrations/:id/notes", requireAuth, requireAdmin, async (req, res) => {
+    try {
+      const job = await store.getJob(req.params.id);
+      if (!job) return res.status(404).json({ message: "Migreringen findes ikke." });
+      const parsed = z.object({ notes: z.string().max(4000) }).safeParse(req.body ?? {});
+      if (!parsed.success) return res.status(400).json({ message: "Noten er for lang." });
+      await store.updateJob(job.id, { notes: parsed.data.notes });
+      await audit(req, job.websiteId, "client_migration.notes_edited", "migrationJob", job.id);
+      res.json({ ok: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error?.message ?? "Noten kunne ikke gemmes." });
     }
   });
 
@@ -287,7 +351,14 @@ export function registerClientMigrationRoutes(app: Express, guards: { requireAut
     try {
       const job = await store.getJob(req.params.id);
       if (!job) return res.status(404).json({ message: "Migreringen findes ikke." });
-      if (job.status !== "awaiting_plan_review") return res.status(409).json({ message: "Planen kan kun redigeres, mens den venter på godkendelse." });
+      // The plan is the brief the rebuild works from, and it stays useful
+      // after the first pass: an admin who paused the job, or who is looking
+      // at the finished site, edits a section's brief here and runs that one
+      // section again. A live job is the only state it cannot be edited in.
+      const editable: MigrationStatus[] = ["awaiting_plan_review", "paused", "awaiting_final_review"];
+      if (!editable.includes(job.status as MigrationStatus)) {
+        return res.status(409).json({ message: "Planen kan kun redigeres, mens jobbet venter på godkendelse eller er sat på pause." });
+      }
       const parsed = MigrationPlanSchema.safeParse(req.body?.plan ?? req.body);
       if (!parsed.success) return res.status(400).json({ message: "Planen er ugyldig.", issues: parsed.error.errors.slice(0, 8) });
       const pages = await store.listPages(job.id);
