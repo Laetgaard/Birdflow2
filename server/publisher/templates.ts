@@ -5893,7 +5893,7 @@ function CustomComponentSection({ props, styles }: { props: ComponentProps; styl
       ...(styles.backgroundImage ? {
         // Only a bare path is wrapped: a scrim over a photo arrives as
         // 'linear-gradient(...), url(...)' and must pass through untouched.
-        backgroundImage: /^(\/|https?:\/\/|data:)/i.test(String(styles.backgroundImage).trim()) ? 'url(' + String(styles.backgroundImage) + ')' : String(styles.backgroundImage),
+        backgroundImage: /^(\\/|https?:\\/\\/|data:)/i.test(String(styles.backgroundImage).trim()) ? 'url(' + String(styles.backgroundImage) + ')' : String(styles.backgroundImage),
         backgroundSize: (styles.backgroundSize as string) || 'cover',
         backgroundPosition: (styles.backgroundPosition as string) || 'center',
       } : {}),

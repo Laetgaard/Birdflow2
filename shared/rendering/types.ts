@@ -44,7 +44,7 @@ export type ThemeConfig = {
   spacingScale?: 'compact' | 'comfortable' | 'spacious';
   sectionGap?: string;
   buttonStyle?: 'solid' | 'outline' | 'ghost' | 'gradient';
-  cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass';
+  cardStyle?: 'flat' | 'elevated' | 'bordered' | 'glass' | 'photo';
   /**
    * Every design token resolved to a value, as `"color.primary" -> "#4f46e5"`.
    *

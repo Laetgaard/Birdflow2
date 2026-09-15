@@ -97,7 +97,7 @@ export function migrationNotes(plan: MigrationPlan, language: "da" | "en"): stri
   for (const note of plan.notes) push(note);
   const messages = new Map<string, number>();
   for (const entry of plan.unsupported) messages.set(entry.message, (messages.get(entry.message) ?? 0) + 1);
-  for (const [message, count] of messages) {
+  for (const [message, count] of Array.from(messages.entries())) {
     const times = language === "da" ? `${count} steder` : `${count} places`;
     push(count > 1 ? `${message} (${times})` : message);
   }

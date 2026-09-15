@@ -1051,7 +1051,7 @@ function FeaturesComponent({ props, styles, isSelected, onClick, isPreview, onTe
               {/* The card's own picture, above its words. Migrated cards
                   carried one all along and neither renderer drew it. */}
               {!photoCards && item.imageUrl && (
-                <BuilderImage value={normalizeImageValue(item.imageUrl as ImageLike)} alt={item.title || ''} slot={imageSlot(`items.${index}.imageUrl`)} isPreview={isPreview} style={{ width: '100%', height: '160px', objectFit: 'cover', borderRadius: '14px', marginBottom: '20px', display: 'block' }} />
+                <BuilderImage value={normalizeImageValue(item.imageUrl as ImageLike)} alt={item.title || ''} slot={imageSlot('card')} isPreview={isPreview} style={{ width: '100%', height: '160px', objectFit: 'cover', borderRadius: '14px', marginBottom: '20px', display: 'block' }} />
               )}
               {useNumbered ? (
                 <div style={{ fontSize: '32px', fontWeight: 800, color: accentColor, opacity: 0.18, lineHeight: 1, marginBottom: '20px', letterSpacing: '-0.04em', fontFamily: 'Georgia, serif' }}>
@@ -4079,7 +4079,7 @@ function ServicesComponent({ props, styles, isSelected, onClick, isPreview, glob
               data-testid={`service-item-${index}`}
             >
               {!photoCards && service.imageUrl && (
-                <BuilderImage value={normalizeImageValue(service.imageUrl as ImageLike)} alt={service.title || ''} slot={imageSlot(`services.${index}.imageUrl`)} isPreview={isPreview} style={{ width: '100%', height: '180px', objectFit: 'cover', borderRadius: '12px', marginBottom: '24px', display: 'block' }} />
+                <BuilderImage value={normalizeImageValue(service.imageUrl as ImageLike)} alt={service.title || ''} slot={imageSlot('card')} isPreview={isPreview} style={{ width: '100%', height: '180px', objectFit: 'cover', borderRadius: '12px', marginBottom: '24px', display: 'block' }} />
               )}
               {iconGlyph(service.icon) && (
                 <div style={{

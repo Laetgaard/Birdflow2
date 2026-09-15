@@ -750,17 +750,17 @@ function NodeRenderer({
  * generated ComponentRenderer template (see server/publisher/templates.ts) —
  * keep the two in visual parity.
  */
-export default /**
- * A box with no children but a background, a border or a thin fixed height
- * is a decorative rule the agent drew on purpose, not an empty slot — the
- * "add elements" placeholder would paint over it and hide it.
- */
 /** A background value that is a path rather than CSS, and so needs `url()`. */
 function isBarePath(value: unknown): boolean {
   const text = String(value ?? "").trim();
   return /^(\/|https?:\/\/|data:)/i.test(text);
 }
 
+/**
+ * A box with no children but a background, a border or a thin fixed height
+ * is a decorative rule the agent drew on purpose, not an empty slot — the
+ * "add elements" placeholder would paint over it and hide it.
+ */
 function isDecorativeBox(node: { styles?: Record<string, unknown> }): boolean {
   const styles = (node.styles ?? {}) as Record<string, unknown>;
   if (styles.backgroundColor || styles.background || styles.backgroundImage || styles.borderTop || styles.borderBottom || styles.border) return true;
@@ -768,7 +768,7 @@ function isDecorativeBox(node: { styles?: Record<string, unknown> }): boolean {
   return Number.isFinite(height) && height > 0 && height < 24;
 }
 
-function CustomComponentRenderer({
+export default function CustomComponentRenderer({
   websiteId,
   language,
   component,

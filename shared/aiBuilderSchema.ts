@@ -175,7 +175,7 @@ export const ComponentStylesSchema = z.object({
   backgroundShapeOpacity: z.number().optional(),
   buttonStyle: z.enum(['solid', 'outline', 'ghost', 'gradient']).optional(),
   buttonRadius: z.string().optional(),
-  cardStyle: z.enum(['flat', 'elevated', 'bordered', 'glass']).optional(),
+  cardStyle: z.enum(['flat', 'elevated', 'bordered', 'glass', 'photo']).optional(),
   // Entrance animation (rendered by AnimatedWrapper in builder + published site)
   animationType: z.enum(['none', 'fade-in', 'slide-up', 'slide-down', 'slide-left', 'slide-right', 'zoom-in', 'zoom-out', 'bounce', 'flip']).optional(),
   animationTrigger: z.enum(['load', 'scroll']).optional(),
@@ -217,7 +217,7 @@ export const GlobalStylesSchema = z.object({
   shadowLevel: z.enum(['none', 'subtle', 'elevated']).optional(),
   containerWidth: z.string().optional(),
   buttonStyle: z.enum(['solid', 'outline', 'ghost', 'gradient']).optional(),
-  cardStyle: z.enum(['flat', 'elevated', 'bordered', 'glass']).optional(),
+  cardStyle: z.enum(['flat', 'elevated', 'bordered', 'glass', 'photo']).optional(),
   fontPair: z.object({
     heading: z.string(),
     body: z.string(),
