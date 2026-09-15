@@ -2,56 +2,20 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import pkg from "pg";
 const { Pool } = pkg;
 import { eq } from "drizzle-orm";
-import crypto from "crypto";
 import { performSvgExtraction } from "./svgExtraction";
 import { svgAssetSchemaReady } from "./svgAssetSchema";
 import { isReservedQaFixtureEmail } from "@shared/qaFixturePolicy";
 import { onboardingStateFingerprint } from "./onboardingQuality";
 import { resolveSupabaseDbUrl } from "./supabaseDbUrl";
 
-// Encryption helpers for sensitive data
-// ENCRYPTION_KEY must be a 64-character hex string (32 bytes)
-const ENCRYPTION_KEY = process.env.ENCRYPTION_KEY;
-const ALGORITHM = 'aes-256-cbc';
+// Encryption helpers for sensitive data live in ./fieldCrypto so the journal
+// store can share the same cipher without importing this whole module.
+import { encrypt, decrypt, isEncryptionConfigured } from "./fieldCrypto";
 
-const hasValidEncryptionKey = ENCRYPTION_KEY && ENCRYPTION_KEY.length >= 64;
-
-if (!hasValidEncryptionKey) {
+if (!isEncryptionConfigured()) {
   console.warn('WARNING: ENCRYPTION_KEY not set or invalid. Payment settings encryption will not work properly. Please set a 64-character hex string in environment variables.');
 }
 
-function encrypt(text: string): string {
-  if (!hasValidEncryptionKey || !ENCRYPTION_KEY) {
-    throw new Error('ENCRYPTION_KEY is not configured. Cannot store encrypted data.');
-  }
-  const key = Buffer.from(ENCRYPTION_KEY.slice(0, 64), 'hex');
-  const iv = crypto.randomBytes(16);
-  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
-  let encrypted = cipher.update(text, 'utf8', 'hex');
-  encrypted += cipher.final('hex');
-  return iv.toString('hex') + ':' + encrypted;
-}
-
-function decrypt(encryptedText: string): string {
-  if (!hasValidEncryptionKey || !ENCRYPTION_KEY) {
-    throw new Error('ENCRYPTION_KEY is not configured. Cannot decrypt data.');
-  }
-  try {
-    const key = Buffer.from(ENCRYPTION_KEY.slice(0, 64), 'hex');
-    const [ivHex, encrypted] = encryptedText.split(':');
-    if (!ivHex || !encrypted) {
-      throw new Error('Invalid encrypted format');
-    }
-    const iv = Buffer.from(ivHex, 'hex');
-    const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-    let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-    decrypted += decipher.final('utf8');
-    return decrypted;
-  } catch (error) {
-    console.error('Decryption failed:', error);
-    throw new Error('Failed to decrypt data. The encryption key may have changed.');
-  }
-}
 import { 
   profiles, type Profile, type InsertProfile,
   websites, type Website, type InsertWebsite,

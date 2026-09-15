@@ -13,11 +13,20 @@ import { generatePublishedPreview } from './publisher/generatedPreview';
 import { loadBookingSetupCheck } from './websiteReadiness';
 import { resolveDesignTokens } from '@shared/designTokens';
 import { migrateSiteStructure } from "@shared/siteStructure";
-import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, bookings as bookingsTable, orders as ordersTable, invoices as invoicesTable, customers as customersTable, formSubmissions as formSubmissionsTable, PLATFORM_CALENDAR_TIMEZONE, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
+import { insertProfileSchema, updateProfileSchema, insertWebsiteSchema, insertWebsiteInputsSchema, type BuilderStateData, type BuilderComponent, sanitizeAnalyticsEventData, websites, builderState, profiles, publicStats, bookings as bookingsTable, orders as ordersTable, invoices as invoicesTable, customers as customersTable, journalClients as journalClientsTable, journalEntries as journalEntriesTable, formSubmissions as formSubmissionsTable, PLATFORM_CALENDAR_TIMEZONE, type Profile, type WebsiteAdminContext, type WebsiteWithAccess } from "@shared/schema";
 import { getPlatformCalendar } from "./platformCalendar";
 import { requireWebsitePermission, getWebsiteAccess, getAuthedUser, resolveWebsiteAccess } from "./websiteAccess";
 import { classifyTrafficSource, extractUtmSource, getClientIp, lookupCountry, copenhagenDayStart } from "./analytics";
 import { recordAdminAudit, summarizeBuilderStateChange, auditManageMutation } from "./adminAudit";
+import { createJournalStore, JournalError, type JournalActor } from "./journalStore";
+import {
+  CONSENT_STATUSES,
+  JOURNAL_ENTRY_TYPES,
+  blocksErasure,
+  journalTimeline,
+  redactForExport,
+  retentionState,
+} from "@shared/journal";
 import { isAllowedMediaStoragePath, parseMediaAssetPatch } from "./mediaPaths";
 import { eq, sql, and as andOp, eq as eqOp, ne as neOp, gte as gteOp, lt as ltOp } from "drizzle-orm";
 import { z, ZodError } from "zod";
@@ -2201,8 +2210,12 @@ export async function registerRoutes(
 
   // GDPR Article 20 — structured data export for a single customer.
   // Returns a machine-readable JSON attachment with the customer's profile,
-  // bookings, and form submissions scoped to this website.
+  // bookings, form submissions and, for a practitioner site, their clinical
+  // journal scoped to this website.
   // Excludes: internal admin notes (operator-generated), raw metadata fields.
+  // The journal is INCLUDED because it is the subject's own health data, but it
+  // travels through redactForExport, which withholds the body of a redacted
+  // entry and leaves the operator's workflow fields out.
   app.get(
     "/api/websites/:id/customers/:customerId/export",
     requireAuth,
@@ -2239,6 +2252,37 @@ export async function registerRoutes(
           })
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
+        // A journal the practitioner has never opened simply has no section
+        // here; a failure to read one must not sink the rest of the export.
+        let journal: {
+          consent: Record<string, unknown>;
+          retention: Record<string, unknown>;
+          entries: unknown[];
+        } | null = null;
+        try {
+          const exported = await journalStore.exportJournal(
+            websiteId, customer.id, await journalActor(req),
+          );
+          if (exported) {
+            journal = {
+              consent: {
+                status: exported.record.consentStatus,
+                givenAt: exported.record.consentGivenAt,
+                withdrawnAt: exported.record.consentWithdrawnAt,
+                basis: exported.record.consentBasis,
+              },
+              retention: {
+                retainUntil: exported.record.retainUntil,
+                state: retentionState(exported.record),
+                legalHold: exported.record.legalHold,
+              },
+              entries: exported.entries.map(({ entry, body }) => redactForExport(entry, body)),
+            };
+          }
+        } catch (journalErr) {
+          console.warn("Customer export: journal section omitted:", journalErr);
+        }
+
         const exportData = {
           exportedAt: new Date().toISOString(),
           dataController: {
@@ -2268,6 +2312,7 @@ export async function registerRoutes(
             data: s.data ?? {},
             createdAt: s.createdAt,
           })),
+          ...(journal ? { journal } : {}),
         };
 
         const safeName = customer.name.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 40);
@@ -2289,6 +2334,13 @@ export async function registerRoutes(
   // metadata — it does NOT auto-delete data.  The operator must process
   // the deletion manually; the flag surfaces in the customer detail panel.
   // Idempotent: re-requesting returns the original timestamp.
+  //
+  // For a practitioner site the response also reports the clinical journal's
+  // retention obligation, because Art. 17(3)(b) does not reach a record the
+  // practitioner is required by law to keep. The operator has to be told which
+  // parts of the customer's data they may actually delete, and until when the
+  // rest must stay — otherwise honouring the request means breaking
+  // journalføringspligten.
   app.post(
     "/api/websites/:id/customers/:customerId/deletion-request",
     requireAuth,
@@ -2341,13 +2393,471 @@ export async function registerRoutes(
             .from(customersTable)
             .where(andOp(eq(customersTable.id, customerId), eq(customersTable.websiteId, websiteId)));
           const rm = ((refreshed?.metadata as Record<string, any>) ?? {});
-          return res.json({ ok: true, alreadyRequested: true, requestedAt: rm.deletionRequestedAt });
+          return res.json({
+            ok: true, alreadyRequested: true, requestedAt: rm.deletionRequestedAt,
+            journal: await journalErasureNotice(websiteId, customerId),
+          });
         }
 
-        res.json({ ok: true, requestedAt });
+        res.json({
+          ok: true, requestedAt,
+          journal: await journalErasureNotice(websiteId, customerId),
+        });
       } catch (err: any) {
         console.error("Customer deletion request error:", err);
         res.status(500).json({ message: "Kunne ikke registrere sletningsanmodning" });
+      }
+    }
+  );
+
+  /* ─────────────────────── clinical journal ───────────────────────
+   * Health records for practitioner sites. Every handler here goes through
+   * journalStore, which encrypts bodies, writes the access log before a read
+   * returns, and appends rather than overwrites — see server/journalStore.ts.
+   *
+   * There is deliberately no DELETE route. A mistaken entry is redacted (a
+   * write, not an erasure) and a whole record only goes away once its
+   * retention period has lapsed, which is an operator action outside the
+   * request path.
+   */
+
+  const journalStore = createJournalStore(db);
+
+  /** The acting practitioner, for attribution and for the access log. */
+  async function journalActor(req: Request): Promise<JournalActor> {
+    const ctx = getWebsiteAccess(req);
+    const profile = await storage.getProfile(ctx.actorUserId).catch(() => undefined);
+    return {
+      userId: ctx.actorUserId,
+      // Falls back to the id rather than to "Unknown": an entry's author is
+      // part of the record, and a blank one would be a gap in it.
+      name: profile?.fullName?.trim() || profile?.email || ctx.actorUserId,
+      mode: ctx.mode,
+      ip: req.ip,
+      route: (req.baseUrl || "") + (req.route?.path ?? req.path),
+    };
+  }
+
+  /** Maps a JournalError onto its status; anything else is a 500. */
+  function journalFailure(res: Response, err: unknown, fallback: string): void {
+    if (err instanceof JournalError) {
+      res.status(err.status).json({ message: err.message });
+      return;
+    }
+    console.error(`${fallback}:`, err);
+    res.status(500).json({ message: fallback });
+  }
+
+  /**
+   * What a deletion request may and may not touch. Null when this site keeps no
+   * journal for the customer, in which case erasure is unencumbered.
+   */
+  async function journalErasureNotice(websiteId: string, customerId: string): Promise<{
+    retainUntil: string | null;
+    state: string;
+    legalHold: boolean;
+    blocksErasure: boolean;
+    entryCount: number;
+    message: string;
+  } | null> {
+    try {
+      const record = await journalStore.getJournalClient(websiteId, customerId);
+      if (!record) return null;
+      const [counted] = await db.select({ entries: sql<number>`count(*)` })
+        .from(journalEntriesTable)
+        .where(andOp(
+          eq(journalEntriesTable.websiteId, websiteId),
+          eq(journalEntriesTable.journalClientId, record.id),
+        ));
+      const blocked = blocksErasure(record);
+      return {
+        retainUntil: record.retainUntil,
+        state: retentionState(record),
+        legalHold: record.legalHold,
+        blocksErasure: blocked,
+        entryCount: Number(counted?.entries ?? 0),
+        message: blocked
+          ? (record.legalHold
+            ? "Journalen er sat i retlig bevaring og må ikke slettes. Slet kundeoplysninger, ordrer og formularer, men behold journalen."
+            : `Journalen er omfattet af journalføringspligten og må ikke slettes før ${record.retainUntil?.slice(0, 10) ?? "opbevaringsfristen udløber"}. Slet kundeoplysninger, ordrer og formularer, men behold journalen.`)
+          : "Opbevaringsfristen for journalen er udløbet. Journalen kan slettes sammen med de øvrige oplysninger.",
+      };
+    } catch (err) {
+      console.warn("Deletion request: journal retention unknown:", err);
+      // Unknown is not permission: say so rather than implying it is safe.
+      return {
+        retainUntil: null, state: "unknown", legalHold: false, blocksErasure: true,
+        entryCount: 0,
+        message: "Journalens opbevaringsfrist kunne ikke slås op. Slet ikke journalen, før den er kontrolleret.",
+      };
+    }
+  }
+
+  /** Resolves :customerId to its journal record, 404 if the customer is not ours. */
+  async function resolveJournalClient(websiteId: string, customerId: string) {
+    const [customer] = await db.select().from(customersTable).where(
+      andOp(eq(customersTable.id, customerId), eq(customersTable.websiteId, websiteId))
+    );
+    if (!customer) throw new JournalError("Kunde ikke fundet", 404);
+    return customer;
+  }
+
+  // The client list for the Journal section: identity from `customers`, record
+  // state from `journal_clients`. Bodies are never in this response.
+  app.get(
+    "/api/websites/:id/journal/clients",
+    requireAuth,
+    requireWebsitePermission("readManage"),
+    async (req, res) => {
+      try {
+        const websiteId = req.params.id;
+        const customers = await db.select().from(customersTable)
+          .where(eq(customersTable.websiteId, websiteId));
+        const records = await db.select().from(journalClientsTable)
+          .where(eq(journalClientsTable.websiteId, websiteId));
+        const byCustomer = new Map(records.map((r: any) => [r.customerId, r]));
+
+        const counts = await db.select({
+          journalClientId: journalEntriesTable.journalClientId,
+          entries: sql<number>`count(*)`.as("entries"),
+          lastEntryAt: sql<string>`max(${journalEntriesTable.occurredAt})`.as("lastEntryAt"),
+          unsigned: sql<number>`count(*) filter (where ${journalEntriesTable.signedAt} is null)`.as("unsigned"),
+        }).from(journalEntriesTable)
+          .where(eq(journalEntriesTable.websiteId, websiteId))
+          .groupBy(journalEntriesTable.journalClientId);
+        const statsByRecord = new Map(counts.map((c: any) => [c.journalClientId, c]));
+
+        res.json({
+          clients: customers.map((customer: any) => {
+            const record = byCustomer.get(customer.id);
+            const stats = record ? statsByRecord.get(record.id) : undefined;
+            return {
+              customerId: customer.id,
+              name: customer.name,
+              email: customer.email,
+              phone: customer.phone ?? null,
+              hasRecord: !!record,
+              journalClientId: record?.id ?? null,
+              consentStatus: record?.consentStatus ?? "unknown",
+              legalHold: !!record?.legalHold,
+              retainUntil: record?.retainUntil ?? null,
+              retentionState: record
+                ? retentionState({ retainUntil: record.retainUntil, legalHold: !!record.legalHold })
+                : "unknown",
+              entryCount: Number(stats?.entries ?? 0),
+              unsignedCount: Number(stats?.unsigned ?? 0),
+              lastEntryAt: stats?.lastEntryAt ?? null,
+            };
+          }),
+        });
+      } catch (err) {
+        journalFailure(res, err, "Kunne ikke hente journalklienter");
+      }
+    }
+  );
+
+  // One client's record header: consent, retention, and the emergency contact
+  // decrypted. Reading the header is logged by the store as view_client.
+  app.get(
+    "/api/websites/:id/journal/clients/:customerId",
+    requireAuth,
+    requireWebsitePermission("readManage"),
+    async (req, res) => {
+      try {
+        const websiteId = req.params.id;
+        const customer = await resolveJournalClient(websiteId, req.params.customerId);
+        const record = await journalStore.getJournalClient(websiteId, customer.id);
+        if (!record) {
+          return res.json({
+            customer: { id: customer.id, name: customer.name, email: customer.email, phone: customer.phone ?? null },
+            record: null,
+          });
+        }
+        const emergencyContact = await journalStore.readEmergencyContact(websiteId, record.id);
+        res.json({
+          customer: { id: customer.id, name: customer.name, email: customer.email, phone: customer.phone ?? null },
+          record: {
+            ...record,
+            emergencyContact,
+            retentionState: retentionState(record),
+            blocksErasure: blocksErasure(record),
+          },
+        });
+      } catch (err) {
+        journalFailure(res, err, "Kunne ikke hente journalen");
+      }
+    }
+  );
+
+  // Consent, retention flags and the record's own fields. retainUntil is not
+  // settable here — the store derives it from the entries.
+  app.patch(
+    "/api/websites/:id/journal/clients/:customerId",
+    requireAuth,
+    requireWebsitePermission("updateManage"),
+    auditManageMutation("journal.client_update", "journal_client", "customerId"),
+    async (req, res) => {
+      try {
+        const websiteId = req.params.id;
+        const customer = await resolveJournalClient(websiteId, req.params.customerId);
+        const patchSchema = z.object({
+          dateOfBirth: z.string().max(20).nullable().optional(),
+          civilRegistrationLast4: z.string().regex(/^\d{4}$/).nullable().optional(),
+          gpName: z.string().max(200).nullable().optional(),
+          emergencyContact: z.string().max(400).nullable().optional(),
+          consentStatus: z.enum(CONSENT_STATUSES).optional(),
+          consentBasis: z.string().max(400).nullable().optional(),
+          legalHold: z.boolean().optional(),
+        });
+        const parsed = patchSchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: parsed.error.errors[0]?.message || "Ugyldige journaloplysninger" });
+        }
+        const record = await journalStore.updateJournalClient(
+          websiteId, customer.id, parsed.data, await journalActor(req),
+        );
+        res.json({ record: { ...record, retentionState: retentionState(record) } });
+      } catch (err) {
+        journalFailure(res, err, "Kunne ikke opdatere journalen");
+      }
+    }
+  );
+
+  // The timeline: entry metadata only, no bodies and so no decryption.
+  app.get(
+    "/api/websites/:id/journal/clients/:customerId/entries",
+    requireAuth,
+    requireWebsitePermission("readManage"),
+    async (req, res) => {
+      try {
+        const websiteId = req.params.id;
+        const customer = await resolveJournalClient(websiteId, req.params.customerId);
+        const record = await journalStore.getJournalClient(websiteId, customer.id);
+        if (!record) return res.json({ entries: [], days: [] });
+        const entries = await journalStore.listEntries(websiteId, record.id, await journalActor(req));
+        res.json({ entries, days: journalTimeline(entries) });
+      } catch (err) {
+        journalFailure(res, err, "Kunne ikke hente notater");
+      }
+    }
+  );
+
+  // One entry's current body. Logged as view_entry before it returns.
+  app.get(
+    "/api/websites/:id/journal/entries/:entryId",
+    requireAuth,
+    requireWebsitePermission("readManage"),
+    async (req, res) => {
+      try {
+        const result = await journalStore.readEntry(
+          req.params.id, req.params.entryId, await journalActor(req),
+        );
+        res.json(result);
+      } catch (err) {
+        journalFailure(res, err, "Kunne ikke hente notatet");
+      }
+    }
+  );
+
+  // Every revision of one entry — the amendment history an auditor needs.
+  app.get(
+    "/api/websites/:id/journal/entries/:entryId/history",
+    requireAuth,
+    requireWebsitePermission("readManage"),
+    async (req, res) => {
+      try {
+        const revisions = await journalStore.readEntryHistory(
+          req.params.id, req.params.entryId, await journalActor(req),
+        );
+        res.json({ revisions });
+      } catch (err) {
+        journalFailure(res, err, "Kunne ikke hente notatets historik");
+      }
+    }
+  );
+
+  // A new entry. Opens the record if this is the client's first one.
+  app.post(
+    "/api/websites/:id/journal/clients/:customerId/entries",
+    requireAuth,
+    requireWebsitePermission("updateManage"),
+    auditManageMutation("journal.entry_create", "journal_entry", "customerId"),
+    async (req, res) => {
+      try {
+        const websiteId = req.params.id;
+        const customer = await resolveJournalClient(websiteId, req.params.customerId);
+        const inputSchema = z.object({
+          entryType: z.enum(JOURNAL_ENTRY_TYPES),
+          body: z.record(z.unknown()),
+          occurredAt: z.string().max(40).optional(),
+          bookingId: z.string().max(64).nullable().optional(),
+        });
+        const parsed = inputSchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: parsed.error.errors[0]?.message || "Ugyldigt notat" });
+        }
+        const entry = await journalStore.appendEntry(
+          websiteId, customer.id, parsed.data, await journalActor(req),
+        );
+        res.status(201).json({ entry });
+      } catch (err) {
+        journalFailure(res, err, "Kunne ikke gemme notatet");
+      }
+    }
+  );
+
+  // A correction to an unsigned entry: appends a revision with a reason.
+  app.post(
+    "/api/websites/:id/journal/entries/:entryId/amend",
+    requireAuth,
+    requireWebsitePermission("updateManage"),
+    auditManageMutation("journal.entry_amend", "journal_entry", "entryId"),
+    async (req, res) => {
+      try {
+        const inputSchema = z.object({
+          body: z.record(z.unknown()),
+          changeReason: z.string().min(3).max(400),
+          occurredAt: z.string().max(40).optional(),
+        });
+        const parsed = inputSchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: parsed.error.errors[0]?.message || "Ugyldig rettelse" });
+        }
+        const entry = await journalStore.amendEntry(
+          req.params.id, req.params.entryId, parsed.data, await journalActor(req),
+        );
+        res.json({ entry });
+      } catch (err) {
+        journalFailure(res, err, "Kunne ikke rette notatet");
+      }
+    }
+  );
+
+  // Correcting something already signed: a new entry that replaces it, with
+  // both left visible in the timeline.
+  app.post(
+    "/api/websites/:id/journal/entries/:entryId/supersede",
+    requireAuth,
+    requireWebsitePermission("updateManage"),
+    auditManageMutation("journal.entry_supersede", "journal_entry", "entryId"),
+    async (req, res) => {
+      try {
+        const inputSchema = z.object({
+          body: z.record(z.unknown()),
+          changeReason: z.string().min(3).max(400),
+        });
+        const parsed = inputSchema.safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: parsed.error.errors[0]?.message || "Ugyldig erstatning" });
+        }
+        const entry = await journalStore.supersedeEntry(
+          req.params.id, req.params.entryId, parsed.data, await journalActor(req),
+        );
+        res.status(201).json({ entry });
+      } catch (err) {
+        journalFailure(res, err, "Kunne ikke erstatte notatet");
+      }
+    }
+  );
+
+  // Countersigning. Irreversible — the database refuses to lift a signature.
+  app.post(
+    "/api/websites/:id/journal/entries/:entryId/sign",
+    requireAuth,
+    requireWebsitePermission("updateManage"),
+    auditManageMutation("journal.entry_sign", "journal_entry", "entryId"),
+    async (req, res) => {
+      try {
+        const entry = await journalStore.signEntry(
+          req.params.id, req.params.entryId, await journalActor(req),
+        );
+        res.json({ entry });
+      } catch (err) {
+        journalFailure(res, err, "Kunne ikke underskrive notatet");
+      }
+    }
+  );
+
+  // Withholding a body that should never have been written here. The rows stay.
+  app.post(
+    "/api/websites/:id/journal/entries/:entryId/redact",
+    requireAuth,
+    requireWebsitePermission("updateManage"),
+    auditManageMutation("journal.entry_redact", "journal_entry", "entryId"),
+    async (req, res) => {
+      try {
+        const parsed = z.object({ reason: z.string().min(3).max(400) }).safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ message: "Angiv hvorfor notatet skjules" });
+        }
+        const entry = await journalStore.redactEntry(
+          req.params.id, req.params.entryId, parsed.data.reason, await journalActor(req),
+        );
+        res.json({ entry });
+      } catch (err) {
+        journalFailure(res, err, "Kunne ikke skjule notatet");
+      }
+    }
+  );
+
+  // Who has read or changed this client's record.
+  app.get(
+    "/api/websites/:id/journal/clients/:customerId/access-log",
+    requireAuth,
+    requireWebsitePermission("readManage"),
+    async (req, res) => {
+      try {
+        const websiteId = req.params.id;
+        const customer = await resolveJournalClient(websiteId, req.params.customerId);
+        const record = await journalStore.getJournalClient(websiteId, customer.id);
+        if (!record) return res.json({ access: [] });
+        res.json({ access: await journalStore.readAccessLog(websiteId, record.id) });
+      } catch (err) {
+        journalFailure(res, err, "Kunne ikke hente adgangsloggen");
+      }
+    }
+  );
+
+  // The record as a file the client can be handed. Separate from the GDPR
+  // customer export below, which covers orders and bookings too.
+  app.get(
+    "/api/websites/:id/journal/clients/:customerId/export",
+    requireAuth,
+    requireWebsitePermission("readManage"),
+    async (req, res) => {
+      try {
+        const websiteId = req.params.id;
+        const customer = await resolveJournalClient(websiteId, req.params.customerId);
+        const exported = await journalStore.exportJournal(
+          websiteId, customer.id, await journalActor(req),
+        );
+        if (!exported) return res.status(404).json({ message: "Der er ingen journal for denne klient" });
+        const payload = {
+          exportedAt: new Date().toISOString(),
+          note: "Journaludskrift udleveret af behandleren. Udskriften er ikke en sletning: journalen opbevares videre efter journalføringspligten.",
+          client: { id: customer.id, name: customer.name, email: customer.email },
+          consent: {
+            status: exported.record.consentStatus,
+            givenAt: exported.record.consentGivenAt,
+            withdrawnAt: exported.record.consentWithdrawnAt,
+            basis: exported.record.consentBasis,
+          },
+          retention: {
+            retainUntil: exported.record.retainUntil,
+            state: retentionState(exported.record),
+            legalHold: exported.record.legalHold,
+          },
+          entries: exported.entries.map(({ entry, body }) => redactForExport(entry, body)),
+        };
+        const safeName = customer.name.replace(/[^a-zA-Z0-9]/g, "_").slice(0, 40);
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="journal-${safeName}-${new Date().toISOString().slice(0, 10)}.json"`,
+        );
+        res.json(payload);
+      } catch (err) {
+        journalFailure(res, err, "Kunne ikke eksportere journalen");
       }
     }
   );
